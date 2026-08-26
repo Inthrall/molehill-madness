@@ -116,5 +116,16 @@ namespace MoleSim.Match
 
         /// <summary>Strongest wind either way, in metres per second.</summary>
         public static Fix64 MaxWindSpeed => Fix64.FromInt(8);
+
+        /// <summary>
+        /// Turns a wind speed into a sideways acceleration on the things that ride it.
+        /// </summary>
+        /// <remarks>
+        /// Wind is quoted in metres per second because that is what the drifting seeds
+        /// show, but a projectile feels it as a push rather than as a current. Treating it
+        /// as linear drag toward the wind speed gives 2.4 m/s^2 at full strength, which
+        /// bends a full-length flight by about the five metres the design asks for.
+        /// </remarks>
+        public static Fix64 WindDragFactor => Fix64.Ratio(3, 10);
     }
 }

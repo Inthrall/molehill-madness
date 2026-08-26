@@ -29,6 +29,7 @@ internal static class Program
             "selftest" => SelfTest(),
             "dump" => DumpTerrain(args.Length > 1 ? args[1] : "dumps/terrain.bmp"),
             "walk" => WalkRound(args.Length > 1 ? args[1] : "dumps/walk.bmp"),
+            "match" => PlayMatch(args.Length > 1 ? args[1] : "dumps/match.bmp"),
             "costs" => PrintCostTable(),
             "help" or "--help" or "-h" => PrintUsage(0),
             _ => PrintUnknown(command),
@@ -239,6 +240,180 @@ internal static class Program
         }
     }
 
+    /// <summary>
+    /// Plays a whole four-player match headlessly and reports it round by round.
+    /// </summary>
+    /// <remarks>
+    /// The plans come from a script derived from the seed. It is not an opponent and never
+    /// will be: the game has no AI. It exists so that a complete match can be exercised
+    /// thousands of times a minute without a single pixel being drawn, which is the whole
+    /// argument for building the simulation before the client.
+    /// </remarks>
+    private static int PlayMatch(string path)
+    {
+        const int Width = 1200;
+        const int Height = 480;
+        const ulong Seed = 20260826UL;
+
+        MoleMatch match = MoleMatch.Create(playerCount: 4, Seed, Width, Height);
+        MatchRng script = new MatchRng(Seed ^ 0xA5A5A5A5UL);
+
+        Console.WriteLine("Molehill headless match");
+        Console.WriteLine("-----------------------");
+        Console.WriteLine($"seed {Seed}   map {Width}x{Height} cells   4 players, 16 moles");
+        Console.WriteLine();
+        Console.WriteLine("rnd  standing      dmg  KOs  wind   lava        hash");
+
+        RoundResult result;
+        int round = 0;
+
+        do
+        {
+            round++;
+
+            for (int seat = 0; seat < match.PlayerCount; seat++)
+            {
+                Mole? actor = null;
+                foreach (Mole candidate in match.Eligible(seat))
+                {
+                    actor = candidate;
+                    break;
+                }
+
+                if (actor is null)
+                {
+                    continue;
+                }
+
+                int steps = 1 + script.NextInt(3);
+                RoutePoint[] route = new RoutePoint[steps];
+                int cellX = WorldScale.ToCell(actor.Position.X);
+                int cellY = WorldScale.ToCell(actor.Position.Y);
+
+                for (int step = 0; step < steps; step++)
+                {
+                    cellX += script.NextInt(-90, 91);
+                    cellY += script.NextInt(-20, 60);
+                    route[step] = new RoutePoint(cellX, cellY);
+                }
+
+                match.SubmitPlan(new Plan(
+                    seat,
+                    actor.Index,
+                    script.NextBool() ? WeaponId.ClodLobber : WeaponId.BeetleLauncher,
+                    route,
+                    new[]
+                    {
+                        PlanAction.Hop(script.NextInt(10, 40)),
+                        PlanAction.Fire(
+                            script.NextInt(60, 200),
+                            new Vec2(
+                                Fix64.FromInt(script.NextInt(-10, 11)),
+                                Fix64.FromInt(-script.NextInt(2, 10))),
+                            (byte)script.NextInt(90, 256)),
+                    }));
+            }
+
+            result = match.ResolveRound();
+
+            string standing = string.Empty;
+            for (int seat = 0; seat < match.PlayerCount; seat++)
+            {
+                int alive = 0;
+                foreach (Mole mole in match.Moles)
+                {
+                    if (mole.Seat == seat && !mole.IsOffDuty)
+                    {
+                        alive++;
+                    }
+                }
+
+                standing += alive.ToString(CultureInfo.InvariantCulture);
+            }
+
+            string lava = match.LavaLine == Fix64.MaxValue ? "  -  " : $"{match.LavaLine,5}";
+
+            Console.WriteLine(
+                $"{result.Round,3}  {standing,-12} {result.TotalDamage,4} {result.Knockouts.Count,4}"
+                + $"  {match.Wind,5}  {lava}  {match.StateHash():X16}");
+        }
+        while (!result.MatchOver && round < 40);
+
+        Console.WriteLine();
+
+        if (result.MatchOver)
+        {
+            Console.WriteLine(result.WinningSeat >= 0
+                ? $"Seat {result.WinningSeat} takes the flowerbed."
+                : "Everybody went out together. Glorious.");
+        }
+        else
+        {
+            Console.WriteLine("Called on round count with the match still going.");
+        }
+
+        Console.WriteLine($"final hash {match.StateHash():X16}");
+
+        string? directory = Path.GetDirectoryName(Path.GetFullPath(path));
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        byte[] pixels = new byte[Width * Height * 3];
+        for (int y = 0; y < Height; y++)
+        {
+            for (int x = 0; x < Width; x++)
+            {
+                (byte red, byte green, byte blue) = ColourOf(match.Terrain[x, y]);
+                int offset = ((y * Width) + x) * 3;
+                pixels[offset] = red;
+                pixels[offset + 1] = green;
+                pixels[offset + 2] = blue;
+            }
+        }
+
+        // The lava, and everybody still standing.
+        if (match.LavaLine != Fix64.MaxValue)
+        {
+            int lavaCell = WorldScale.ToCell(match.LavaLine);
+
+            for (int y = Math.Max(0, lavaCell); y < Height; y++)
+            {
+                for (int x = 0; x < Width; x++)
+                {
+                    int offset = ((y * Width) + x) * 3;
+                    pixels[offset] = 0xE0;
+                    pixels[offset + 1] = 0x4A;
+                    pixels[offset + 2] = 0x18;
+                }
+            }
+        }
+
+        byte[][] seatColours =
+        {
+            new byte[] { 0x4B, 0x8B, 0x3B },
+            new byte[] { 0xC7, 0x5A, 0x28 },
+            new byte[] { 0x4E, 0x82, 0xA6 },
+            new byte[] { 0xC4, 0x2A, 0x0C },
+        };
+
+        foreach (Mole mole in match.Moles)
+        {
+            if (mole.IsOffDuty)
+            {
+                continue;
+            }
+
+            byte[] colour = seatColours[mole.Seat];
+            Plot(pixels, Width, Height, mole.Position, 5, colour[0], colour[1], colour[2]);
+        }
+
+        BmpWriter.Write(path, Width, Height, pixels);
+        Console.WriteLine($"wrote      {Path.GetFullPath(path)}");
+        return 0;
+    }
+
     private static int PrintCostTable()
     {
         Console.WriteLine("Movement economy");
@@ -285,6 +460,7 @@ internal static class Program
         Console.WriteLine("  selftest        print a determinism fingerprint for this machine");
         Console.WriteLine("  dump [path]     write a terrain cross-section as a BMP");
         Console.WriteLine("  walk [path]     run one mole through one round and draw its path");
+        Console.WriteLine("  match [path]    play a whole four-player match headlessly");
         Console.WriteLine("  costs           print the movement cost table and reaches");
         return exitCode;
     }
