@@ -109,6 +109,21 @@ namespace MoleSim.Numerics
             from + ((to - from) * amount);
 
         /// <summary>
+        /// Rotates this vector by the angle of <paramref name="facing"/>, which must be a
+        /// unit vector. A facing of <see cref="UnitX"/> leaves the vector untouched.
+        /// </summary>
+        /// <remarks>
+        /// This is complex multiplication, which is exactly a rotation and needs no
+        /// trigonometry at all. Worth knowing, because it means the simulation can turn
+        /// things through arbitrary angles without a sine table that every platform would
+        /// have to agree on.
+        /// </remarks>
+        public Vec2 RotatedBy(Vec2 facing) =>
+            new Vec2(
+                (X * facing.X) - (Y * facing.Y),
+                (X * facing.Y) + (Y * facing.X));
+
+        /// <summary>
         /// Cell coordinate containing this position, given the cell size in metres.
         /// Floors rather than truncates, so cells to the left of the origin do not all
         /// collapse onto zero.

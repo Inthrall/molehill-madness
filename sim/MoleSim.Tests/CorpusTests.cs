@@ -24,6 +24,13 @@ namespace MoleSim.Tests;
 /// something different fails here directly, naming itself, rather than being caught later
 /// by a fingerprint comparison.
 /// </remarks>
+/// <remarks>
+/// Pin history, so a future reader can tell a deliberate change from an accident:
+///
+/// Updated when ballistic blasts gained a line-of-sight check and shots fired in mid-air
+/// gained the tumble rotation. Both change who takes damage and therefore every match
+/// outcome downstream, so all five pins moved together in the commit that caused it.
+/// </remarks>
 [TestFixture]
 public sealed class CorpusTests
 {
@@ -92,19 +99,19 @@ public sealed class CorpusTests
     [Test]
     public void TwoPlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 2, seed: 1UL, rounds: 12), Is.EqualTo(0xC4C6ABEF845E2F43UL));
+        Assert.That(Play(playerCount: 2, seed: 1UL, rounds: 12), Is.EqualTo(0xC33E8A7AA5CAFF1EUL));
     }
 
     [Test]
     public void ThreePlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 3, seed: 20260826UL, rounds: 14), Is.EqualTo(0x2C9277AB1D1590FAUL));
+        Assert.That(Play(playerCount: 3, seed: 20260826UL, rounds: 14), Is.EqualTo(0xBE923980C8D458B3UL));
     }
 
     [Test]
     public void FourPlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 4, seed: 4242UL, rounds: 16), Is.EqualTo(0x65E79E9507A1891EUL));
+        Assert.That(Play(playerCount: 4, seed: 4242UL, rounds: 16), Is.EqualTo(0x32DD2E855127317FUL));
     }
 
     [Test]
@@ -112,7 +119,7 @@ public sealed class CorpusTests
     {
         // Past Boiling Point, so the rise, the closing sides and the three-strike rule are
         // all in the hash rather than only the early game.
-        Assert.That(Play(playerCount: 4, seed: 777UL, rounds: 26), Is.EqualTo(0xFC4E6D202D92A1A2UL));
+        Assert.That(Play(playerCount: 4, seed: 777UL, rounds: 26), Is.EqualTo(0x9E6AFB67FC42E940UL));
     }
 
     [Test]
@@ -120,18 +127,24 @@ public sealed class CorpusTests
     {
         Assert.That(
             Play(playerCount: 2, seed: 31337UL, rounds: 24, widthCells: 600, heightCells: 320),
-            Is.EqualTo(0x6B5A36A3D0F17208UL));
+            Is.EqualTo(0x656739C2A6FCC51CUL));
     }
 
     [Test]
     public void EveryScenarioIsRepeatableWithinASingleRun()
     {
         // Cheap insurance against state leaking between matches through a static
-        // somewhere, which a pinned hash on its own would not catch.
+        // somewhere, which a pinned hash on its own would not catch. The two calls per
+        // scenario are the point of the test, not a mistake.
+        ulong firstTwoPlayer = Play(2, 1UL, 12);
+        ulong secondTwoPlayer = Play(2, 1UL, 12);
+        ulong firstFourPlayer = Play(4, 4242UL, 16);
+        ulong secondFourPlayer = Play(4, 4242UL, 16);
+
         Assert.Multiple(() =>
         {
-            Assert.That(Play(2, 1UL, 12), Is.EqualTo(Play(2, 1UL, 12)));
-            Assert.That(Play(4, 4242UL, 16), Is.EqualTo(Play(4, 4242UL, 16)));
+            Assert.That(secondTwoPlayer, Is.EqualTo(firstTwoPlayer));
+            Assert.That(secondFourPlayer, Is.EqualTo(firstFourPlayer));
         });
     }
 }

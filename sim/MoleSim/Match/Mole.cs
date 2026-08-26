@@ -63,6 +63,22 @@ namespace MoleSim.Match
         /// </summary>
         public int StalledTicks { get; set; }
 
+        /// <summary>Power Claws: this turn, dirt costs what open ground costs. Round-scoped.</summary>
+        public bool DiggingIsCheap { get; set; }
+
+        /// <summary>
+        /// Caught in a Root Snare: half speed, and no digging at all. Round-scoped, so a
+        /// snare costs its victim exactly one turn.
+        /// </summary>
+        public bool IsSnared { get; set; }
+
+        /// <summary>
+        /// Which way the mole is pointing. On the ground that is the way it last walked;
+        /// in the air it is the way it is travelling, which is what makes a shot fired
+        /// mid-tumble go somewhere its owner did not choose.
+        /// </summary>
+        public Vec2 Facing { get; set; } = Vec2.UnitX;
+
         /// <summary>True while the mole can still be steered by its plan.</summary>
         public bool AcceptsInput => !IsOffDuty && !InputCancelled;
 
@@ -73,6 +89,8 @@ namespace MoleSim.Match
             InputCancelled = false;
             WaypointIndex = 0;
             StalledTicks = 0;
+            DiggingIsCheap = false;
+            IsSnared = false;
         }
 
         /// <summary>

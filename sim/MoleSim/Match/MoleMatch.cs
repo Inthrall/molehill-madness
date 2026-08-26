@@ -21,6 +21,7 @@ namespace MoleSim.Match
         private readonly Mole[] _moles;
         private readonly Plan?[] _plans;
         private readonly List<Projectile> _shots = new List<Projectile>();
+        private readonly List<Placement> _placements = new List<Placement>();
         private readonly MatchRng _rng;
 
         private MoleMatch(TerrainGrid terrain, int playerCount, ulong seed)
@@ -99,6 +100,9 @@ namespace MoleSim.Match
 
         /// <summary>Projectiles currently in the air. Empty between rounds.</summary>
         public IReadOnlyList<Projectile> Shots => _shots;
+
+        /// <summary>Traps, snares and vents lying about the map.</summary>
+        public IReadOnlyList<Placement> Placements => _placements;
 
         /// <summary>Whether a seat still has anybody left.</summary>
         public bool SeatIsAlive(int seat)
@@ -219,6 +223,7 @@ namespace MoleSim.Match
                 FireScheduledActions(tick, actors, result);
                 MoveEverybody(actors, routes);
                 AdvanceShots(result);
+                CheckPlacements(result);
                 CheckLava(result);
             }
 
@@ -310,28 +315,75 @@ namespace MoleSim.Match
                     break;
 
                 case PlanActionKind.Fire:
-                    if (WeaponTable.IsThrown(weapon))
-                    {
-                        Launch(actor, weapon, action);
-                    }
-
+                    Use(actor, weapon, action, result);
                     break;
 
                 case PlanActionKind.Dynamite:
-                    Plant(actor);
+                    Plant(actor, WeaponId.BoomBeets);
                     break;
 
                 default:
                     break;
             }
+        }
 
-            _ = result;
+        /// <summary>
+        /// The aim the shot actually leaves on, which is not always the one that was
+        /// committed.
+        /// </summary>
+        /// <remarks>
+        /// A mole with its feet on the ground fires exactly where it was pointed. A mole
+        /// in the air fires relative to the way it is tumbling, because it is holding the
+        /// thing rather than the thing holding itself level. Getting punted off a ledge
+        /// before your firing tick no longer merely moves the shot, it turns it, which is
+        /// a great deal funnier and gives knockback a second use.
+        /// </remarks>
+        private static Vec2 AimOf(Mole actor, PlanAction action)
+        {
+            Vec2 aim = action.AimDirection();
+
+            return actor.IsAirborne ? aim.RotatedBy(actor.Facing) : aim;
+        }
+
+        private void Use(Mole actor, WeaponId weapon, PlanAction action, RoundResult result)
+        {
+            WeaponSpec spec = WeaponTable.Of(weapon);
+
+            switch (spec.Kind)
+            {
+                case WeaponKind.Thrown:
+                    Launch(actor, weapon, action);
+                    break;
+
+                case WeaponKind.FromTheSky:
+                    CallItIn(actor, weapon, action);
+                    break;
+
+                case WeaponKind.Planted:
+                    Plant(actor, weapon);
+                    break;
+
+                case WeaponKind.Melee:
+                    Swing(actor, weapon, action, result);
+                    break;
+
+                case WeaponKind.Seismic:
+                    Frack(actor, weapon, result);
+                    break;
+
+                case WeaponKind.Tool:
+                    UseTool(actor, weapon, action, result);
+                    break;
+
+                default:
+                    break;
+            }
         }
 
         private void Launch(Mole actor, WeaponId weapon, PlanAction action)
         {
             WeaponSpec spec = WeaponTable.Of(weapon);
-            Vec2 aim = action.AimDirection();
+            Vec2 aim = AimOf(actor, action);
 
             if (aim.LengthSquared() == Fix64.Zero)
             {
@@ -346,10 +398,292 @@ namespace MoleSim.Match
             _shots.Add(new Projectile(weapon, actor.Seat, actor.Index, muzzle, velocity));
         }
 
-        private void Plant(Mole actor)
+        private void Plant(Mole actor, WeaponId weapon)
         {
-            _shots.Add(new Projectile(
-                WeaponId.BoomBeets, actor.Seat, actor.Index, actor.Position, Vec2.Zero));
+            _shots.Add(new Projectile(weapon, actor.Seat, actor.Index, actor.Position, Vec2.Zero));
+        }
+
+        /// <summary>
+        /// Drops something on a spot rather than throwing it there. Aim and power name the
+        /// spot; the thing itself arrives from above, which is why anybody underground is
+        /// simply out of reach.
+        /// </summary>
+        private void CallItIn(Mole actor, WeaponId weapon, PlanAction action)
+        {
+            Vec2 aim = AimOf(actor, action);
+
+            if (aim.LengthSquared() == Fix64.Zero)
+            {
+                return;
+            }
+
+            Vec2 target = actor.Position
+                + (aim * (MatchSettings.SkyTargetRange * action.PowerFraction()));
+
+            WeaponSpec spec = WeaponTable.Of(weapon);
+            int count = spec.ClusterCount > 0 ? spec.ClusterCount : 1;
+
+            for (int index = 0; index < count; index++)
+            {
+                Fix64 offset = MatchSettings.SkySpread
+                    * Fix64.FromInt(index - ((count - 1) / 2));
+
+                _shots.Add(new Projectile(
+                    weapon,
+                    actor.Seat,
+                    actor.Index,
+                    new Vec2(target.X + offset, target.Y - MatchSettings.SkyDropHeight),
+                    Vec2.Zero));
+            }
+        }
+
+        /// <summary>
+        /// The Big Whack. No projectile at all: either somebody is standing there at the
+        /// moment of the swing or the mallet meets thin air.
+        /// </summary>
+        private void Swing(Mole actor, WeaponId weapon, PlanAction action, RoundResult result)
+        {
+            WeaponSpec spec = WeaponTable.Of(weapon);
+            Vec2 aim = AimOf(actor, action);
+            Vec2 struckAt = actor.Position + (aim * MatchSettings.MeleeReach);
+
+            foreach (Mole mole in _moles)
+            {
+                if (mole.IsOffDuty || mole == actor)
+                {
+                    continue;
+                }
+
+                if (Vec2.Distance(mole.Position, struckAt) > MatchSettings.MeleeReach)
+                {
+                    continue;
+                }
+
+                bool wentOffDuty = mole.TakeDamage(spec.Damage);
+                mole.AddImpulse(aim * spec.Knockback);
+                result.Hits.Add(new BlastHit(mole.Seat, mole.Index, spec.Damage, wentOffDuty));
+
+                if (wentOffDuty)
+                {
+                    result.Knockouts.Add(new Knockout(mole.Seat, mole.Index, KnockoutCause.Explosion));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Fracking: a shock through the soil, tunnels caving in, and a gusher that throws
+        /// whatever is above the bore straight up into the open.
+        /// </summary>
+        private void Frack(Mole actor, WeaponId weapon, RoundResult result)
+        {
+            WeaponSpec spec = WeaponTable.Of(weapon);
+
+            // The shock reaches through dirt, which nothing else in the arsenal does, and
+            // is the whole reason this exists. It does not crater: a seismic weapon shakes
+            // the ground rather than removing it, and cratering here would blow the roof
+            // off the very tunnels it is supposed to bring down.
+            foreach (BlastHit hit in Blast.Detonate(
+                         Terrain, _moles, actor.Position, spec, crater: false))
+            {
+                result.Hits.Add(hit);
+
+                if (hit.WentOffDuty)
+                {
+                    result.Knockouts.Add(new Knockout(hit.Seat, hit.MoleIndex, KnockoutCause.Explosion));
+                }
+            }
+
+            TerrainQuery.CollapseCavities(Terrain, actor.Position, spec.BlastRadius);
+            Gush(actor.Position);
+            result.Detonations++;
+        }
+
+        /// <summary>Throws everything in a narrow column straight up.</summary>
+        private void Gush(Vec2 origin)
+        {
+            foreach (Mole mole in _moles)
+            {
+                if (mole.IsOffDuty)
+                {
+                    continue;
+                }
+
+                if (Fix64.Abs(mole.Position.X - origin.X) > MatchSettings.GusherHalfWidth)
+                {
+                    continue;
+                }
+
+                // Only what is above the bore, and only within reach of the column.
+                if (mole.Position.Y > origin.Y
+                    || origin.Y - mole.Position.Y > MatchSettings.SkyDropHeight)
+                {
+                    continue;
+                }
+
+                mole.Velocity = Vec2.Zero;
+                mole.AddImpulse(-Vec2.UnitY * MatchSettings.GusherSpeed);
+            }
+        }
+
+        private void UseTool(Mole actor, WeaponId weapon, PlanAction action, RoundResult result)
+        {
+            switch (weapon)
+            {
+                case WeaponId.PowerClaws:
+                    actor.DiggingIsCheap = true;
+                    break;
+
+                case WeaponId.Sandbag:
+                    // Counts as loose soil, so it is cheap for anybody to dig back out.
+                    Terrain.DepositCircle(
+                        WorldScale.ToCell(actor.Position.X),
+                        WorldScale.ToCell(actor.Position.Y) + 2,
+                        Fix64.FloorToInt(WeaponTable.Of(weapon).BlastRadius / WorldScale.CellSize),
+                        Material.LooseSoil);
+                    break;
+
+                case WeaponId.SnapTrap:
+                    _placements.Add(new Placement(
+                        weapon, actor.Seat, actor.Position, Round + MatchSettings.TrapArmDelay, int.MaxValue));
+                    break;
+
+                case WeaponId.RootSnare:
+                    // Live at once and gone after this round, so it costs its victim
+                    // exactly one turn.
+                    _placements.Add(new Placement(weapon, actor.Seat, actor.Position, Round, Round));
+                    break;
+
+                case WeaponId.GeyserCap:
+                    _placements.Add(new Placement(weapon, actor.Seat, actor.Position, Round, int.MaxValue));
+                    break;
+
+                case WeaponId.TunnelTorpedo:
+                    Drill(actor, weapon, action, result);
+                    break;
+
+                default:
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// Drills a straight line through dirt and bowls over whatever is where it
+        /// surfaces. The mole-est move in the game.
+        /// </summary>
+        private void Drill(Mole actor, WeaponId weapon, PlanAction action, RoundResult result)
+        {
+            Vec2 aim = AimOf(actor, action);
+
+            if (aim.LengthSquared() == Fix64.Zero)
+            {
+                return;
+            }
+
+            Fix64 stride = WorldScale.CellSize * Fix64.FromInt(2);
+            Fix64 travelled = Fix64.Zero;
+            Vec2 at = actor.Position;
+
+            while (travelled < MatchSettings.TorpedoRange)
+            {
+                Vec2 next = at + (aim * stride);
+
+                // Carve first, then see whether anything is still in the way. Asking
+                // whether the material at the body's centre is diggable would stop the
+                // drill before it started, because a mole standing on the surface has open
+                // air at its centre: the same mistake the walking solver made once already.
+                TerrainQuery.CarveBody(Terrain, next, MatchSettings.Radius);
+
+                if (TerrainQuery.IsBlocked(Terrain, next, MatchSettings.Radius))
+                {
+                    // Bedrock, which is the one thing that stops a torpedo.
+                    break;
+                }
+
+                at = next;
+                travelled += stride;
+            }
+
+            actor.Position = at;
+            actor.Facing = aim;
+
+            foreach (BlastHit hit in Blast.Detonate(Terrain, _moles, at, WeaponTable.Of(weapon)))
+            {
+                if (hit.Seat == actor.Seat && hit.MoleIndex == actor.Index)
+                {
+                    continue;
+                }
+
+                result.Hits.Add(hit);
+
+                if (hit.WentOffDuty)
+                {
+                    result.Knockouts.Add(new Knockout(hit.Seat, hit.MoleIndex, KnockoutCause.Explosion));
+                }
+            }
+
+            result.Detonations++;
+        }
+
+        /// <summary>
+        /// Runs the traps, snares and vents lying about the map.
+        /// </summary>
+        private void CheckPlacements(RoundResult result)
+        {
+            foreach (Placement placement in _placements)
+            {
+                if (!placement.IsArmed(Round))
+                {
+                    continue;
+                }
+
+                WeaponSpec spec = WeaponTable.Of(placement.Weapon);
+
+                foreach (Mole mole in _moles)
+                {
+                    if (mole.IsOffDuty)
+                    {
+                        continue;
+                    }
+
+                    if (Vec2.Distance(mole.Position, placement.Position) > spec.BlastRadius)
+                    {
+                        continue;
+                    }
+
+                    switch (placement.Weapon)
+                    {
+                        case WeaponId.SnapTrap:
+                            placement.Spent = true;
+                            bool wentOffDuty = mole.TakeDamage(spec.Damage);
+                            mole.AddImpulse(-Vec2.UnitY * spec.Knockback);
+                            result.Hits.Add(new BlastHit(
+                                mole.Seat, mole.Index, spec.Damage, wentOffDuty));
+
+                            if (wentOffDuty)
+                            {
+                                result.Knockouts.Add(new Knockout(
+                                    mole.Seat, mole.Index, KnockoutCause.Explosion));
+                            }
+
+                            break;
+
+                        case WeaponId.RootSnare:
+                            mole.IsSnared = true;
+                            break;
+
+                        case WeaponId.GeyserCap:
+                            if (!mole.IsAirborne)
+                            {
+                                mole.AddImpulse(-Vec2.UnitY * spec.Knockback);
+                            }
+
+                            break;
+
+                        default:
+                            break;
+                    }
+                }
+            }
         }
 
         private void MoveEverybody(Mole?[] actors, Vec2[]?[] routes)
@@ -385,6 +719,7 @@ namespace MoleSim.Match
                 }
 
                 result.Detonations++;
+                SplitCluster(shot);
 
                 foreach (BlastHit hit in Blast.Detonate(
                              Terrain, _moles, shot.Position, WeaponTable.Of(shot.Weapon)))
@@ -400,6 +735,35 @@ namespace MoleSim.Match
             }
 
             _shots.RemoveAll(shot => shot.HasDetonated);
+        }
+
+        /// <summary>
+        /// Splits a cluster charge into its pieces as it goes off, thrown outward and
+        /// upward so they scatter rather than landing on the same spot.
+        /// </summary>
+        private void SplitCluster(Projectile shot)
+        {
+            WeaponSpec spec = WeaponTable.Of(shot.Weapon);
+
+            // Only the ones launched from a mole split on the way down. Anything called in
+            // from the sky arrived as a group already.
+            if (spec.ClusterCount <= 0 || spec.Kind != WeaponKind.Thrown)
+            {
+                return;
+            }
+
+            for (int index = 0; index < spec.ClusterCount; index++)
+            {
+                Fix64 sideways = MatchSettings.ClusterSpread
+                    * Fix64.FromInt(index - ((spec.ClusterCount - 1) / 2));
+
+                _shots.Add(new Projectile(
+                    WeaponTable.AcornShard,
+                    shot.OwnerSeat,
+                    shot.OwnerMole,
+                    shot.Position,
+                    new Vec2(sideways, -MatchSettings.ClusterSpread)));
+            }
         }
 
         private void CheckLava(RoundResult result)
@@ -493,6 +857,8 @@ namespace MoleSim.Match
 
             Array.Clear(_plans, 0, _plans.Length);
             _shots.Clear();
+            _placements.RemoveAll(
+                placement => placement.Spent || Round > placement.ExpiresAfterRound);
 
             RaiseLava();
             RollWind();

@@ -16,22 +16,88 @@ namespace MoleSim.Match
         /// <summary>An indignant beetle, fired straight, riding the wind and complaining.</summary>
         BeetleLauncher = 2,
 
+        /// <summary>Cluster lob. Blankets an area, so standing still is punished.</summary>
+        AcornMortar = 3,
+
+        /// <summary>A derrick and a drill. Reaches through soil, which nothing else does.</summary>
+        Fracking = 4,
+
+        /// <summary>A fairground mallet. Hardest read in the game, biggest payoff.</summary>
+        BigWhack = 5,
+
+        /// <summary>An oversized mousetrap. Placed now, armed next round.</summary>
+        SnapTrap = 6,
+
+        /// <summary>A zone that halves movement and stops digging for a round.</summary>
+        RootSnare = 7,
+
+        /// <summary>Drill-dash through dirt, and bowl over whatever is where you surface.</summary>
+        TunnelTorpedo = 8,
+
+        /// <summary>This turn, dirt costs what open ground costs.</summary>
+        PowerClaws = 9,
+
+        /// <summary>A blob of fresh terrain. Bridges, plugs, walls.</summary>
+        Sandbag = 10,
+
+        /// <summary>Caps a pocket into a vent that throws things upward.</summary>
+        GeyserCap = 11,
+
         /// <summary>Beetroots wired to a sparkler, planted rather than thrown.</summary>
-        BoomBeets = 3,
+        BoomBeets = 12,
+
+        /// <summary>A hawk in a postal cap, dropping sacks on a marked strip.</summary>
+        SpecialDelivery = 13,
+
+        /// <summary>An ornate golden relic. Three seconds, then a large round hole.</summary>
+        MolyHandGrenade = 14,
+
+        /// <summary>Three tonnes of concrete garden gnome, dropped from a great height.</summary>
+        GnomeMercy = 15,
+    }
+
+    /// <summary>How a weapon behaves, which decides which code path handles it.</summary>
+    public enum WeaponKind : byte
+    {
+        /// <summary>Nothing happens.</summary>
+        Nothing = 0,
+
+        /// <summary>Launched from the mole along the aim.</summary>
+        Thrown = 1,
+
+        /// <summary>Dropped from above onto a point the player picked.</summary>
+        FromTheSky = 2,
+
+        /// <summary>Placed at the mole's feet.</summary>
+        Planted = 3,
+
+        /// <summary>A swing, resolved immediately, with no projectile at all.</summary>
+        Melee = 4,
+
+        /// <summary>Shakes the ground where the mole stands.</summary>
+        Seismic = 5,
+
+        /// <summary>Changes the world or the mole rather than hurting anybody.</summary>
+        Tool = 6,
     }
 
     /// <summary>What a weapon does. One row per weapon, and the balance lives here.</summary>
     public readonly struct WeaponSpec
     {
         public WeaponSpec(
+            WeaponKind kind,
             Fix64 launchSpeed,
             int damage,
             Fix64 blastRadius,
             int fuseTicks,
             bool detonatesOnContact,
             bool ridesTheWind,
-            Fix64 knockback)
+            Fix64 knockback,
+            bool reachesBuried = false,
+            int clusterCount = 0,
+            int bounceBlasts = 0)
         {
+            Kind = kind;
             LaunchSpeed = launchSpeed;
             Damage = damage;
             BlastRadius = blastRadius;
@@ -39,7 +105,12 @@ namespace MoleSim.Match
             DetonatesOnContact = detonatesOnContact;
             RidesTheWind = ridesTheWind;
             Knockback = knockback;
+            ReachesBuried = reachesBuried;
+            ClusterCount = clusterCount;
+            BounceBlasts = bounceBlasts;
         }
+
+        public WeaponKind Kind { get; }
 
         /// <summary>Speed at full power. Power scales it.</summary>
         public Fix64 LaunchSpeed { get; }
@@ -57,34 +128,48 @@ namespace MoleSim.Match
         public bool DetonatesOnContact { get; }
 
         /// <summary>
-        /// Whether wind pushes it. Only the Beetle Launcher does, which is what keeps wind
-        /// a flavour of one weapon rather than a tax on the whole arsenal.
+        /// Whether wind pushes it. Only the Beetle Launcher does, which keeps wind a
+        /// flavour of one weapon rather than a tax on the whole arsenal.
         /// </summary>
         public bool RidesTheWind { get; }
 
         /// <summary>Impulse imparted at the centre of the blast.</summary>
         public Fix64 Knockback { get; }
+
+        /// <summary>
+        /// Whether the blast reaches a mole with dirt in the way. False for everything
+        /// ballistic, which is what makes being underground worth the stamina.
+        /// </summary>
+        public bool ReachesBuried { get; }
+
+        /// <summary>How many smaller charges this splits into when it goes off.</summary>
+        public int ClusterCount { get; }
+
+        /// <summary>How many times this goes off while bouncing before it stops.</summary>
+        public int BounceBlasts { get; }
     }
 
     /// <summary>The arsenal table. Prototype numbers, as the design document says.</summary>
     public static class WeaponTable
     {
+        /// <summary>Sub-charge produced when the Acorn Mortar splits.</summary>
+        public const WeaponId AcornShard = WeaponId.ClodLobber;
+
         private static readonly WeaponSpec[] Specs = BuildSpecs();
 
         public static WeaponSpec Of(WeaponId weapon) => Specs[(int)weapon];
 
-        /// <summary>Whether this weapon produces a projectile when fired.</summary>
-        public static bool IsThrown(WeaponId weapon) =>
-            weapon is WeaponId.ClodLobber or WeaponId.BeetleLauncher;
+        public static WeaponKind KindOf(WeaponId weapon) => Specs[(int)weapon].Kind;
 
         private static WeaponSpec[] BuildSpecs()
         {
-            WeaponSpec[] specs = new WeaponSpec[4];
+            WeaponSpec[] specs = new WeaponSpec[16];
 
             specs[(int)WeaponId.None] = default;
 
             // A three-second fuse, so it can be bounced into a hole or cooked over a head.
             specs[(int)WeaponId.ClodLobber] = new WeaponSpec(
+                WeaponKind.Thrown,
                 launchSpeed: Fix64.FromInt(26),
                 damage: 30,
                 blastRadius: Fix64.Ratio(5, 2),
@@ -95,6 +180,7 @@ namespace MoleSim.Match
 
             // Faster, harder, and goes off the moment it arrives.
             specs[(int)WeaponId.BeetleLauncher] = new WeaponSpec(
+                WeaponKind.Thrown,
                 launchSpeed: Fix64.FromInt(34),
                 damage: 45,
                 blastRadius: Fix64.FromInt(2),
@@ -103,9 +189,85 @@ namespace MoleSim.Match
                 ridesTheWind: true,
                 knockback: Fix64.FromInt(18));
 
+            // Splits into three on the way down, so it covers ground rather than a point.
+            specs[(int)WeaponId.AcornMortar] = new WeaponSpec(
+                WeaponKind.Thrown,
+                launchSpeed: Fix64.FromInt(24),
+                damage: 15,
+                blastRadius: Fix64.Ratio(3, 2),
+                fuseTicks: MatchSettings.TicksPerSecond * 2,
+                detonatesOnContact: false,
+                ridesTheWind: false,
+                knockback: Fix64.FromInt(9),
+                clusterCount: 3);
+
+            // The only thing in the game that reaches a mole through dirt.
+            specs[(int)WeaponId.Fracking] = new WeaponSpec(
+                WeaponKind.Seismic,
+                launchSpeed: Fix64.Zero,
+                damage: 15,
+                blastRadius: Fix64.FromInt(6),
+                fuseTicks: 0,
+                detonatesOnContact: false,
+                ridesTheWind: false,
+                knockback: Fix64.FromInt(10),
+                reachesBuried: true);
+
+            // Enormous, and needs the mole to be standing next to somebody at an exact
+            // moment, which is the hardest thing in the game to arrange.
+            specs[(int)WeaponId.BigWhack] = new WeaponSpec(
+                WeaponKind.Melee,
+                launchSpeed: Fix64.Zero,
+                damage: 60,
+                blastRadius: Fix64.Ratio(3, 2),
+                fuseTicks: 0,
+                detonatesOnContact: false,
+                ridesTheWind: false,
+                knockback: Fix64.FromInt(38));
+
+            specs[(int)WeaponId.SnapTrap] = new WeaponSpec(
+                WeaponKind.Tool,
+                launchSpeed: Fix64.Zero,
+                damage: 35,
+                blastRadius: Fix64.Ratio(3, 2),
+                fuseTicks: 0,
+                detonatesOnContact: false,
+                ridesTheWind: false,
+                knockback: Fix64.FromInt(14));
+
+            specs[(int)WeaponId.RootSnare] = new WeaponSpec(
+                WeaponKind.Tool,
+                launchSpeed: Fix64.Zero,
+                damage: 0,
+                blastRadius: Fix64.FromInt(4),
+                fuseTicks: 0,
+                detonatesOnContact: false,
+                ridesTheWind: false,
+                knockback: Fix64.Zero);
+
+            specs[(int)WeaponId.TunnelTorpedo] = new WeaponSpec(
+                WeaponKind.Tool,
+                launchSpeed: Fix64.Zero,
+                damage: 25,
+                blastRadius: Fix64.FromInt(2),
+                fuseTicks: 0,
+                detonatesOnContact: false,
+                ridesTheWind: false,
+                knockback: Fix64.FromInt(22));
+
+            specs[(int)WeaponId.PowerClaws] = new WeaponSpec(
+                WeaponKind.Tool, Fix64.Zero, 0, Fix64.Zero, 0, false, false, Fix64.Zero);
+
+            specs[(int)WeaponId.Sandbag] = new WeaponSpec(
+                WeaponKind.Tool, Fix64.Zero, 0, Fix64.FromInt(2), 0, false, false, Fix64.Zero);
+
+            specs[(int)WeaponId.GeyserCap] = new WeaponSpec(
+                WeaponKind.Tool, Fix64.Zero, 0, Fix64.Ratio(3, 2), 0, false, false, Fix64.FromInt(26));
+
             // Planted at the mole's feet, so it has no launch speed at all. Plant, run,
             // regret.
             specs[(int)WeaponId.BoomBeets] = new WeaponSpec(
+                WeaponKind.Planted,
                 launchSpeed: Fix64.Zero,
                 damage: 50,
                 blastRadius: Fix64.FromInt(3),
@@ -113,6 +275,43 @@ namespace MoleSim.Match
                 detonatesOnContact: false,
                 ridesTheWind: false,
                 knockback: Fix64.FromInt(24));
+
+            // Three sacks along a strip, falling from above, so anybody underground is
+            // simply out of reach. The counterplay is the game's own verb.
+            specs[(int)WeaponId.SpecialDelivery] = new WeaponSpec(
+                WeaponKind.FromTheSky,
+                launchSpeed: Fix64.Zero,
+                damage: 25,
+                blastRadius: Fix64.FromInt(2),
+                fuseTicks: 0,
+                detonatesOnContact: true,
+                ridesTheWind: false,
+                knockback: Fix64.FromInt(14),
+                clusterCount: 3);
+
+            // The crate rarity. One per crate, one use, and it ends two platoons' plans.
+            specs[(int)WeaponId.MolyHandGrenade] = new WeaponSpec(
+                WeaponKind.Thrown,
+                launchSpeed: Fix64.FromInt(22),
+                damage: 75,
+                blastRadius: Fix64.FromInt(5),
+                fuseTicks: MatchSettings.TicksPerSecond * 3,
+                detonatesOnContact: false,
+                ridesTheWind: false,
+                knockback: Fix64.FromInt(30));
+
+            // Punches through the surface and bounces three times with total indifference
+            // to terrain, going off at every landing.
+            specs[(int)WeaponId.GnomeMercy] = new WeaponSpec(
+                WeaponKind.FromTheSky,
+                launchSpeed: Fix64.Zero,
+                damage: 50,
+                blastRadius: Fix64.Ratio(7, 2),
+                fuseTicks: 0,
+                detonatesOnContact: false,
+                ridesTheWind: false,
+                knockback: Fix64.FromInt(26),
+                bounceBlasts: 3);
 
             return specs;
         }

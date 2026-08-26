@@ -14,6 +14,7 @@ namespace MoleSim.Match
             Position = position;
             Velocity = velocity;
             FuseRemaining = WeaponTable.Of(weapon).FuseTicks;
+            BlastsRemaining = WeaponTable.Of(weapon).BounceBlasts;
         }
 
         public WeaponId Weapon { get; }
@@ -33,6 +34,12 @@ namespace MoleSim.Match
 
         /// <summary>Ticks left on the fuse. Zero means it has no fuse of its own.</summary>
         public int FuseRemaining { get; set; }
+
+        /// <summary>
+        /// Blasts left in something that goes off as it bounces rather than once. Only the
+        /// Gnome uses this, and it is what makes three tonnes of concrete rearrange a map.
+        /// </summary>
+        public int BlastsRemaining { get; set; }
 
         public bool HasDetonated { get; set; }
 
@@ -134,6 +141,16 @@ namespace MoleSim.Match
                 {
                     shot.Position = target;
                     shot.HasDetonated = true;
+                    return false;
+                }
+
+                if (shot.BlastsRemaining > 0)
+                {
+                    // Goes off where it landed and carries on bouncing, until it has
+                    // nothing left to give.
+                    shot.BlastsRemaining--;
+                    shot.HasDetonated = shot.BlastsRemaining == 0;
+                    Bounce(shot, terrain);
                     return false;
                 }
 

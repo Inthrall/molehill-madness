@@ -146,6 +146,110 @@ namespace MoleSim.Match
         }
 
         /// <summary>
+        /// Whether solid ground stands between two points.
+        /// </summary>
+        /// <remarks>
+        /// This is what makes the underground genuinely safe. A ballistic blast reaches
+        /// only what it can see, so a mole in a tunnel with a metre of dirt between it and
+        /// the surface takes nothing from a shell landing overhead. Seismic weapons
+        /// deliberately ignore this, which is why Fracking is the answer to a table that
+        /// has all gone to ground.
+        ///
+        /// Walked one cell at a time along the line, which is coarse but cheap and, more
+        /// to the point, identical everywhere.
+        /// </remarks>
+        public static bool HasLineOfSight(TerrainGrid terrain, Vec2 from, Vec2 to)
+        {
+            Vec2 offset = to - from;
+            Fix64 distance = offset.Length();
+
+            if (distance <= WorldScale.CellSize)
+            {
+                return true;
+            }
+
+            int steps = Fix64.ToInt(distance / WorldScale.CellSize) + 1;
+            Vec2 stride = offset / Fix64.FromInt(steps);
+
+            // Endpoints are skipped: the shell is allowed to be touching the ground it
+            // just hit, and the mole is allowed to be standing on something.
+            for (int step = 1; step < steps; step++)
+            {
+                Vec2 along = from + (stride * Fix64.FromInt(step));
+
+                if (MaterialTable.IsSolid(MaterialAt(terrain, along)))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Fills roofed cavities back in, which is what a seismic shock does to a tunnel.
+        /// </summary>
+        /// <remarks>
+        /// A cell collapses when there is solid ground somewhere above it in the same
+        /// column, which picks out tunnels and dugouts and leaves open sky alone without
+        /// needing to work out where the surface is.
+        ///
+        /// Testing only the cell immediately above is not enough, and was wrong at first:
+        /// a tunnel is many cells tall, and every cell except the topmost has more tunnel
+        /// above it, so only the ceiling fell in and the tunnel stayed perfectly usable.
+        /// Each column is walked from the top instead, remembering whether a roof has been
+        /// passed. Returns how many cells fell in.
+        /// </remarks>
+        public static int CollapseCavities(TerrainGrid terrain, Vec2 centre, Fix64 radius)
+        {
+            int centreX = WorldScale.ToCell(centre.X);
+            int centreY = WorldScale.ToCell(centre.Y);
+            int cellRadius = Fix64.FloorToInt(radius / WorldScale.CellSize);
+            long radiusSquared = (long)cellRadius * cellRadius;
+
+            int filled = 0;
+
+            for (int x = centreX - cellRadius; x <= centreX + cellRadius; x++)
+            {
+                if (x < 0 || x >= terrain.Width)
+                {
+                    continue;
+                }
+
+                long deltaX = x - centreX;
+                bool roofed = false;
+
+                for (int y = 0; y < terrain.Height; y++)
+                {
+                    Material material = terrain[x, y];
+
+                    if (MaterialTable.IsSolid(material))
+                    {
+                        roofed = true;
+                        continue;
+                    }
+
+                    if (!roofed)
+                    {
+                        continue;
+                    }
+
+                    long deltaY = y - centreY;
+
+                    if ((deltaX * deltaX) + (deltaY * deltaY) > radiusSquared)
+                    {
+                        continue;
+                    }
+
+                    terrain.Set(x, y, Material.LooseSoil);
+                    filled++;
+                }
+            }
+
+            return filled;
+        }
+
+        /// <summary>
         /// An approximate outward direction from solid terrain, for pushing a body out of
         /// a wall it has ended up inside. Sums the offsets of nearby solid cells and
         /// points the other way.

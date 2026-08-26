@@ -36,20 +36,50 @@ namespace MoleSim.Match
         /// Applies a blast at a point: removes terrain, damages and shoves everything in
         /// reach, and reports what it did.
         /// </summary>
+        /// <param name="crater">
+        /// Whether this removes ground. True for anything explosive; false for a seismic
+        /// shock, which shakes the soil rather than throwing it about. Getting this wrong
+        /// for Fracking meant it blew the roof off a column and then found no tunnel left
+        /// to collapse.
+        /// </param>
         public static List<BlastHit> Detonate(
-            TerrainGrid terrain, Mole[] moles, Vec2 centre, WeaponSpec spec)
+            TerrainGrid terrain, Mole[] moles, Vec2 centre, WeaponSpec spec, bool crater = true)
         {
-            int cellRadius = Fix64.FloorToInt(spec.BlastRadius / WorldScale.CellSize);
-            terrain.CarveCircle(
-                WorldScale.ToCell(centre.X), WorldScale.ToCell(centre.Y), cellRadius);
+            // Who is shielded has to be decided against the ground as it stands, before
+            // the crater removes the very dirt that was doing the shielding.
+            bool[] reached = new bool[moles.Length];
+
+            for (int index = 0; index < moles.Length; index++)
+            {
+                reached[index] =
+                    spec.ReachesBuried
+                    || TerrainQuery.HasLineOfSight(terrain, centre, moles[index].Position);
+            }
+
+            if (crater)
+            {
+                int cellRadius = Fix64.FloorToInt(spec.BlastRadius / WorldScale.CellSize);
+                terrain.CarveCircle(
+                    WorldScale.ToCell(centre.X), WorldScale.ToCell(centre.Y), cellRadius);
+            }
 
             List<BlastHit> hits = new List<BlastHit>();
 
             // Moles are visited in seat then index order, which is fixed, and each is
             // treated independently, so the outcome cannot depend on the order anyway.
-            foreach (Mole mole in moles)
+            for (int index = 0; index < moles.Length; index++)
             {
+                Mole mole = moles[index];
+
                 if (mole.IsOffDuty)
+                {
+                    continue;
+                }
+
+                // Dirt in the way stops anything ballistic. Only the seismic weapons
+                // ignore this, which is the whole reason the underground is worth paying
+                // for and the whole reason Fracking exists.
+                if (!reached[index])
                 {
                     continue;
                 }

@@ -112,6 +112,41 @@ namespace MoleSim.Match
         /// <summary>Upward kick a lava bounce imparts.</summary>
         public static Fix64 LavaBounceSpeed => Fix64.FromInt(14);
 
+        // ---- The rest of the arsenal ------------------------------------------------
+
+        /// <summary>How close the Big Whack needs its target to be. Body lengths, not metres.</summary>
+        public static Fix64 MeleeReach => Radius * Fix64.FromInt(3);
+
+        /// <summary>Upward speed a Fracking gusher, or a capped vent, imparts.</summary>
+        public static Fix64 GusherSpeed => Fix64.FromInt(26);
+
+        /// <summary>Half-width of the column a gusher throws things up.</summary>
+        public static Fix64 GusherHalfWidth => Fix64.FromInt(2);
+
+        /// <summary>How far a Tunnel Torpedo drills in one turn.</summary>
+        public static Fix64 TorpedoRange => Fix64.FromInt(12);
+
+        /// <summary>
+        /// Rounds before a placed trap becomes dangerous. One, so it is visible as a
+        /// suspicious mound for a whole round before anybody can be caught by it.
+        /// </summary>
+        public const int TrapArmDelay = 1;
+
+        /// <summary>How far above the ground something dropped from the sky starts.</summary>
+        public static Fix64 SkyDropHeight => Fix64.FromInt(30);
+
+        /// <summary>
+        /// How far away a mole can call something down at full power. The aim names a
+        /// direction and the power names a distance, so the pair picks a spot on the map.
+        /// </summary>
+        public static Fix64 SkyTargetRange => Fix64.FromInt(40);
+
+        /// <summary>Sideways spread between the sacks of a Special Delivery.</summary>
+        public static Fix64 SkySpread => Fix64.FromInt(4);
+
+        /// <summary>Sideways speed given to each piece of a cluster when it splits.</summary>
+        public static Fix64 ClusterSpread => Fix64.FromInt(6);
+
         // ---- Wind -------------------------------------------------------------------
 
         /// <summary>Strongest wind either way, in metres per second.</summary>

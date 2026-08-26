@@ -60,6 +60,12 @@ namespace MoleSim.Match
         private static void StepAlongRoute(Mole mole, TerrainGrid terrain, Vec2[] route)
         {
             Fix64 remaining = MatchSettings.WalkSpeed * MatchSettings.TickDuration;
+
+            if (mole.IsSnared)
+            {
+                remaining = remaining / Fix64.FromInt(2);
+            }
+
             int startedOnWaypoint = mole.WaypointIndex;
             Fix64 distanceAtStart = DistanceToWaypoint(mole, route);
 
@@ -177,7 +183,11 @@ namespace MoleSim.Match
             // because the cell it asked about was already gone.
             Material ahead = TerrainQuery.MaterialAt(
                 terrain, target + (direction * MatchSettings.Radius));
-            Fix64 cost = MaterialTable.CostPerMetre(ahead) * stride;
+
+            // Power Claws turn the mole into earthmoving equipment for a turn: dirt at
+            // open-ground prices.
+            Material charged = mole.DiggingIsCheap ? Material.Air : ahead;
+            Fix64 cost = MaterialTable.CostPerMetre(charged) * stride;
 
             if (cost > mole.Stamina)
             {
@@ -206,6 +216,13 @@ namespace MoleSim.Match
                     return true;
                 }
 
+                if (mole.IsSnared)
+                {
+                    // A Root Snare stops digging outright, so a snared mole is stuck with
+                    // whatever open ground it can reach.
+                    return false;
+                }
+
                 TerrainQuery.CarveBody(terrain, target, MatchSettings.Radius);
 
                 if (TerrainQuery.IsBlocked(terrain, target, MatchSettings.Radius))
@@ -218,6 +235,7 @@ namespace MoleSim.Match
 
             mole.Position = target;
             mole.Stamina -= cost;
+            mole.Facing = direction;
 
             FollowGroundOrFall(mole, terrain);
             return true;
@@ -257,6 +275,13 @@ namespace MoleSim.Match
             Vec2 velocity = mole.Velocity
                 + (Vec2.UnitY * (MatchSettings.Gravity * MatchSettings.TickDuration));
             velocity = velocity.WithMaxLength(MatchSettings.TerminalSpeed);
+
+            // A mole in the air points where it is going. This is what makes a shot fired
+            // mid-flight leave at an angle its owner never chose.
+            if (velocity.LengthSquared() > Fix64.Zero)
+            {
+                mole.Facing = velocity.Normalised();
+            }
 
             Vec2 travel = velocity * MatchSettings.TickDuration;
             Fix64 distance = travel.Length();
