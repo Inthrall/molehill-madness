@@ -1,0 +1,31 @@
+# Normalise line endings in the repo, check out native on each machine.
+* text=auto
+
+# Source and config
+*.cs      text diff=csharp
+*.csproj  text
+*.sln     text eol=crlf
+*.md      text
+*.html    text
+*.json    text
+*.yml     text
+*.yaml    text
+
+# Godot
+*.gd        text
+*.tscn      text
+*.tres      text
+*.godot     text
+*.import    text
+
+# Binary assets — never touch these
+*.png    binary
+*.jpg    binary
+*.webp   binary
+*.ogg    binary
+*.wav    binary
+*.mp4    binary
+*.ttf    binary
+*.otf    binary
+*.bmp    binary
+*.replay binary

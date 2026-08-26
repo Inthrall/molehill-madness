@@ -1,0 +1,773 @@
+<title>Digging In</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Titan+One&family=Bricolage+Grotesque:wght@500;600;700;800&family=Nunito+Sans:ital,wght@0,400;0,600;0,700;0,800;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --ground: #F2F1E4;
+    --card: #FAF9EF;
+    --ink: #2E241A;
+    --ink-soft: #6E5B47;
+    --line: #D9D2BB;
+    --line-soft: #E6E0CC;
+    --grass: #4B8B3B;
+    --grass-deep: #35652A;
+    --grass-tint: #E3ECD9;
+    --grass-band: #6FA553;
+    --ordnance: #C75A28;
+    --ordnance-tint: #F4E2D4;
+    --slate: #4E82A6;
+    --slate-tint: #DFE9EF;
+    --lava: #C42A0C;
+    --lava-tint: #FADCD3;
+    --lava-band: #E04A18;
+    --lava-glow: #F0913A;
+    --dirt-band: #D8BF98;
+    --dirt-deep: #C4A87E;
+    --code-bg: #ECEADA;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #1D1710;
+      --card: #272017;
+      --ink: #EFE7D3;
+      --ink-soft: #B3A388;
+      --line: #43382A;
+      --line-soft: #362D21;
+      --grass: #85C463;
+      --grass-deep: #A4D689;
+      --grass-tint: #2A3320;
+      --grass-band: #4F7A3A;
+      --ordnance: #E28C50;
+      --ordnance-tint: #3D2A1B;
+      --slate: #7FAECB;
+      --slate-tint: #22303B;
+      --lava: #FF7A45;
+      --lava-tint: #452016;
+      --lava-band: #C4451A;
+      --lava-glow: #FFAA5E;
+      --dirt-band: #4A3A26;
+      --dirt-deep: #3B2E1E;
+      --code-bg: #302818;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #1D1710;
+    --card: #272017;
+    --ink: #EFE7D3;
+    --ink-soft: #B3A388;
+    --line: #43382A;
+    --line-soft: #362D21;
+    --grass: #85C463;
+    --grass-deep: #A4D689;
+    --grass-tint: #2A3320;
+    --grass-band: #4F7A3A;
+    --ordnance: #E28C50;
+    --ordnance-tint: #3D2A1B;
+    --slate: #7FAECB;
+    --slate-tint: #22303B;
+    --lava: #FF7A45;
+    --lava-tint: #452016;
+    --lava-band: #C4451A;
+    --lava-glow: #FFAA5E;
+    --dirt-band: #4A3A26;
+    --dirt-deep: #3B2E1E;
+    --code-bg: #302818;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "Nunito Sans", "Segoe UI", system-ui, sans-serif;
+    font-size: 1rem;
+    line-height: 1.65;
+    margin: 0;
+    padding: 0 1.25rem 6rem;
+  }
+  .col { max-width: 45rem; margin: 0 auto; }
+  .wide { max-width: 58rem; margin-left: auto; margin-right: auto; }
+
+  a { color: var(--grass); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:hover { color: var(--grass-deep); }
+  a:focus-visible { outline: 2px solid var(--grass); outline-offset: 2px; border-radius: 2px; }
+
+  h1, h2, h3 { font-family: "Bricolage Grotesque", "Segoe UI", sans-serif; text-wrap: balance; line-height: 1.2; }
+  h2 { font-size: 1.55rem; font-weight: 800; margin: 3.2rem 0 0.8rem; }
+  h3 { font-size: 1.12rem; font-weight: 700; margin: 2rem 0 0.5rem; }
+  p { margin: 0.75rem 0; }
+  ul, ol { margin: 0.75rem 0; padding-left: 1.4rem; }
+  li { margin: 0.3rem 0; }
+  li::marker { color: var(--grass); }
+  strong { font-weight: 800; }
+
+  .eyebrow {
+    font-family: "IBM Plex Mono", Consolas, monospace;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  .secnum {
+    font-family: "IBM Plex Mono", Consolas, monospace;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--grass);
+    margin-right: 0.55rem;
+  }
+
+  header { padding-top: 3.5rem; }
+  .masthead-title {
+    font-family: "Titan One", "Bricolage Grotesque", sans-serif;
+    font-weight: 400;
+    font-size: clamp(2.5rem, 7.5vw, 4.3rem);
+    line-height: 1.02;
+    margin: 0.5rem 0 0.4rem;
+    letter-spacing: 0.01em;
+  }
+  .masthead-title .hill { color: var(--grass); }
+  .tagline { font-size: 1.15rem; color: var(--ink-soft); margin: 0.2rem 0 1.2rem; font-style: italic; }
+  .chips { display: flex; flex-wrap: wrap; gap: 0.45rem; margin: 0 0 1.6rem; }
+  .chip {
+    font-family: "IBM Plex Mono", Consolas, monospace;
+    font-size: 0.72rem;
+    font-weight: 500;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0.22rem 0.7rem;
+    color: var(--ink-soft);
+    background: var(--card);
+  }
+  .crosssection { display: block; width: 100%; height: auto; margin: 0.5rem 0 0; }
+
+  .part { margin: 4.5rem 0 0.5rem; }
+  .part .eyebrow { color: var(--grass); }
+  .part h2.part-title { margin-top: 0.25rem; font-size: 1.9rem; }
+  .divider { display: block; width: 100%; height: auto; margin: 3.5rem 0 0; }
+
+  .tablewrap { overflow-x: auto; margin: 1.2rem 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.92rem; font-variant-numeric: tabular-nums; }
+  th {
+    font-family: "IBM Plex Mono", Consolas, monospace;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    text-align: left;
+    color: var(--ink-soft);
+    border-bottom: 2px solid var(--line);
+    padding: 0.45rem 0.9rem 0.45rem 0;
+    white-space: nowrap;
+  }
+  td { border-bottom: 1px solid var(--line-soft); padding: 0.5rem 0.9rem 0.5rem 0; vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td.k { font-weight: 800; white-space: nowrap; }
+
+  .pill {
+    display: inline-block;
+    font-family: "IBM Plex Mono", Consolas, monospace;
+    font-size: 0.64rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border-radius: 999px;
+    padding: 0.12rem 0.55rem;
+    white-space: nowrap;
+  }
+  .pill.gate { background: var(--lava-tint); color: var(--lava); }
+  .pill.size { background: var(--slate-tint); color: var(--slate); }
+  .pill.ship { background: var(--grass-tint); color: var(--grass-deep); }
+  .pill.risk { background: var(--ordnance-tint); color: var(--ordnance); }
+
+  .fieldnote {
+    border: 1.5px dashed var(--line);
+    border-radius: 10px;
+    background: var(--card);
+    padding: 0.9rem 1.1rem;
+    margin: 1.4rem 0;
+  }
+  .fieldnote .tag {
+    font-family: "IBM Plex Mono", Consolas, monospace;
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--grass);
+    display: block;
+    margin-bottom: 0.3rem;
+  }
+  .fieldnote.warn .tag { color: var(--ordnance); }
+  .fieldnote.gate { border-color: var(--lava); }
+  .fieldnote.gate .tag { color: var(--lava); }
+  .fieldnote p:first-of-type { margin-top: 0; }
+  .fieldnote p:last-child { margin-bottom: 0; }
+
+  figure { margin: 1.8rem 0; }
+  .figwrap { overflow-x: auto; border: 1px solid var(--line-soft); border-radius: 12px; background: var(--card); padding: 1.1rem; }
+  figcaption { font-size: 0.85rem; color: var(--ink-soft); margin-top: 0.6rem; }
+  figcaption b { color: var(--ink); }
+  figure svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+
+  .toc { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 0.15rem 2rem; margin: 1rem 0 0; padding: 0; list-style: none; }
+  .toc li { margin: 0; }
+  .toc a { text-decoration: none; color: var(--ink); font-weight: 600; font-size: 0.94rem; }
+  .toc a:hover { color: var(--grass-deep); text-decoration: underline; }
+  .toc .secnum { font-size: 0.8rem; }
+
+  code {
+    font-family: "IBM Plex Mono", Consolas, monospace;
+    font-size: 0.85em;
+    background: var(--code-bg);
+    border-radius: 4px;
+    padding: 0.08em 0.35em;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--line-soft);
+    border-radius: 10px;
+    padding: 0.9rem 1.1rem;
+    overflow-x: auto;
+    font-size: 0.84rem;
+    line-height: 1.5;
+  }
+  pre code { background: none; padding: 0; }
+
+  .footer-note { margin-top: 4rem; font-size: 0.85rem; color: var(--ink-soft); border-top: 1px solid var(--line); padding-top: 1rem; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<header class="col">
+  <p class="eyebrow">Implementation plan · v0.1 · 26 August 2026 · companion to the design document v0.8</p>
+  <h1 class="masthead-title">DIGGING <span class="hill">IN</span></h1>
+  <p class="tagline">How Molehill Mayhem actually gets built.</p>
+  <div class="chips">
+    <span class="chip">Godot 4 + C#</span>
+    <span class="chip">Sim first, engine second</span>
+    <span class="chip">7 phases · 2 hard gates</span>
+    <span class="chip">Solo-dev scale</span>
+    <span class="chip">Gates, not dates</span>
+  </div>
+  <svg class="crosssection" viewBox="0 0 900 120" role="img" aria-label="Decorative cross-section: grass and dirt with one molehill flying a small flag, dashed tunnel below, and a thin band of lava along the bottom.">
+    <rect x="0" y="34" width="900" height="66" rx="6" style="fill:var(--dirt-band)"/>
+    <rect x="0" y="34" width="900" height="9" style="fill:var(--grass-band)"/>
+    <path d="M430 34 Q465 2 500 34 Z" style="fill:var(--grass-band)"/>
+    <line x1="465" y1="12" x2="465" y2="0" style="stroke:var(--ink)" stroke-width="2.5" opacity="0.8"/>
+    <path d="M465 1 L486 6 L465 12 Z" style="fill:var(--grass)"/>
+    <path d="M120 40 Q220 88 400 78 T760 60" fill="none" style="stroke:var(--dirt-deep)" stroke-width="13" stroke-linecap="round"/>
+    <path d="M120 40 Q220 88 400 78 T760 60" fill="none" style="stroke:var(--ground)" stroke-width="2.2" stroke-dasharray="6 6" opacity="0.85"/>
+    <circle cx="400" cy="78" r="8" style="fill:var(--ink)" opacity="0.75"/>
+    <rect x="0" y="104" width="900" height="16" rx="4" style="fill:var(--lava-band)"/>
+  </svg>
+</header>
+
+<nav class="col" aria-label="Contents">
+  <h2 style="margin-top:2.4rem">Contents</h2>
+  <ol class="toc">
+    <li><a href="#p1"><span class="secnum">01</span>How to read this plan</a></li>
+    <li><a href="#p2"><span class="secnum">02</span>Ground rules and assumptions</a></li>
+    <li><a href="#p3"><span class="secnum">03</span>Architecture and repo layout</a></li>
+    <li><a href="#p4"><span class="secnum">04</span>The sim contract</a></li>
+    <li><a href="#p5"><span class="secnum">05</span>The phase map</a></li>
+    <li><a href="#p6"><span class="secnum">06</span>Phase 0 · Kill the unknowns</a></li>
+    <li><a href="#p7"><span class="secnum">07</span>Phase 1 · MoleSim v0</a></li>
+    <li><a href="#p8"><span class="secnum">08</span>Phase 2 · The fun proof</a></li>
+    <li><a href="#p9"><span class="secnum">09</span>Phase 3 · Couch vertical slice</a></li>
+    <li><a href="#p10"><span class="secnum">10</span>Phase 4 · Online alpha</a></li>
+    <li><a href="#p11"><span class="secnum">11</span>Phase 5 · Early Access</a></li>
+    <li><a href="#p12"><span class="secnum">12</span>Phase 6 · Mobile launch and 1.0</a></li>
+    <li><a href="#p13"><span class="secnum">13</span>Determinism, testing and CI</a></li>
+    <li><a href="#p14"><span class="secnum">14</span>Tooling that pays rent</a></li>
+    <li><a href="#p15"><span class="secnum">15</span>Content pipeline</a></li>
+    <li><a href="#p16"><span class="secnum">16</span>Services and running costs</a></li>
+    <li><a href="#p17"><span class="secnum">17</span>Risk map</a></li>
+    <li><a href="#p18"><span class="secnum">18</span>The first ten tickets</a></li>
+  </ol>
+</nav>
+
+<div class="col part">
+  <p class="eyebrow">Part I</p>
+  <h2 class="part-title">Orientation</h2>
+</div>
+
+<section class="col" id="p1">
+  <h2><span class="secnum">01</span>How to read this plan</h2>
+  <p>This is the engineering companion to the <a href="https://claude.ai/code/artifact/589dc376-557f-474f-b4f8-f822f792704c">Molehill Mayhem design document</a> (v0.8). The design document says what the game is; this says what gets built, in what order, and how we know each step actually worked. Design decisions are cited as (GDD §n) and are not re-argued here.</p>
+  <p>The plan is organised as <strong>seven phases with two hard gates.</strong> A phase is a coherent chunk of work with explicit exit criteria; a gate is a phase whose exit criteria are allowed to kill or redirect the project. Phases map onto the design document's milestones (Phase 0 and 1 build toward M0, Phase 2 is M0, Phase 3 is M1, and so on), but they cut the work by engineering dependency rather than by feature list.</p>
+  <p>There are no dates anywhere in this document, deliberately. Tasks carry relative sizes instead: <span class="pill size">S</span> roughly an evening or two, <span class="pill size">M</span> a week of spare-time work, <span class="pill size">L</span> several weeks, <span class="pill size">XL</span> a phase-dominating effort. Sequencing and honesty about size are worth more than a schedule that would be fiction by October.</p>
+</section>
+
+<section class="col" id="p2">
+  <h2><span class="secnum">02</span>Ground rules and assumptions</h2>
+  <ul>
+    <li><strong>One programmer, part-time.</strong> The plan assumes a single experienced C#/.NET developer working evenings and weekends, new to Godot but not to shipping software. Every phase is sized so that one person can hold the whole thing in their head.</li>
+    <li><strong>Art and audio are bought, not learned.</strong> Two contracted art packages (§15) and licensed audio. Programmer art is the standard until Phase 3, and the plan never blocks code on art.</li>
+    <li><strong>The sim is the product; Godot is a lens</strong> (GDD §16). MoleSim is a plain C# library with zero engine dependencies, built and tested before the engine renders a single frame. This is the load-bearing architectural rule and every other choice defers to it.</li>
+    <li><strong>Determinism is never retrofitted.</strong> Fixed-point maths from the first commit, replay-hash tests from the first playable sim, cross-platform hash checks from Phase 0. The design document calls determinism drift "fatal to online" (GDD §20) and this plan treats it that way.</li>
+    <li><strong>Playtests are milestones, not celebrations.</strong> Phases 2, 3 and 4 each end with a structured test on real people, and the fun-proof gate is empowered to send the project back to the drawing board cheaply.</li>
+    <li><strong>Windows is the dev box.</strong> A Mac is needed only for iOS export and signing: hired cloud Mac or a secondhand Mac mini at Phase 0, mandatory by Phase 4 for TestFlight.</li>
+    <li><strong>Scope guards from the design document hold here too:</strong> no solo modes, no AI, no map editor, no ranked, no fifth seat, no text anywhere. Nothing in this plan builds toward a cut feature.</li>
+  </ul>
+</section>
+
+<section class="col" id="p3">
+  <h2><span class="secnum">03</span>Architecture and repo layout</h2>
+  <p>Four deliverables, one repo. The sim in the middle, three consumers around it, exactly as the design document draws it (GDD §16).</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Deliverable</th><th>What it is</th><th>Ships in</th></tr></thead>
+      <tbody>
+        <tr><td class="k">MoleSim</td><td>Pure C# <code>netstandard2.1</code> class library: terrain, physics, weapons, lava, rules, RNG, serialization. Zero Godot types, zero floats, zero I/O.</td><td>Every build of everything</td></tr>
+        <tr><td class="k">Client</td><td>Godot 4 (C#/.NET) project: rendering, planning UI, viewports and cameras, audio, platform plumbing, clip renderer. Consumes MoleSim by project reference.</td><td>Steam, iOS, Android</td></tr>
+        <tr><td class="k">Relay</td><td>ASP.NET Core minimal API plus a WebSocket hub: accounts, host lobbies and codes, round payload store-and-forward, timers and forfeits, push. Never simulates in v1.</td><td>One small cloud host</td></tr>
+        <tr><td class="k">Tools</td><td>Headless console runner, replay corpus runner, divergence bisector, map baker. All thin shells over MoleSim.</td><td>CI and the dev desk</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <pre><code>molehill/
+  sim/
+    MoleSim/                netstandard2.1, the game
+    MoleSim.Tests/          NUnit, runs everywhere
+    MoleSim.Corpus/         golden replays + hash runner
+    MoleSim.Bench/          tick-time budgets
+  client/
+    project.godot           pinned Godot 4.x
+    src/                    C# scripts (thin; logic stays in sim/)
+    assets/                 art, audio (Git LFS)
+  relay/
+    Relay.Api/              minimal API + WS hub + jobs
+    Relay.Tests/
+  tools/
+    Molehill.Cli/           headless matches, corpus record/verify
+    Molehill.MapBaker/      layered art -> terrain bitmap + materials
+  docs/                     this plan, the GDD, decision log
+  .github/workflows/        build, test, hash matrix</code></pre>
+  <p><strong>Dependency rule, enforced by project references:</strong> <code>client</code> and <code>relay</code> and <code>tools</code> all reference <code>MoleSim</code>; nothing references the client; MoleSim references nothing but the base library. The one place this bites is input: the planning UI produces MoleSim's own <code>Plan</code> type directly, so there is no translation layer to drift.</p>
+</section>
+
+<section class="col" id="p4">
+  <h2><span class="secnum">04</span>The sim contract</h2>
+  <p>MoleSim's public surface is small on purpose. If the API below stays honest, everything else in the project stays cheap: the client is a renderer, the relay is a courier, replays and clips are free.</p>
+  <pre><code>// create once per match, identically on every client
+var match = MoleMatch.Create(mapBlob, seed, playerCount);
+
+// planning: the UI builds a Plan (a list of timestamped input events)
+// and the sim validates it (stamina, bedrock, fire-in-air, one reset)
+match.SubmitPlan(seat, plan);            // throws on illegal input
+
+// resolution: 240 ticks at 30 Hz, deterministic, replayable anywhere
+RoundResult result = match.ResolveRound(); // events: hits, KOs, crates
+ulong hash = match.StateHash();            // for CI + cheat verification</code></pre>
+  <p>Rules the library holds itself to, checked by tests and analyzers rather than by discipline:</p>
+  <ul>
+    <li><strong>Fixed point everywhere.</strong> One <code>Fix64</code> struct (Q48.16: 64-bit value, 16 fractional bits, ~0.015 mm precision at the game's 5 cm cell size), with deterministic <code>Sqrt</code>, <code>Sin</code>, <code>Cos</code> from lookup tables. A banned-API analyzer fails the build on <code>float</code>, <code>double</code>, <code>System.Random</code>, <code>DateTime</code> and <code>Dictionary</code> iteration inside the sim project.</li>
+    <li><strong>One RNG, owned by the match.</strong> Seeded xoshiro256**; every draw goes through it in a defined order. Crate contents, bounce jitter and knockout-animation selection are all draws (GDD §8), so replays are bit-exact down to the pratfall.</li>
+    <li><strong>Order independence where the rules promise it.</strong> The collision and pickup solvers iterate seats in index order but resolve symmetrically, and a property test permutes seat order on the corpus and asserts identical outcomes, because "no initiative, ever" (GDD §8) is a testable claim.</li>
+    <li><strong>Plans are versioned binary.</strong> A hand-rolled writer with a leading version byte; target under 1 KB per plan (GDD §14). Old clients reject newer versions loudly. The relay stores payloads as opaque blobs and never parses them.</li>
+    <li><strong>Hashing is cheap by design.</strong> Entities hash every tick; terrain keeps a rolling hash updated per carve, with a full re-hash at round end as the cross-check. Hashing must never be the reason the corpus is slow.</li>
+    <li><strong>The tick fits the budget.</strong> Bench target: a full 240-tick, 4-player round resolves headless in under 50 ms on the dev box and under 250 ms on a 2020 mid-range phone, because ghost previews, instant replays and the clip renderer all re-run the sim constantly (GDD §16).</li>
+  </ul>
+  <div class="fieldnote">
+    <span class="tag">Design rule</span>
+    <p>Damage-ends-input (GDD §8), lava strikes (GDD §9) and reset-token validation (GDD §7) are sim rules, not UI behaviours. The client may draw whatever it likes; it cannot make an illegal thing happen, which is also the v1 anti-cheat story.</p>
+  </div>
+</section>
+
+<svg class="divider wide" viewBox="0 0 900 30" aria-hidden="true">
+  <rect x="0" y="8" width="900" height="14" rx="4" style="fill:var(--dirt-band)"/>
+  <rect x="0" y="8" width="900" height="5" style="fill:var(--grass-band)"/>
+  <path d="M420 8 Q450 -10 480 8 Z" style="fill:var(--grass-band)"/>
+  <rect x="0" y="22" width="900" height="8" rx="3" style="fill:var(--lava-band)"/>
+</svg>
+
+<div class="col part">
+  <p class="eyebrow">Part II</p>
+  <h2 class="part-title">The phases</h2>
+</div>
+
+<section class="col" id="p5">
+  <h2><span class="secnum">05</span>The phase map</h2>
+  <p>Four workstreams run through seven phases. The sim leads, the client follows one phase behind, content joins at the vertical slice, and online work starts only after the game is proven fun, because a relay for a game nobody wants to rematch is the most expensive way to learn that.</p>
+  <figure class="wide">
+    <div class="figwrap">
+      <svg viewBox="0 0 880 330" role="img" aria-label="A grid of four workstreams (sim, client and UX, content, online and services) against seven phases. The sim stream is active from phase 0 to 2 then tapers to support. Client work starts at phase 2 and runs to the end. Content starts at phase 3. Online starts at phase 4. Two gate lines cross all lanes: the tech gate at the end of phase 0 and the fun gate at the end of phase 2.">
+        <g font-family="'Nunito Sans','Segoe UI',sans-serif" font-size="11.5" fill="currentColor">
+          <text x="146" y="24" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="10" opacity="0.75">P0</text>
+          <text x="248" y="24" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="10" opacity="0.75">P1</text>
+          <text x="350" y="24" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="10" opacity="0.75">P2</text>
+          <text x="452" y="24" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="10" opacity="0.75">P3</text>
+          <text x="554" y="24" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="10" opacity="0.75">P4</text>
+          <text x="656" y="24" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="10" opacity="0.75">P5</text>
+          <text x="758" y="24" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="10" opacity="0.75">P6</text>
+
+          <text x="88" y="66" text-anchor="end" font-weight="700">Sim</text>
+          <text x="88" y="130" text-anchor="end" font-weight="700">Client + UX</text>
+          <text x="88" y="194" text-anchor="end" font-weight="700">Content</text>
+          <text x="88" y="258" text-anchor="end" font-weight="700">Online</text>
+
+          <line x1="96" y1="40" x2="810" y2="40" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+
+          <rect x="98" y="50" width="300" height="26" rx="8" style="fill:var(--grass)" opacity="0.85"/>
+          <text x="248" y="67" text-anchor="middle" style="fill:var(--ground)" font-weight="700" font-size="10.5">Fix64 · terrain · rules · corpus</text>
+          <rect x="402" y="50" width="408" height="26" rx="8" fill="none" style="stroke:var(--grass)" stroke-width="1.6" stroke-dasharray="5 4"/>
+          <text x="606" y="67" text-anchor="middle" font-size="10.5" opacity="0.8">support: new weapons, tuning, perf</text>
+
+          <rect x="302" y="114" width="508" height="26" rx="8" style="fill:var(--slate)" opacity="0.85"/>
+          <text x="556" y="131" text-anchor="middle" style="fill:var(--ground)" font-weight="700" font-size="10.5">ghost UI · viewports · HUD · clips · store</text>
+          <rect x="98" y="114" width="200" height="26" rx="8" fill="none" style="stroke:var(--slate)" stroke-width="1.6" stroke-dasharray="5 4"/>
+          <text x="198" y="131" text-anchor="middle" font-size="10.5" opacity="0.8">export spikes only</text>
+
+          <rect x="404" y="178" width="406" height="26" rx="8" style="fill:var(--dirt-deep)"/>
+          <text x="607" y="195" text-anchor="middle" font-weight="700" font-size="10.5">style guide · biomes · knockout reel · icons · audio</text>
+
+          <rect x="506" y="242" width="304" height="26" rx="8" style="fill:var(--ordnance)" opacity="0.85"/>
+          <text x="658" y="259" text-anchor="middle" style="fill:var(--ground)" font-weight="700" font-size="10.5">relay · codes · Anytime · Live · matchmaking</text>
+
+          <line x1="196" y1="36" x2="196" y2="282" style="stroke:var(--lava)" stroke-width="3" stroke-dasharray="7 4"/>
+          <text x="196" y="300" text-anchor="middle" font-weight="800" font-size="11" style="fill:var(--lava)">TECH GATE</text>
+          <text x="196" y="315" text-anchor="middle" font-size="10" opacity="0.8">phones + hashes agree, or rethink the engine</text>
+
+          <line x1="400" y1="36" x2="400" y2="282" style="stroke:var(--lava)" stroke-width="3" stroke-dasharray="7 4"/>
+          <text x="400" y="300" text-anchor="middle" font-weight="800" font-size="11" style="fill:var(--lava)">FUN GATE</text>
+          <text x="400" y="315" text-anchor="middle" font-size="10" opacity="0.8">four people laugh and rematch, or redesign</text>
+        </g>
+      </svg>
+    </div>
+    <figcaption><b>The order is the argument.</b> Nothing downstream of a gate is started before the gate passes: no relay before the game is fun, no content money before the tech is proven. The sim lane never empties because every phase after P2 pulls new rules and tuning from it.</figcaption>
+  </figure>
+</section>
+
+<section class="col" id="p6">
+  <h2><span class="secnum">06</span>Phase 0 · Kill the unknowns <span class="pill gate">Gate</span></h2>
+  <p>One goal: retire the risks that could invalidate the whole stack, before any real investment. Everything here is a spike with a pass/fail answer.</p>
+  <div class="tablewrap wide">
+    <table>
+      <thead><tr><th>#</th><th>Task</th><th>Size</th><th>Done when</th></tr></thead>
+      <tbody>
+        <tr><td class="k">0.1</td><td>Repo, solution skeleton, GitHub Actions building and testing on push</td><td><span class="pill size">S</span></td><td>A green badge on an empty but real pipeline.</td></tr>
+        <tr><td class="k">0.2</td><td><code>Fix64</code> with deterministic sqrt and trig, property tests, banned-API analyzer wired</td><td><span class="pill size">M</span></td><td>Analyzer fails a test commit containing a <code>float</code>.</td></tr>
+        <tr><td class="k">0.3</td><td>Terrain bitmap prototype: material ids, circle carve, PNG dump for eyeballing</td><td><span class="pill size">S</span></td><td>Carved craters look right in the dumps.</td></tr>
+        <tr><td class="k">0.4</td><td>Pin Godot 4.x; C# scene with a walking sprite; export to a real Android phone and a real iPhone</td><td><span class="pill size">M</span></td><td>60 fps walking mole on both physical devices. This is the single most important task in the plan.</td></tr>
+        <tr><td class="k">0.5</td><td>Determinism smoke: a toy sim (walk + projectile) runs 240 ticks on Windows and on the Android device; compare hashes</td><td><span class="pill size">M</span></td><td>Identical hashes, ten runs from ten seeds.</td></tr>
+        <tr><td class="k">0.6</td><td>Map authoring spike: layered file in Aseprite/Krita, baked to bitmap + materials by a CLI</td><td><span class="pill size">S</span></td><td>One hand-drawn test map round-trips.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="fieldnote gate">
+    <span class="tag">Tech gate</span>
+    <p>Pass: 0.4 and 0.5 both green. Fail: the engine decision reopens before anything else is built, exactly as the design document's "replace the lens" clause intends (GDD §16). Nothing above Phase 0 is worth doing on an unproven export path.</p>
+  </div>
+</section>
+
+<section class="col" id="p7">
+  <h2><span class="secnum">07</span>Phase 1 · MoleSim v0, the headless game</h2>
+  <p>The whole game, no pixels. At the end of this phase a complete match can be played by two scripts in a console, and that console version is the test bed for every rule the design document locks.</p>
+  <div class="tablewrap wide">
+    <table>
+      <thead><tr><th>#</th><th>Task</th><th>Size</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td class="k">1.1</td><td>Match state model, 30 Hz tick loop, versioned <code>Plan</code>/input-event format</td><td><span class="pill size">M</span></td><td>The API from §04, stubbed then real.</td></tr>
+        <tr><td class="k">1.2</td><td>Ink movement: route following from input events, per-material stamina, hop, brace</td><td><span class="pill size">L</span></td><td>The cost table from GDD §9 as data, not code.</td></tr>
+        <tr><td class="k">1.3</td><td>Circle-vs-terrain physics, gravity, knockback, symmetric shove solver</td><td><span class="pill size">L</span></td><td>Permutation property test from day one.</td></tr>
+        <tr><td class="k">1.4</td><td>Projectiles, blast carve, damage, <strong>damage-ends-input</strong></td><td><span class="pill size">M</span></td><td>The counterplay rule (GDD §8) lands here.</td></tr>
+        <tr><td class="k">1.5</td><td>Weapons 1 and 2: Clod Lobber, Beetle Launcher with wind</td><td><span class="pill size">M</span></td><td>Wind rolled per round from the match RNG.</td></tr>
+        <tr><td class="k">1.6</td><td>Lava: rise schedule, side insets, bounce impulse, three-strike knockout</td><td><span class="pill size">S</span></td><td>A height and two insets, per GDD §16.</td></tr>
+        <tr><td class="k">1.7</td><td>Knockout selection, off-duty removal, win condition, stalemate nudge</td><td><span class="pill size">S</span></td><td>Exit choice is an RNG draw keyed to damage type.</td></tr>
+        <tr><td class="k">1.8</td><td>Crates: equidistant spawn solver, embed holes, pickup and tie rules, contents including reset tokens and Boom Beets stock</td><td><span class="pill size">M</span></td><td>GDD §11 verbatim.</td></tr>
+        <tr><td class="k">1.9</td><td>Golden corpus harness and first ten recorded matches</td><td><span class="pill size">M</span></td><td>Corpus green becomes a merge requirement now.</td></tr>
+        <tr><td class="k">1.10</td><td><code>Molehill.Cli</code>: headless match from scripted plans, ASCII terrain dump</td><td><span class="pill size">S</span></td><td>The fastest iteration loop the project will ever have.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="fieldnote">
+    <span class="tag">Exit criteria</span>
+    <p>A scripted four-player match resolves headless, deterministically, on Windows and Android, with every GDD Part II rule that does not need a human: movement costs, damage-ends-input, lava strikes, crates, knockouts, win. Tick budget met.</p>
+  </div>
+</section>
+
+<section class="col" id="p8">
+  <h2><span class="secnum">08</span>Phase 2 · The fun proof <span class="pill gate">Gate</span></h2>
+  <p>The minimum build that can answer the only question that matters: is simultaneous resolution funny and tense with four real people in a room (GDD §20, M0)? Ugly is fine. Slow menus are fine. The loop is not allowed to be fine; it has to be moreish.</p>
+  <div class="tablewrap wide">
+    <table>
+      <thead><tr><th>#</th><th>Task</th><th>Size</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td class="k">2.1</td><td>Godot render layer: marching-squares mesh per chunk, dirty-chunk rebuild on carve</td><td><span class="pill size">L</span></td><td>First real engine work. Sim exposes dirty lists.</td></tr>
+        <tr><td class="k">2.2</td><td>Sim-to-render bridge: 30 Hz to display-rate interpolation, event stream for impacts and knockouts</td><td><span class="pill size">M</span></td><td>Nothing in Godot mutates sim state, ever.</td></tr>
+        <tr><td class="k">2.3</td><td><strong>Ghost planning UI v0:</strong> ink laying with pen-backup, looping ghost, gauges, hold-to-aim fire, dynamite button, one reset with token</td><td><span class="pill size">XL</span></td><td>The single biggest UX task in the project (GDD §7, §13). Mouse and touch from day one; pads wait for Phase 3.</td></tr>
+        <tr><td class="k">2.4</td><td>Hotseat loop: four players, one screen, plan-commit-resolve-aftermath cycle</td><td><span class="pill size">M</span></td><td>Single shared camera for now; the split arrives in Phase 3.</td></tr>
+        <tr><td class="k">2.5</td><td>Two knockout exits, rough animation: Spin and Poof, Stretcher Squad</td><td><span class="pill size">M</span></td><td>Proves the comic timing before the reel is commissioned (GDD §20).</td></tr>
+        <tr><td class="k">2.6</td><td>Structured playtests: at least three sessions of four humans, notes and verdicts recorded</td><td><span class="pill size">S</span></td><td>Also the first data on stamina-economy self-teaching and kingmaking.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="fieldnote gate">
+    <span class="tag">Fun gate</span>
+    <p>Pass: a table of four laughs out loud and asks for a rematch unprompted, and players understood the stamina economy without being told. Fail: the loop gets redesigned at Phase 1 prices. No relay, no art money, no store pages exist yet, which is the entire point of the ordering.</p>
+  </div>
+</section>
+
+<section class="col" id="p9">
+  <h2><span class="secnum">09</span>Phase 3 · Couch vertical slice</h2>
+  <p>Turn the proven loop into the real game for a living room: the design document's M1. Content work starts here and runs parallel to code from now on.</p>
+  <div class="tablewrap wide">
+    <table>
+      <thead><tr><th>#</th><th>Task</th><th>Size</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td class="k">3.1</td><td>Viewport architecture: vertical split and quadrants, per-pane cameras and zoom, shared timer on the centre seam</td><td><span class="pill size">L</span></td><td>GDD §13. Includes the three-player wide-view cell.</td></tr>
+        <tr><td class="k">3.2</td><td>Resolution camera director: merge by proximity, re-split when the fight spreads, final-impact slow motion, in-world damage digits</td><td><span class="pill size">M</span></td><td>All presentation, all tunable, sim untouched.</td></tr>
+        <tr><td class="k">3.3</td><td>Controller support: four pads plus one kb/m seat, join-by-button, wheel/fire/dynamite/reset mapping</td><td><span class="pill size">M</span></td><td>Pads are the primary couch input (GDD §13).</td></tr>
+        <tr><td class="k">3.4</td><td>Arsenal to eight: Acorn Mortar, Fracking, Big Whack, Snap Trap, Sandbag, Boom Beets</td><td><span class="pill size">L</span></td><td>Each weapon lands with a corpus replay.</td></tr>
+        <tr><td class="k">3.5</td><td>Crate telegraph and Boiling Point presentation: glow, rising churn in the mix, haptics</td><td><span class="pill size">S</span></td><td>The lava needs no gauge; it needs drama.</td></tr>
+        <tr><td class="k">3.6</td><td>All eight knockout exits, final animation</td><td><span class="pill size">L</span></td><td>Contracted (§15); integration and timing in-house.</td></tr>
+        <tr><td class="k">3.7</td><td>Wordless HUD and icon set v1: weapon objects, glyphs, emote wheel art, hand-drawn damage numerals</td><td><span class="pill size">L</span></td><td>Reviewed at quarter-screen and phone size before final rendering (GDD §17).</td></tr>
+        <tr><td class="k">3.8</td><td>First painted biome (Garden) plus style guide</td><td><span class="pill size">L</span></td><td>Contracted, parallel; map baker consumes the layers.</td></tr>
+        <tr><td class="k">3.9</td><td>Determinism CI matrix live on Windows, Linux, Android, iOS; corpus past fifty replays</td><td><span class="pill size">M</span></td><td>Device runs semi-manual at first; see §13.</td></tr>
+        <tr><td class="k">3.10</td><td>Performance spikes: four live viewports at 60 fps on a mid PC; two panes on a Deck</td><td><span class="pill size">S</span></td><td>The second-youngest tech in the stack (GDD §16).</td></tr>
+        <tr><td class="k">3.11</td><td>IARC questionnaire dry run</td><td><span class="pill size">S</span></td><td>E / PEGI 7 or better expected (GDD §18).</td></tr>
+        <tr><td class="k">3.12</td><td>Stranger test: someone who has never seen the game operates it with no words on screen</td><td><span class="pill size">S</span></td><td>First hard evidence on the wordless bet.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="fieldnote">
+    <span class="tag">Exit criteria</span>
+    <p>Ten minutes of four-pad couch play looks and feels like the shipped game: split-merge camera working, eight weapons, crates and lava complete, real art in one biome, pratfalls landing, IARC dry run at the accepted floor, and a stranger drove it unaided.</p>
+  </div>
+</section>
+
+<section class="col" id="p10">
+  <h2><span class="secnum">10</span>Phase 4 · Online alpha</h2>
+  <p>The design document's M2: the same game, apart. The relay is deliberately boring; the two genuinely novel builds in this phase are the clip pipeline and the first-round teaching flow, and both carry named fallbacks.</p>
+  <div class="tablewrap wide">
+    <table>
+      <thead><tr><th>#</th><th>Task</th><th>Size</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td class="k">4.1</td><td>Relay v0: minimal API; lobbies with host, count, pace; five-letter codes; plan submit and round fetch; SQLite first, Postgres when it hurts</td><td><span class="pill size">L</span></td><td>Stores seed + opaque payload blobs (~60 KB a match, GDD §14). Never parses plans.</td></tr>
+        <tr><td class="k">4.2</td><td>Anytime pace end to end: 24 h (or shorter, host's call) round windows, forfeit job, resolution push via FCM and APNs</td><td><span class="pill size">L</span></td><td>One notification a day per match at most.</td></tr>
+        <tr><td class="k">4.3</td><td>Client online flow: host/join by code, code-prefilling links, background resume, notification deep link into the round</td><td><span class="pill size">L</span></td><td>The code entry screen is wordless too: five letter tiles.</td></tr>
+        <tr><td class="k">4.4</td><td>Accounts and the two-lane age gate; matchmaking flag withheld under threshold</td><td><span class="pill size">M</span></td><td>Anonymous device account, optional email link (GDD §18).</td></tr>
+        <tr><td class="k">4.5</td><td>Emote wheel, send and display</td><td><span class="pill size">S</span></td><td>The only communication channel in the game.</td></tr>
+        <tr><td class="k">4.6</td><td><strong>Clip pipeline:</strong> offscreen 1080&#215;1920 re-sim render, drama scorer v0, platform hardware encoders (MediaCodec plugin, VideoToolbox plugin, bundled ffmpeg on desktop), share sheet, APNG fallback path</td><td><span class="pill size">XL</span></td><td>The flagged unknown (GDD §15, §20). The encoder spike runs first and alone; if five seconds on a mid phone fails, the fallback ships without shame.</td></tr>
+        <tr><td class="k">4.7</td><td>First-round teaching build: drawn-paw demo, beginner seeding flag, measured with fresh testers</td><td><span class="pill size">M</span></td><td>Includes watching what happens when a beginner wastes their one reset (GDD §20).</td></tr>
+        <tr><td class="k">4.8</td><td>TestFlight and Play closed track: signing, builds, crash reporting (the one permitted analytics)</td><td><span class="pill size">M</span></td><td>The Mac becomes mandatory here.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="fieldnote">
+    <span class="tag">Exit criteria</span>
+    <p>Two strangers' phones complete a full Anytime match end to end, including one forfeit path; determinism holds on their hardware (hashes reported home on match end); a clip reaches a real share sheet in under five seconds or the fallback has been consciously engaged; fresh testers survive their first round unaided.</p>
+  </div>
+</section>
+
+<section class="col" id="p11">
+  <h2><span class="secnum">11</span>Phase 5 · Steam Early Access</h2>
+  <p>M3: strangers, at pace, with hats. This is also where money and storefront obligations enter, so the phase carries more checklist than invention.</p>
+  <div class="tablewrap wide">
+    <table>
+      <thead><tr><th>#</th><th>Task</th><th>Size</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td class="k">5.1</td><td>Live pace: WebSocket hub, shared 60 s timer, commit barrier, disconnect-to-Anytime downgrade</td><td><span class="pill size">L</span></td><td>Same payloads as Anytime; only the clock differs (GDD §14).</td></tr>
+        <tr><td class="k">5.2</td><td>Random matchmaking: one region-wide pool, no skill brackets, age-gated; Anytime offered when the Live queue is slow</td><td><span class="pill size">M</span></td><td>The empty-pool mitigations are design, already done; this is plumbing.</td></tr>
+        <tr><td class="k">5.3</td><td>Biomes two and three: Allotment, Building Site</td><td><span class="pill size">L</span></td><td>Contracted art, in-house hazards.</td></tr>
+        <tr><td class="k">5.4</td><td>Arsenal to fifteen: Root Snare, Tunnel Torpedo, Power Claws, Geyser Cap, Special Delivery, Moly Hand Grenade, Gnome Mercy</td><td><span class="pill size">L</span></td><td>Rarities last: they need crates in live tuning first.</td></tr>
+        <tr><td class="k">5.5</td><td>Replay theatre and share links resolving into it</td><td><span class="pill size">M</span></td><td>Dev tool grows a face (§14).</td></tr>
+        <tr><td class="k">5.6</td><td>Cosmetics system and store: direct purchase, Steam wallet + mobile IAP, outfit/reskin/fanfare slots, first batch</td><td><span class="pill size">L</span></td><td>No randomness, no currency layer (GDD §19).</td></tr>
+        <tr><td class="k">5.7</td><td>Mole of the Match with generated titles</td><td><span class="pill size">M</span></td><td>Runs off round stats the sim already emits.</td></tr>
+        <tr><td class="k">5.8</td><td>Ratings submission via IARC; Steam page, capsules, trailer cut from the clip pipeline</td><td><span class="pill size">M</span></td><td>The clip renderer earns its keep in marketing.</td></tr>
+        <tr><td class="k">5.9</td><td>Steamworks: achievements, Remote Play Together verification, cloud saves, Deck verification pass</td><td><span class="pill size">M</span></td><td>RPT is the free couch-at-distance mode (GDD §12).</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="fieldnote">
+    <span class="tag">Exit criteria</span>
+    <p>Early Access live: strangers matchmake, four-player free-for-all holds up without a host in the room, clips travel with store links attached, at least one hat is sold to someone we have never met, and the kingmaking review (GDD §21) has real data.</p>
+  </div>
+</section>
+
+<section class="col" id="p12">
+  <h2><span class="secnum">12</span>Phase 6 · Mobile launch and 1.0</h2>
+  <div class="tablewrap wide">
+    <table>
+      <thead><tr><th>#</th><th>Task</th><th>Size</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td class="k">6.1</td><td>App Store and Play submissions: age gate review, IAP compliance, privacy labels</td><td><span class="pill size">M</span></td><td>The under-13 lanes (GDD §18) are the review-sensitive part; documented early.</td></tr>
+        <tr><td class="k">6.2</td><td>Cross-play GA and relay load-hardening: rate limits, backup restore drills, an ops runbook one person can follow</td><td><span class="pill size">M</span></td><td>Still one small host; scale is a good problem.</td></tr>
+        <tr><td class="k">6.3</td><td>Earnable cosmetics lane and rotating in-match challenges</td><td><span class="pill size">M</span></td><td>Everything earnable comes from real matches (GDD §19).</td></tr>
+        <tr><td class="k">6.4</td><td>Shell localisation: store, settings, legal, nothing else, because the game has no words</td><td><span class="pill size">S</span></td><td>The wordless dividend, cashed (GDD §13).</td></tr>
+        <tr><td class="k">6.5</td><td>Stretch: web replay player, MoleSim compiled to WASM via .NET, so share links open for people with no install</td><td><span class="pill size">L</span></td><td>The same C# sim in a browser is the payoff for keeping it pure.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="fieldnote">
+    <span class="tag">Exit criteria</span>
+    <p>1.0 on three stores, one cross-play pool, Anytime retention and clip-driven installs measured against the free-model checkpoint (GDD §21).</p>
+  </div>
+</section>
+
+<svg class="divider wide" viewBox="0 0 900 30" aria-hidden="true">
+  <rect x="0" y="8" width="900" height="14" rx="4" style="fill:var(--dirt-band)"/>
+  <rect x="0" y="8" width="900" height="5" style="fill:var(--grass-band)"/>
+  <path d="M200 8 Q230 -10 260 8 Z" style="fill:var(--grass-band)"/>
+  <path d="M640 8 Q670 -10 700 8 Z" style="fill:var(--grass-band)"/>
+  <rect x="0" y="22" width="900" height="8" rx="3" style="fill:var(--lava-band)"/>
+</svg>
+
+<div class="col part">
+  <p class="eyebrow">Part III</p>
+  <h2 class="part-title">How it stays true</h2>
+</div>
+
+<section class="col" id="p13">
+  <h2><span class="secnum">13</span>Determinism, testing and CI</h2>
+  <p>The whole architecture rests on every device computing the same match. That is not a property you check occasionally; it is a treadmill the pipeline runs every day.</p>
+  <figure class="wide">
+    <div class="figwrap">
+      <svg viewBox="0 0 880 250" role="img" aria-label="The determinism loop: the golden corpus of recorded matches feeds CI builds on Windows, Linux, Android and iOS, each replays the corpus and emits hashes, a comparer checks all platforms agree, disagreement triggers the divergence bisector which locates the first differing tick, the bug is fixed, and the fixed match is added back into the corpus, which grows forever.">
+        <defs>
+          <marker id="arrp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 Z" fill="currentColor"/>
+          </marker>
+        </defs>
+        <g font-family="'Nunito Sans','Segoe UI',sans-serif" font-size="12" fill="currentColor">
+          <rect x="20" y="88" width="164" height="70" rx="10" style="stroke:var(--grass)" fill="none" stroke-width="2.2"/>
+          <text x="102" y="116" text-anchor="middle" font-weight="800">Golden corpus</text>
+          <text x="102" y="134" text-anchor="middle" font-size="10.5" opacity="0.75">recorded matches,</text>
+          <text x="102" y="148" text-anchor="middle" font-size="10.5" opacity="0.75">grows forever</text>
+
+          <line x1="186" y1="123" x2="234" y2="123" stroke="currentColor" stroke-width="1.6" marker-end="url(#arrp)"/>
+
+          <rect x="238" y="40" width="150" height="34" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <text x="313" y="62" text-anchor="middle" font-size="11.5">Windows replay</text>
+          <rect x="238" y="82" width="150" height="34" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <text x="313" y="104" text-anchor="middle" font-size="11.5">Linux replay</text>
+          <rect x="238" y="124" width="150" height="34" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <text x="313" y="146" text-anchor="middle" font-size="11.5">Android replay</text>
+          <rect x="238" y="166" width="150" height="34" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <text x="313" y="188" text-anchor="middle" font-size="11.5">iOS replay</text>
+
+          <line x1="390" y1="57" x2="452" y2="105" stroke="currentColor" stroke-width="1.4" marker-end="url(#arrp)"/>
+          <line x1="390" y1="99" x2="452" y2="115" stroke="currentColor" stroke-width="1.4" marker-end="url(#arrp)"/>
+          <line x1="390" y1="141" x2="452" y2="128" stroke="currentColor" stroke-width="1.4" marker-end="url(#arrp)"/>
+          <line x1="390" y1="183" x2="452" y2="138" stroke="currentColor" stroke-width="1.4" marker-end="url(#arrp)"/>
+          <text x="422" y="86" text-anchor="middle" font-size="10" font-family="'IBM Plex Mono',monospace">hashes</text>
+
+          <rect x="456" y="92" width="140" height="58" rx="10" fill="none" stroke="currentColor" stroke-width="1.8"/>
+          <text x="526" y="117" text-anchor="middle" font-weight="700">Compare</text>
+          <text x="526" y="135" text-anchor="middle" font-size="10.5" opacity="0.75">all four must agree</text>
+
+          <line x1="598" y1="110" x2="652" y2="86" style="stroke:var(--grass)" stroke-width="2" marker-end="url(#arrp)"/>
+          <text x="668" y="78" font-weight="700" style="fill:var(--grass)">green: merge</text>
+
+          <line x1="598" y1="132" x2="652" y2="158" style="stroke:var(--lava)" stroke-width="2" marker-end="url(#arrp)"/>
+          <rect x="656" y="162" width="200" height="58" rx="10" style="stroke:var(--lava)" fill="none" stroke-width="1.8"/>
+          <text x="756" y="186" text-anchor="middle" font-weight="700">Divergence bisector</text>
+          <text x="756" y="204" text-anchor="middle" font-size="10.5" opacity="0.75">first differing tick + state diff</text>
+
+          <path d="M756 224 L756 238 Q756 246 748 246 L110 246 Q102 246 102 238 L102 162"
+                fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 5" marker-end="url(#arrp)"/>
+          <text x="430" y="240" text-anchor="middle" font-size="10.5" opacity="0.8">fix the bug, add the match to the corpus</text>
+        </g>
+      </svg>
+    </div>
+    <figcaption><b>Every determinism bug makes the net stronger.</b> The corpus only ever grows, so the class of bug that would kill online play gets structurally harder to reintroduce with every fix.</figcaption>
+  </figure>
+  <ul>
+    <li><strong>Merge rules:</strong> sim changes require corpus green on Windows and Linux in CI; Android and iOS corpus runs are a scheduled nightly on real devices (manual button-press early, automated via a device farm when it earns the cost). A release build requires all four.</li>
+    <li><strong>Every fixed bug becomes a replay.</strong> No exceptions. The corpus is the project's institutional memory.</li>
+    <li><strong>Field telemetry closes the loop:</strong> from Phase 4, clients report a match-end state hash with the match id. Any disagreement between participants is a determinism bug caught in the wild with a perfect reproduction attached, because the match log is the repro.</li>
+    <li><strong>Perf budgets are tests:</strong> the bench project asserts the tick budget (§04), viewport frame times, and clip render throughput, so a regression fails a build instead of a playtest.</li>
+    <li><strong>Playtest cadence:</strong> every phase from 2 onward ends with humans, and the two UX bets (wordless HUD, first-round teaching) are tested on people who have never seen the game, never on us.</li>
+  </ul>
+</section>
+
+<section class="col" id="p14">
+  <h2><span class="secnum">14</span>Tooling that pays rent</h2>
+  <ul>
+    <li><strong>The divergence bisector</strong> (Phase 1, not later): given one match log and two platforms' per-tick hashes, it finds the first divergent tick and dumps a structured state diff. Determinism debugging without this tool is despair; with it, it is a diff.</li>
+    <li><strong>The headless CLI</strong> runs matches from scripted plans at thousands of rounds a minute: balance smoke tests (does Fracking dominate?), crate-spawn fairness histograms, stamina-economy sweeps across the cost table.</li>
+    <li><strong>Sim inspector overlay</strong> in the client (F3): entity states, material ids under the cursor, tick scrubber over the last resolution, hash of the current state on screen.</li>
+    <li><strong>Replay theatre</strong> is built as a dev tool in Phase 3 and becomes the player-facing feature in Phase 5 unchanged, because it was always just the sim plus a camera.</li>
+    <li><strong>Map baker</strong> turns layered art files into terrain bitmaps with material ids, and validates them: reachability, spawn fairness, minimum diggable fraction, lava clearance.</li>
+  </ul>
+</section>
+
+<section class="col" id="p15">
+  <h2><span class="secnum">15</span>Content pipeline</h2>
+  <ul>
+    <li><strong>Two contracted art packages.</strong> Package A (engaged during Phase 2, delivered through Phase 3): style guide, mole rig and animation set, the eight knockout exits, HUD glyph set and hand-drawn numerals, Garden biome. Package B (Phase 5): Allotment and Building Site biomes, cosmetics batch one, store capsules. Every glyph is reviewed at quarter-screen TV, phone size, and portrait-clip size before final rendering (GDD §17).</li>
+    <li><strong>Animation format:</strong> skeletal (Godot's own or Spine, decided with the artist in Package A negotiation) for moles and exits, flipbooks for effects. The knockout reel is the one place frame-by-frame hand animation is worth the money, because those 1.2 seconds are reused in every clip and every trailer forever.</li>
+    <li><strong>Audio:</strong> licensed brass-band-adjacent library plus contracted stings at Phase 5; the underground low-pass filter and the Boiling Point churn are bus effects, built in-house in Phase 3.</li>
+    <li><strong>Maps are content, not code:</strong> hand-drawn layers baked by the tool, so new maps after launch cost art time only.</li>
+    <li><strong>Names generator:</strong> a curated corpus of mole names, platoon names and Mole of the Match title fragments, written early, reviewed for every shipped language since generated text is the one text the game shows (GDD §18).</li>
+  </ul>
+</section>
+
+<section class="col" id="p16">
+  <h2><span class="secnum">16</span>Services and running costs</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Item</th><th>When</th><th>Rough cost</th></tr></thead>
+      <tbody>
+        <tr><td class="k">Apple Developer Program</td><td>Phase 0 (device spike)</td><td>US$99 / year</td></tr>
+        <tr><td class="k">Google Play Console</td><td>Phase 4</td><td>US$25 once</td></tr>
+        <tr><td class="k">Steam Direct</td><td>Phase 5</td><td>US$100 once</td></tr>
+        <tr><td class="k">Mac access for iOS builds</td><td>Phase 0 onward</td><td>Cloud Mac hours early; a used Mac mini by Phase 4</td></tr>
+        <tr><td class="k">Relay hosting</td><td>Phase 4 onward</td><td>One small VM or container app + managed Postgres, ~US$20&#8211;40 / month until success forces more</td></tr>
+        <tr><td class="k">Push (FCM, APNs)</td><td>Phase 4</td><td>Free tiers</td></tr>
+        <tr><td class="k">Device farm for nightly hashes</td><td>When manual runs hurt</td><td>Deferred until it earns itself</td></tr>
+        <tr><td class="k">Art packages A and B</td><td>Phases 2&#8211;3, 5</td><td>The real budget line; scoped with the artist, not guessed here</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>The relay is sized by an honest observation: an Anytime match is a few kilobytes a day, so even thousands of concurrent matches are a rounding error. Live pace adds open sockets, not compute. The first real scaling event would be a lovely emergency.</p>
+</section>
+
+<section class="col" id="p17">
+  <h2><span class="secnum">17</span>Risk map</h2>
+  <p>The design document's risk register (GDD §20), restated as "which phase retires it".</p>
+  <div class="tablewrap wide">
+    <table>
+      <thead><tr><th>Risk</th><th>Retired by</th><th>How</th></tr></thead>
+      <tbody>
+        <tr><td class="k">Godot C# mobile export</td><td>Phase 0 <span class="pill gate">Gate</span></td><td>Real devices, week one, before anything else exists.</td></tr>
+        <tr><td class="k">Determinism drift</td><td>Phase 0, then forever</td><td>Fix64 from the first commit, corpus from Phase 1, device matrix from Phase 3, field hashes from Phase 4.</td></tr>
+        <tr><td class="k">WeGo not actually fun</td><td>Phase 2 <span class="pill gate">Gate</span></td><td>Fun proof with four humans before any content or online money.</td></tr>
+        <tr><td class="k">Four-player readability</td><td>Phase 3</td><td>Camera director + digits + slow-mo, tuned in couch playtests.</td></tr>
+        <tr><td class="k">Wordless UI inscrutable</td><td>Phases 3&#8211;4</td><td>Stranger test at P3, teaching spike at P4; the labels toggle is the honest fallback.</td></tr>
+        <tr><td class="k">One reset too brutal</td><td>Phase 4</td><td>Watched at the teaching spike; pen-backup generosity and crate token rate are the levers.</td></tr>
+        <tr><td class="k">Clip encoder misses 5 s</td><td>Phase 4</td><td>Encoder spike runs first and alone; APNG + replay-link fallback is pre-designed.</td></tr>
+        <tr><td class="k">Stamina economy collapses</td><td>Phases 2&#8211;3</td><td>CLI balance sweeps + couch data; the economy is six numbers in a table.</td></tr>
+        <tr><td class="k">Kingmaking sours FFA</td><td>Phases 3&#8211;5</td><td>Watched every playtest; 2v2 remains the designated escape hatch (GDD §21).</td></tr>
+        <tr><td class="k">Empty matchmaking pool</td><td>Phases 5&#8211;6</td><td>Anytime needs no concurrency, codes travel in friend groups, couch works at population zero; measured at M4.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="col" id="p18">
+  <h2><span class="secnum">18</span>The first ten tickets</h2>
+  <p>The plan above starts with these, in order, starting tomorrow. Tickets 6, 7 and 9 are the whole reason Phase 0 exists.</p>
+  <ol>
+    <li>Create the repo with the §03 skeleton; CI builds and runs an empty test suite on push.</li>
+    <li><code>Fix64</code>: arithmetic, comparisons, deterministic <code>Sqrt</code>; property tests against reference values.</li>
+    <li>xoshiro256** wrapped as <code>MatchRng</code>; sequence tests pinned to known vectors.</li>
+    <li>Terrain bitmap: material ids, circle carve, rolling hash, PNG dump utility.</li>
+    <li>Install and pin Godot 4.x; commit a C# scene with a placeholder mole walking on a flat floor.</li>
+    <li>Export ticket 5 to a real Android phone; record fps and pain points.</li>
+    <li>Export ticket 5 to a real iPhone (cloud Mac, Apple account); record fps and pain points.</li>
+    <li>Toy sim: gravity, walking, one projectile; 240 ticks; state hash at the end.</li>
+    <li>Run ticket 8 on Windows and on the Android device from ticket 6; compare hashes across ten seeds.</li>
+    <li>Write the Phase 0 gate memo: proceed as planned, or reopen the engine decision with evidence attached.</li>
+  </ol>
+  <div class="fieldnote warn">
+    <span class="tag">The one habit that matters</span>
+    <p>Nothing merges into the sim without a test, and no bug dies without leaving a corpus replay behind. A solo project has no reviewer to catch drift; the corpus is the reviewer.</p>
+  </div>
+</section>
+
+<footer class="col footer-note">
+  <p>Digging In · implementation plan v0.1 · 26 August 2026 · companion to the Molehill Mayhem game design document v0.8. Phases map to GDD milestones M0&#8211;M4; the two hard gates are Phase 0 (tech) and Phase 2 (fun). Source lives at <code>C:\Personal\Molehill\docs\</code>.</p>
+</footer>

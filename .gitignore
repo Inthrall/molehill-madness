@@ -1,0 +1,40 @@
+# Build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+*.user
+*.suo
+.vs/
+.vscode/
+.idea/
+
+# Test and bench output
+TestResults/
+BenchmarkDotNet.Artifacts/
+*.trx
+*.coverage
+
+# Godot
+client/.godot/
+client/android/
+client/export_presets.cfg
+client/.mono/
+*.translation
+
+# Local dumps from the CLI tools (terrain BMPs, hash logs)
+dumps/
+*.bmp
+
+# OS noise
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Secrets — never commit signing keys or relay config
+*.p12
+*.keystore
+*.mobileprovision
+appsettings.Local.json
+.env
