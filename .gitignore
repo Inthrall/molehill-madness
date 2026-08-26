@@ -19,9 +19,11 @@ BenchmarkDotNet.Artifacts/
 # Godot
 client/.godot/
 client/android/
-client/export_presets.cfg
 client/.mono/
 *.translation
+
+# Exported builds
+build/
 
 # Local dumps from the CLI tools (terrain BMPs, hash logs)
 dumps/

@@ -11,6 +11,7 @@ config/name="Molehill Mayhem"
 config/description="Phase 0 probe: does the simulation agree with the desktop?"
 run/main_scene="res://scenes/Phase0.tscn"
 config/features=PackedStringArray("4.7", "C#", "Mobile")
+config/icon="res://icon.svg"
 
 [display]
 
@@ -30,3 +31,7 @@ project/assembly_name="Molehill.Client"
 ; It is a hand-drawn 2D game; there is nothing here Forward+ would buy.
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
+
+; Required for any Android export. Costs nothing here because the probe draws with
+; primitives rather than textures, but the real client will need it regardless.
+textures/vram_compression/import_etc2_astc=true
