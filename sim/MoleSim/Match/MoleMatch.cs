@@ -22,6 +22,9 @@ namespace MoleSim.Match
         private readonly Plan?[] _plans;
         private readonly List<Projectile> _shots = new List<Projectile>();
         private readonly List<Placement> _placements = new List<Placement>();
+        private readonly List<Crate> _crates = new List<Crate>();
+        private int _quietRounds;
+        private Fix64 _staminaScale = Fix64.One;
         private readonly MatchRng _rng;
 
         private MoleMatch(TerrainGrid terrain, int playerCount, ulong seed)
@@ -103,6 +106,38 @@ namespace MoleSim.Match
 
         /// <summary>Traps, snares and vents lying about the map.</summary>
         public IReadOnlyList<Placement> Placements => _placements;
+
+        /// <summary>Crates on their way down, or waiting to be claimed.</summary>
+        public IReadOnlyList<Crate> Crates => _crates;
+
+        /// <summary>
+        /// What a round's stamina is multiplied by. Shrinks when nobody will fight.
+        /// </summary>
+        public Fix64 StaminaScale => _staminaScale;
+
+        /// <summary>
+        /// Records a mole leaving, and picks the pratfall it leaves on.
+        /// </summary>
+        /// <remarks>
+        /// Every knockout goes through here so the reel is chosen once, in the simulation,
+        /// from information the client would not have. Doing it at each call site would
+        /// guarantee that two of them eventually disagreed.
+        /// </remarks>
+        private void RecordKnockout(
+            RoundResult result, int seat, int moleIndex, KnockoutCause cause, int damage, Fix64 shove)
+        {
+            Mole? mole = Find(seat, moleIndex);
+
+            bool underground = mole is not null
+                && MaterialTable.IsSolid(TerrainQuery.MaterialAt(
+                    Terrain, mole.Position - (Vec2.UnitY * MatchSettings.Radius)));
+
+            result.Knockouts.Add(new Knockout(
+                seat,
+                moleIndex,
+                cause,
+                KnockoutReel.Choose(cause, damage, shove, underground, _rng)));
+        }
 
         /// <summary>Whether a seat still has anybody left.</summary>
         public bool SeatIsAlive(int seat)
@@ -196,6 +231,7 @@ namespace MoleSim.Match
             foreach (Mole mole in _moles)
             {
                 mole.BeginRound();
+                mole.Stamina *= _staminaScale;
             }
 
             for (int seat = 0; seat < PlayerCount; seat++)
@@ -224,6 +260,7 @@ namespace MoleSim.Match
                 MoveEverybody(actors, routes);
                 AdvanceShots(result);
                 CheckPlacements(result);
+                LandAndClaimCrates(tick, result);
                 CheckLava(result);
             }
 
@@ -465,7 +502,8 @@ namespace MoleSim.Match
 
                 if (wentOffDuty)
                 {
-                    result.Knockouts.Add(new Knockout(mole.Seat, mole.Index, KnockoutCause.Explosion));
+                    RecordKnockout(
+                        result, mole.Seat, mole.Index, KnockoutCause.Melee, spec.Damage, spec.Knockback);
                 }
             }
         }
@@ -489,7 +527,8 @@ namespace MoleSim.Match
 
                 if (hit.WentOffDuty)
                 {
-                    result.Knockouts.Add(new Knockout(hit.Seat, hit.MoleIndex, KnockoutCause.Explosion));
+                    RecordKnockout(
+                        result, hit.Seat, hit.MoleIndex, KnockoutCause.Seismic, hit.Damage, spec.Knockback);
                 }
             }
 
@@ -617,7 +656,9 @@ namespace MoleSim.Match
 
                 if (hit.WentOffDuty)
                 {
-                    result.Knockouts.Add(new Knockout(hit.Seat, hit.MoleIndex, KnockoutCause.Explosion));
+                    RecordKnockout(
+                        result, hit.Seat, hit.MoleIndex, KnockoutCause.Explosion,
+                        hit.Damage, WeaponTable.Of(weapon).Knockback);
                 }
             }
 
@@ -661,8 +702,9 @@ namespace MoleSim.Match
 
                             if (wentOffDuty)
                             {
-                                result.Knockouts.Add(new Knockout(
-                                    mole.Seat, mole.Index, KnockoutCause.Explosion));
+                                RecordKnockout(
+                                    result, mole.Seat, mole.Index, KnockoutCause.Trap,
+                                    spec.Damage, spec.Knockback);
                             }
 
                             break;
@@ -728,14 +770,125 @@ namespace MoleSim.Match
 
                     if (hit.WentOffDuty)
                     {
-                        result.Knockouts.Add(
-                            new Knockout(hit.Seat, hit.MoleIndex, KnockoutCause.Explosion));
+                        RecordKnockout(
+                            result, hit.Seat, hit.MoleIndex, KnockoutCause.Explosion,
+                            hit.Damage, WeaponTable.Of(shot.Weapon).Knockback);
                     }
                 }
             }
 
             _shots.RemoveAll(shot => shot.HasDetonated);
         }
+
+        /// <summary>
+        /// Drops the telegraphed crates in mid-round, and hands them out.
+        /// </summary>
+        /// <remarks>
+        /// They arrive halfway through the round rather than at the start, so the scramble
+        /// happens with everybody already committed to a plan drawn before they knew who
+        /// else was going for it.
+        /// </remarks>
+        private void LandAndClaimCrates(int tick, RoundResult result)
+        {
+            foreach (Crate crate in _crates)
+            {
+                if (crate.Gone)
+                {
+                    continue;
+                }
+
+                if (!crate.HasLanded)
+                {
+                    if (tick < CrateLandingTick)
+                    {
+                        continue;
+                    }
+
+                    crate.HasLanded = true;
+
+                    // Punches a small hole on the way in, so the last stretch has to be
+                    // dug rather than strolled up to.
+                    Terrain.CarveCircle(
+                        WorldScale.ToCell(crate.Position.X),
+                        WorldScale.ToCell(crate.Position.Y),
+                        Fix64.FloorToInt(Crate.ReachRadius / WorldScale.CellSize));
+                }
+
+                Claim(crate, result);
+            }
+        }
+
+        /// <summary>
+        /// Works out who, if anybody, gets a crate this tick.
+        /// </summary>
+        /// <remarks>
+        /// One arrival takes it. Two arriving on the same tick split it. Three or four
+        /// arriving at once tear it apart and nobody gets anything, which is deterministic
+        /// and, as the design puts it, correct.
+        /// </remarks>
+        private void Claim(Crate crate, RoundResult result)
+        {
+            List<Mole> arrivals = new List<Mole>();
+
+            foreach (Mole mole in _moles)
+            {
+                if (mole.IsOffDuty)
+                {
+                    continue;
+                }
+
+                if (Vec2.Distance(mole.Position, crate.Position) <= Crate.ReachRadius)
+                {
+                    arrivals.Add(mole);
+                }
+            }
+
+            if (arrivals.Count == 0)
+            {
+                return;
+            }
+
+            crate.Gone = true;
+
+            if (arrivals.Count >= 3)
+            {
+                result.CrateClaims.Add(new CrateClaim(-1, -1, crate.Contents, shattered: true));
+                return;
+            }
+
+            CrateContents share = arrivals.Count == 2 ? crate.Contents.Halved() : crate.Contents;
+
+            foreach (Mole winner in arrivals)
+            {
+                Award(winner, share);
+                result.CrateClaims.Add(
+                    new CrateClaim(winner.Seat, winner.Index, share, shattered: false));
+            }
+        }
+
+        private static void Award(Mole winner, CrateContents contents)
+        {
+            switch (contents.Kind)
+            {
+                case CrateKind.Grub:
+                    winner.Pluck = Math.Min(
+                        MatchSettings.StartingPluck, winner.Pluck + contents.Amount);
+                    break;
+
+                case CrateKind.ResetToken:
+                    winner.ResetTokens += contents.Amount;
+                    break;
+
+                default:
+                    // Weapons and dynamite restocks go into the platoon's holdings, which
+                    // are a Phase 3 concern: nothing in the simulation limits ammunition
+                    // yet, so there is nowhere honest to put these.
+                    break;
+            }
+        }
+
+        /// <summary>Halfway through the round, at four seconds.</summary>
+        private const int CrateLandingTick = MatchSettings.TicksPerRound / 2;
 
         /// <summary>
         /// Splits a cluster charge into its pieces as it goes off, thrown outward and
@@ -796,7 +949,9 @@ namespace MoleSim.Match
                 {
                     // The third landing is the knockout, whatever pluck is left.
                     mole.TakeDamage(mole.Pluck);
-                    result.Knockouts.Add(new Knockout(mole.Seat, mole.Index, KnockoutCause.Lava));
+                    RecordKnockout(
+                        result, mole.Seat, mole.Index, KnockoutCause.Lava,
+                        MatchSettings.LavaBounceDamage, Fix64.Zero);
                     continue;
                 }
 
@@ -812,7 +967,9 @@ namespace MoleSim.Match
 
                 if (wentOffDuty)
                 {
-                    result.Knockouts.Add(new Knockout(mole.Seat, mole.Index, KnockoutCause.Lava));
+                    RecordKnockout(
+                        result, mole.Seat, mole.Index, KnockoutCause.Lava,
+                        MatchSettings.LavaBounceDamage, Fix64.Zero);
                 }
             }
         }
@@ -860,9 +1017,63 @@ namespace MoleSim.Match
             _placements.RemoveAll(
                 placement => placement.Spent || Round > placement.ExpiresAfterRound);
 
+            NudgeIfNobodyWillFight(result);
             RaiseLava();
             RollWind();
+            TelegraphNextCrates(result);
             DecideWinner(result);
+        }
+
+        /// <summary>
+        /// Shrinks everybody's legs when nobody will fight.
+        /// </summary>
+        /// <remarks>
+        /// Simultaneous turns have an obvious failure mode: four players in four bunkers,
+        /// each waiting for somebody else to blink. Three rounds in a row with nothing
+        /// happening anywhere on the field costs every platoon a tenth of its stamina, so
+        /// bunkers gradually become too expensive to maintain.
+        ///
+        /// Gentle, thematic, and it only bites a table that is collectively refusing to
+        /// play: one shot fired anywhere resets the count. It does not recover, which is
+        /// deliberate. A stalemate that has already cost you something is one you have a
+        /// reason to break.
+        /// </remarks>
+        private void NudgeIfNobodyWillFight(RoundResult result)
+        {
+            if (result.TotalDamage > 0)
+            {
+                _quietRounds = 0;
+                return;
+            }
+
+            _quietRounds++;
+
+            if (_quietRounds < QuietRoundsTolerated)
+            {
+                return;
+            }
+
+            _quietRounds = 0;
+            _staminaScale *= Fix64.Ratio(9, 10);
+            result.StalemateNudged = true;
+        }
+
+        /// <summary>Rounds of nothing happening before the nudge lands.</summary>
+        private const int QuietRoundsTolerated = 3;
+
+        /// <summary>
+        /// Announces where the next crates will come down, so the fight over them is
+        /// something everybody scheduled in advance rather than a surprise.
+        /// </summary>
+        private void TelegraphNextCrates(RoundResult result)
+        {
+            _crates.Clear();
+
+            foreach (Crate crate in CrateSpawner.Telegraph(Terrain, _moles, PlayerCount, _rng))
+            {
+                _crates.Add(crate);
+                result.NextCrates.Add(new CrateTelegraph(crate.Position));
+            }
         }
 
         /// <summary>

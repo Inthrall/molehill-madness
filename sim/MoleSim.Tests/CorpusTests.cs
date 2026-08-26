@@ -23,13 +23,17 @@ namespace MoleSim.Tests;
 /// Because these run under `dotnet test` on every platform in CI, a machine that computes
 /// something different fails here directly, naming itself, rather than being caught later
 /// by a fingerprint comparison.
-/// </remarks>
-/// <remarks>
+///
 /// Pin history, so a future reader can tell a deliberate change from an accident:
 ///
 /// Updated when ballistic blasts gained a line-of-sight check and shots fired in mid-air
 /// gained the tumble rotation. Both change who takes damage and therefore every match
 /// outcome downstream, so all five pins moved together in the commit that caused it.
+///
+/// Updated again when crates and the knockout reel arrived. Neither changes any existing
+/// rule, but both draw from the match generator, and a draw inserted anywhere shifts every
+/// draw after it. Worth knowing that this is a whole class of legitimate pin movement:
+/// adding a draw is enough on its own, without a single rule having changed.
 /// </remarks>
 [TestFixture]
 public sealed class CorpusTests
@@ -99,19 +103,19 @@ public sealed class CorpusTests
     [Test]
     public void TwoPlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 2, seed: 1UL, rounds: 12), Is.EqualTo(0xC33E8A7AA5CAFF1EUL));
+        Assert.That(Play(playerCount: 2, seed: 1UL, rounds: 12), Is.EqualTo(0xF8A9B94B539FD4E9UL));
     }
 
     [Test]
     public void ThreePlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 3, seed: 20260826UL, rounds: 14), Is.EqualTo(0xBE923980C8D458B3UL));
+        Assert.That(Play(playerCount: 3, seed: 20260826UL, rounds: 14), Is.EqualTo(0x97FBF45633415553UL));
     }
 
     [Test]
     public void FourPlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 4, seed: 4242UL, rounds: 16), Is.EqualTo(0x32DD2E855127317FUL));
+        Assert.That(Play(playerCount: 4, seed: 4242UL, rounds: 16), Is.EqualTo(0x18403F27C0C864C7UL));
     }
 
     [Test]
@@ -119,7 +123,7 @@ public sealed class CorpusTests
     {
         // Past Boiling Point, so the rise, the closing sides and the three-strike rule are
         // all in the hash rather than only the early game.
-        Assert.That(Play(playerCount: 4, seed: 777UL, rounds: 26), Is.EqualTo(0x9E6AFB67FC42E940UL));
+        Assert.That(Play(playerCount: 4, seed: 777UL, rounds: 26), Is.EqualTo(0xB386A2B208DAF116UL));
     }
 
     [Test]
@@ -127,7 +131,7 @@ public sealed class CorpusTests
     {
         Assert.That(
             Play(playerCount: 2, seed: 31337UL, rounds: 24, widthCells: 600, heightCells: 320),
-            Is.EqualTo(0x656739C2A6FCC51CUL));
+            Is.EqualTo(0x585BD4C761D88913UL));
     }
 
     [Test]

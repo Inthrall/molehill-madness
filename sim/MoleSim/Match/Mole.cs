@@ -63,6 +63,12 @@ namespace MoleSim.Match
         /// </summary>
         public int StalledTicks { get; set; }
 
+        /// <summary>
+        /// Spare resets this mole is carrying, from crates. The one reset a turn comes
+        /// free; these are the forgiveness a player picked up by fighting for it.
+        /// </summary>
+        public int ResetTokens { get; set; }
+
         /// <summary>Power Claws: this turn, dirt costs what open ground costs. Round-scoped.</summary>
         public bool DiggingIsCheap { get; set; }
 
