@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.IO;
+using MoleSim;
 using MoleSim.Numerics;
 using MoleSim.Terrain;
 
@@ -56,6 +57,18 @@ internal static class Program
         }
 
         Console.WriteLine($"fix64        {accumulator.Raw:X16}  ({accumulator})");
+
+        // Vectors: normalise, cap and convert, which is what physics leans on hardest.
+        Vec2 drift = Vec2.Zero;
+        for (int step = 1; step <= 400; step++)
+        {
+            Vec2 velocity = new Vec2(Fix64.FromInt(step % 37) - Fix64.FromInt(18), Fix64.FromInt(step % 23));
+            drift += velocity.Normalised() * Fix64.Ratio(step % 11, 4);
+            drift = drift.WithMaxLength(Fix64.FromInt(120));
+        }
+
+        WorldScale.ToCell(drift, out int driftCellX, out int driftCellY);
+        Console.WriteLine($"vec2         {drift.X.Raw:X16} {drift.Y.Raw:X16}  cell {driftCellX},{driftCellY}");
 
         // Randomness: the exact draw sequence a match depends on.
         MatchRng rng = new MatchRng(20260826UL);

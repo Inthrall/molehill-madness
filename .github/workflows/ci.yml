@@ -21,10 +21,10 @@ jobs:
         os: [ubuntu-latest, windows-latest]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
 
@@ -44,11 +44,11 @@ jobs:
             | tee full-fingerprint.txt
           # Keep only the lines that must match across platforms. The runtime and OS
           # lines are deliberately excluded: they are meant to differ.
-          grep -E '^(fix64|rng|terrain)' full-fingerprint.txt > fingerprint.txt
+          grep -E '^(fix64|vec2|rng|terrain)' full-fingerprint.txt > fingerprint.txt
           cat fingerprint.txt
 
       - name: Upload fingerprint
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fingerprint-${{ matrix.os }}
           path: fingerprint.txt
@@ -61,7 +61,7 @@ jobs:
 
     steps:
       - name: Download fingerprints
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: fingerprint-*
           path: fingerprints
@@ -95,7 +95,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Stands in for a Roslyn analyzer until one is worth writing. The simulation must
       # never contain IEEE 754 arithmetic, an unseeded generator, or a clock: each of
