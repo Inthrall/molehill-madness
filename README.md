@@ -46,7 +46,9 @@ dotnet test
 
 **Phase 0 gate: passed.** The simulation computes identical results on Windows, Linux and Android, across two CPU architectures and two .NET runtime versions, and the probe runs in 22 ms at 60 fps on a phone. Full evidence and the deferred risks are in [`docs/phase-0-gate.md`](docs/phase-0-gate.md).
 
-Next: Phase 1, MoleSim v0. The whole game, headless, playable by two scripts in a console before a single pixel is drawn.
+**Phase 1 complete.** MoleSim plays a whole match headlessly: seamless movement priced in stamina, the full fifteen-weapon arsenal, projectiles and blasts with line of sight, crates, lava, pacing and the knockout reel. `dotnet run --project tools/Molehill.Cli -- match` plays one to a winner and prints it round by round. 217 tests, with a golden corpus of pinned match hashes verified on every platform in CI.
+
+Next: Phase 2, the fun proof. The first build that can answer whether any of this is actually funny with four people in a room.
 
 ## Licence
 
