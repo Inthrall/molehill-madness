@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using MoleSim;
 using MoleSim.Diagnostics;
+using MoleSim.Match;
 using MoleSim.Numerics;
 using MoleSim.Terrain;
 
@@ -26,6 +28,7 @@ internal static class Program
         {
             "selftest" => SelfTest(),
             "dump" => DumpTerrain(args.Length > 1 ? args[1] : "dumps/terrain.bmp"),
+            "walk" => WalkRound(args.Length > 1 ? args[1] : "dumps/walk.bmp"),
             "costs" => PrintCostTable(),
             "help" or "--help" or "-h" => PrintUsage(0),
             _ => PrintUnknown(command),
@@ -112,6 +115,130 @@ internal static class Program
         return 0;
     }
 
+    /// <summary>
+    /// Runs one mole through one round along a scripted route and draws where it went.
+    /// The numbers in the tests say the movement is right; this says whether it looks it.
+    /// </summary>
+    private static int WalkRound(string path)
+    {
+        const int Width = 900;
+        const int Height = 420;
+        const int SurfaceCell = 120;
+
+        TerrainGrid grid = new TerrainGrid(Width, Height);
+        grid.FillRectangle(0, SurfaceCell, Width, 3, Material.Turf);
+        grid.FillRectangle(0, SurfaceCell + 3, Width, 40, Material.LooseSoil);
+        grid.FillRectangle(0, SurfaceCell + 43, Width, Height - SurfaceCell - 51, Material.PackedSoil);
+        grid.FillRectangle(0, Height - 8, Width, 8, Material.Bedrock);
+
+        // A hill to walk over, and a slab of bedrock to be stopped by.
+        for (int step = 0; step < 220; step++)
+        {
+            int rise = step < 110 ? step / 6 : (219 - step) / 6;
+            int top = SurfaceCell - rise - 1;
+            grid.FillRectangle(240 + step, top, 1, SurfaceCell - top + 3, Material.Turf);
+        }
+
+        grid.FillRectangle(700, SurfaceCell + 60, 8, 90, Material.Bedrock);
+
+        Mole mole = new Mole(
+            seat: 0,
+            index: 0,
+            new Vec2(
+                WorldScale.ToCentreMetres(40),
+                WorldScale.ToMetres(SurfaceCell) - MatchSettings.Radius - WorldScale.CellSize));
+
+        for (int settle = 0; settle < 10; settle++)
+        {
+            MoleMotion.Step(mole, grid, route: null);
+        }
+
+        mole.BeginRound();
+
+        // Over the hill, then dive underground and head for the bedrock slab.
+        Vec2[] route =
+        {
+            new Vec2(WorldScale.ToMetres(300), WorldScale.ToMetres(SurfaceCell - 20)),
+            new Vec2(WorldScale.ToMetres(520), WorldScale.ToMetres(SurfaceCell - 4)),
+            new Vec2(WorldScale.ToMetres(600), WorldScale.ToMetres(SurfaceCell + 90)),
+            new Vec2(WorldScale.ToMetres(880), WorldScale.ToMetres(SurfaceCell + 100)),
+        };
+
+        List<Vec2> trail = new List<Vec2>();
+        Fix64 startStamina = mole.Stamina;
+
+        for (int tick = 0; tick < MatchSettings.TicksPerRound; tick++)
+        {
+            MoleMotion.Step(mole, grid, route);
+            trail.Add(mole.Position);
+        }
+
+        Console.WriteLine("One round, one mole");
+        Console.WriteLine("-------------------");
+        Console.WriteLine($"waypoints reached  {mole.WaypointIndex} of {route.Length}");
+        Console.WriteLine($"stamina spent      {startStamina - mole.Stamina} of {startStamina}");
+        Console.WriteLine($"ended at           {mole.Position}");
+        Console.WriteLine($"airborne           {mole.IsAirborne}");
+        Console.WriteLine($"terrain hash       {grid.Hash:X16}");
+
+        string? directory = Path.GetDirectoryName(Path.GetFullPath(path));
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        byte[] pixels = new byte[Width * Height * 3];
+        for (int y = 0; y < Height; y++)
+        {
+            for (int x = 0; x < Width; x++)
+            {
+                (byte red, byte green, byte blue) = ColourOf(grid[x, y]);
+                int offset = ((y * Width) + x) * 3;
+                pixels[offset] = red;
+                pixels[offset + 1] = green;
+                pixels[offset + 2] = blue;
+            }
+        }
+
+        // The route the player drew, then the path the mole actually took on top of it.
+        foreach (Vec2 waypoint in route)
+        {
+            Plot(pixels, Width, Height, waypoint, 3, 0x4E, 0x82, 0xA6);
+        }
+
+        foreach (Vec2 step in trail)
+        {
+            Plot(pixels, Width, Height, step, 1, 0xC4, 0x2A, 0x0C);
+        }
+
+        BmpWriter.Write(path, Width, Height, pixels);
+        Console.WriteLine($"wrote              {Path.GetFullPath(path)}");
+        return 0;
+    }
+
+    private static void Plot(
+        byte[] pixels, int width, int height, Vec2 position, int size, byte red, byte green, byte blue)
+    {
+        int centreX = WorldScale.ToCell(position.X);
+        int centreY = WorldScale.ToCell(position.Y);
+
+        for (int y = centreY - size; y <= centreY + size; y++)
+        {
+            for (int x = centreX - size; x <= centreX + size; x++)
+            {
+                if (x < 0 || x >= width || y < 0 || y >= height)
+                {
+                    continue;
+                }
+
+                int offset = ((y * width) + x) * 3;
+                pixels[offset] = red;
+                pixels[offset + 1] = green;
+                pixels[offset + 2] = blue;
+            }
+        }
+    }
+
     private static int PrintCostTable()
     {
         Console.WriteLine("Movement economy");
@@ -157,6 +284,7 @@ internal static class Program
         Console.WriteLine();
         Console.WriteLine("  selftest        print a determinism fingerprint for this machine");
         Console.WriteLine("  dump [path]     write a terrain cross-section as a BMP");
+        Console.WriteLine("  walk [path]     run one mole through one round and draw its path");
         Console.WriteLine("  costs           print the movement cost table and reaches");
         return exitCode;
     }
