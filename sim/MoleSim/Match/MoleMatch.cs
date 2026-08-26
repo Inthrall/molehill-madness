@@ -23,6 +23,7 @@ namespace MoleSim.Match
         private readonly List<Projectile> _shots = new List<Projectile>();
         private readonly List<Placement> _placements = new List<Placement>();
         private readonly List<Crate> _crates = new List<Crate>();
+        private readonly int[][] _stock;
         private int _quietRounds;
         private Fix64 _staminaScale = Fix64.One;
         private readonly MatchRng _rng;
@@ -45,11 +46,29 @@ namespace MoleSim.Match
                 _moles[slot] = new Mole(seat, index, spawns[slot]);
             }
 
+            _stock = new int[playerCount][];
+
+            for (int seat = 0; seat < playerCount; seat++)
+            {
+                _stock[seat] = new int[WeaponCount];
+
+                foreach (WeaponId weapon in AllWeapons)
+                {
+                    _stock[seat][(int)weapon] = WeaponTable.StartingStock(weapon);
+                }
+            }
+
             Round = 0;
             LavaLine = Fix64.MaxValue;
             LavaLeftEdge = Fix64.MinValue;
             LavaRightEdge = Fix64.MaxValue;
         }
+
+        /// <summary>Enough room for every id in <see cref="WeaponId"/>.</summary>
+        private const int WeaponCount = 16;
+
+        private static readonly WeaponId[] AllWeapons =
+            (WeaponId[])Enum.GetValues(typeof(WeaponId));
 
         /// <summary>Starts a match on generated ground.</summary>
         public static MoleMatch Create(int playerCount, ulong seed, int widthCells, int heightCells)
@@ -114,6 +133,68 @@ namespace MoleSim.Match
         /// What a round's stamina is multiplied by. Shrinks when nobody will fight.
         /// </summary>
         public Fix64 StaminaScale => _staminaScale;
+
+        /// <summary>
+        /// How many of a weapon a platoon has left, or <see cref="WeaponTable.Unlimited"/>.
+        /// </summary>
+        /// <remarks>
+        /// Part of the match state and hashed with the rest of it, because what a platoon is
+        /// holding decides what plans are legal, and two machines that disagree about that
+        /// would disagree about whether a round even happened.
+        /// </remarks>
+        public int Stock(int seat, WeaponId weapon)
+        {
+            if (seat < 0 || seat >= PlayerCount)
+            {
+                return 0;
+            }
+
+            return _stock[seat][(int)weapon];
+        }
+
+        /// <summary>Whether a platoon could pick a weapon this turn.</summary>
+        public bool CanUse(int seat, WeaponId weapon) =>
+            weapon != WeaponId.None && Stock(seat, weapon) != 0;
+
+        /// <summary>
+        /// Adds to a platoon's holdings. What a crate does, and how a scenario is set up.
+        /// </summary>
+        public void Restock(int seat, WeaponId weapon, int count)
+        {
+            if (seat < 0 || seat >= PlayerCount || weapon == WeaponId.None || count <= 0)
+            {
+                return;
+            }
+
+            if (_stock[seat][(int)weapon] == WeaponTable.Unlimited)
+            {
+                return;
+            }
+
+            _stock[seat][(int)weapon] += count;
+        }
+
+        /// <summary>
+        /// Takes one out of a platoon's holdings, at the moment the thing is actually used.
+        /// </summary>
+        /// <remarks>
+        /// At use rather than at commit, and that distinction is the whole reason it is here
+        /// and not in <see cref="SubmitPlan"/>. Damage ends a mole's input and deletes its
+        /// unfired shot; charging it for ammunition it never got to throw would punish the
+        /// same hit twice.
+        /// </remarks>
+        private void Spend(int seat, WeaponId weapon)
+        {
+            if (weapon == WeaponId.None || _stock[seat][(int)weapon] == WeaponTable.Unlimited)
+            {
+                return;
+            }
+
+            if (_stock[seat][(int)weapon] > 0)
+            {
+                _stock[seat][(int)weapon]--;
+            }
+        }
 
         /// <summary>
         /// Records a mole leaving, and picks the pratfall it leaves on.
@@ -214,6 +295,22 @@ namespace MoleSim.Match
                 throw new InvalidPlanException("One shot per turn.");
             }
 
+            // A plan naming something the platoon does not hold is an illegal input, not a
+            // world that changed underneath it, so it is refused rather than degraded. This is
+            // the whole anti-cheat story for v1: every client rejects the same bad inputs
+            // identically, so a client can submit rubbish but never a state nobody else has.
+            if (CountOf(plan, PlanActionKind.Fire) > 0 && !CanUse(plan.Seat, plan.Weapon))
+            {
+                throw new InvalidPlanException(
+                    $"Seat {plan.Seat} has no {plan.Weapon} left.");
+            }
+
+            if (CountOf(plan, PlanActionKind.Dynamite) > 0
+                && !CanUse(plan.Seat, WeaponId.BoomBeets))
+            {
+                throw new InvalidPlanException($"Seat {plan.Seat} has no Boom Beets left.");
+            }
+
             _plans[plan.Seat] = plan;
         }
 
@@ -277,7 +374,8 @@ namespace MoleSim.Match
                 CheckLava(result);
 
                 result.Recording?.Capture(
-                    tick, _moles, _shots, result.Hits.Count, result.Knockouts.Count);
+                    tick, _moles, _shots, result.Hits.Count, result.Knockouts.Count,
+                    result.Detonations);
             }
 
             Terrain.StopJournal();
@@ -309,6 +407,17 @@ namespace MoleSim.Match
                     hash = Fold(hash, (ulong)mole.Stamina.Raw);
                     hash = Fold(hash, (ulong)mole.LavaStrikes);
                     hash = Fold(hash, mole.IsOffDuty ? 1UL : 0UL);
+                    hash = Fold(hash, mole.IsBraced ? 1UL : 0UL);
+                }
+
+                // What each platoon is holding decides which plans are legal, so two machines
+                // that disagree about it would disagree about whether a round happened at all.
+                for (int seat = 0; seat < PlayerCount; seat++)
+                {
+                    for (int weapon = 0; weapon < WeaponCount; weapon++)
+                    {
+                        hash = Fold(hash, (ulong)(long)_stock[seat][weapon]);
+                    }
                 }
 
                 return hash;
@@ -363,16 +472,30 @@ namespace MoleSim.Match
                     break;
 
                 case PlanActionKind.Brace:
-                    // Bracing is holding still, which is also what a player who plans
-                    // nothing does. Nothing else to it.
+                    // Stops where it stands and digs in, which halves what the next blast
+                    // takes out of it. Holding still is what a player who plans nothing also
+                    // does, so without the digging in this would be a button with no effect.
                     actor.WaypointIndex = int.MaxValue;
+                    actor.IsBraced = true;
                     break;
 
                 case PlanActionKind.Fire:
+                    if (!CanUse(actor.Seat, weapon))
+                    {
+                        break;
+                    }
+
+                    Spend(actor.Seat, weapon);
                     Use(actor, weapon, action, result);
                     break;
 
                 case PlanActionKind.Dynamite:
+                    if (!CanUse(actor.Seat, WeaponId.BoomBeets))
+                    {
+                        break;
+                    }
+
+                    Spend(actor.Seat, WeaponId.BoomBeets);
                     Plant(actor, WeaponId.BoomBeets);
                     break;
 
@@ -883,7 +1006,7 @@ namespace MoleSim.Match
             }
         }
 
-        private static void Award(Mole winner, CrateContents contents)
+        private void Award(Mole winner, CrateContents contents)
         {
             switch (contents.Kind)
             {
@@ -897,9 +1020,10 @@ namespace MoleSim.Match
                     break;
 
                 default:
-                    // Weapons and dynamite restocks go into the platoon's holdings, which
-                    // are a Phase 3 concern: nothing in the simulation limits ammunition
-                    // yet, so there is nowhere honest to put these.
+                    // Weapons and dynamite, straight into the platoon's holdings. This is the
+                    // other half of the crate loop: everything but the Clod Lobber runs out,
+                    // so a telegraphed crate is worth crossing the map for.
+                    Restock(winner.Seat, contents.Weapon, contents.Amount);
                     break;
             }
         }

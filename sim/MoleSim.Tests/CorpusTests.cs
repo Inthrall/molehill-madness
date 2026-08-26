@@ -41,6 +41,13 @@ namespace MoleSim.Tests;
 /// and climbs for several more. Craters were roughly halved and damage left alone, so every
 /// shot hurts exactly as much as before and eats about a quarter as much ground. Different
 /// terrain from round one onwards means different everything after it.
+///
+/// Updated a fourth time when the arsenal stopped being unlimited and bracing started doing
+/// something. Every weapon but the Clod Lobber now runs out and comes back only from crates,
+/// which changes which plans are legal, adds holdings to the hash, and made this script fall
+/// back to the Clod Lobber once its Beetle Launchers are gone. Bracing now takes a third off
+/// what a blast does, where before it only stopped a mole walking, which is what planning
+/// nothing already did. Three deliberate rule changes in one commit, hence one pin move.
 /// </remarks>
 [TestFixture]
 public sealed class CorpusTests
@@ -84,6 +91,15 @@ public sealed class CorpusTests
 
                 WeaponId weapon = script.NextBool() ? WeaponId.ClodLobber : WeaponId.BeetleLauncher;
 
+                // Beetle Launchers run out, and a plan naming something the platoon has none
+                // of is refused. A real client would never offer it, so the script falls back
+                // the same way, and the draw above still happens either way so the generator's
+                // sequence does not depend on how much ammunition is left.
+                if (!match.CanUse(seat, weapon))
+                {
+                    weapon = WeaponId.ClodLobber;
+                }
+
                 PlanAction[] actions =
                 {
                     PlanAction.Hop(script.NextInt(10, 40)),
@@ -110,19 +126,19 @@ public sealed class CorpusTests
     [Test]
     public void TwoPlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 2, seed: 1UL, rounds: 12), Is.EqualTo(0x17BA7EB3A9BA877AUL));
+        Assert.That(Play(playerCount: 2, seed: 1UL, rounds: 12), Is.EqualTo(0x2EE6147DFB5111EBUL));
     }
 
     [Test]
     public void ThreePlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 3, seed: 20260826UL, rounds: 14), Is.EqualTo(0xC835473235272FDBUL));
+        Assert.That(Play(playerCount: 3, seed: 20260826UL, rounds: 14), Is.EqualTo(0x906633326C2DA966UL));
     }
 
     [Test]
     public void FourPlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 4, seed: 4242UL, rounds: 16), Is.EqualTo(0x902E4735F4E7E91CUL));
+        Assert.That(Play(playerCount: 4, seed: 4242UL, rounds: 16), Is.EqualTo(0xBDECE6933D5B321EUL));
     }
 
     [Test]
@@ -130,7 +146,7 @@ public sealed class CorpusTests
     {
         // Past Boiling Point, so the rise, the closing sides and the three-strike rule are
         // all in the hash rather than only the early game.
-        Assert.That(Play(playerCount: 4, seed: 777UL, rounds: 26), Is.EqualTo(0x9E8D72B126FAF050UL));
+        Assert.That(Play(playerCount: 4, seed: 777UL, rounds: 26), Is.EqualTo(0x78E2458043DC17F6UL));
     }
 
     [Test]
@@ -138,7 +154,7 @@ public sealed class CorpusTests
     {
         Assert.That(
             Play(playerCount: 2, seed: 31337UL, rounds: 24, widthCells: 600, heightCells: 320),
-            Is.EqualTo(0xF49F7448181E9AE3UL));
+            Is.EqualTo(0xEEF99F89FEFBBDD0UL));
     }
 
     [Test]

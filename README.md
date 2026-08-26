@@ -56,15 +56,21 @@ The HUD is wordless. Every weapon and gauge is drawn from primitives in `Glyphs.
 
 On a phone it collapses to one view with the controls the design specifies: a weapon wheel you flick, a button to fire that doubles as the aim stick, one to plant, one to reset and one to commit. Touch reaches the same handful of verbs a mouse does, so the rules cannot tell a thumb from a cursor.
 
-Three findings so far, all from watching rounds render rather than from a test. Craters used to be as wide as the blast that made them, which left the map unrecognisable by round five and contradicted pacing the design had already fixed, so a crater is now its own number and `ArsenalTests` defends the map surviving a dozen rounds. A round resolves before its first frame is drawn, so anything read from live state during playback gives the ending away: the map and the score are both replayed from the recording instead. And a gauge scaled by its own value is unreadable at low values, which is why the wind arrow keeps its length and puts the strength in the streaks behind it.
+Nothing in the arsenal is free except the Clod Lobber. Every other weapon has a finite stock, comes back only from crates, and a plan naming something a platoon has none of is refused rather than degraded, which is the same anti-cheat rule as everything else: a client can submit rubbish, never a state nobody else has. That closes the other half of the crate loop, which until now threw weapon crates away for want of anywhere to put them. Bracing digs in and takes a third off the next blast, where before it only stopped a mole walking, which is what planning nothing already did. Hops are booked at a moment along the route by arming the button and tapping where you want one.
 
-`--demo` drives the game through its own interface without a player, `--frail` starts everybody nearly out so the knockouts can be watched, `--split` forces the panes apart, and `--touch` brings up the phone controls on a desktop. With Godot's `--write-movie` they make the render layer inspectable frame by frame, which is how all three findings turned up:
+Four findings so far, all from watching rounds render rather than from a test. Craters used to be as wide as the blast that made them, which left the map unrecognisable by round five and contradicted pacing the design had already fixed, so a crater is now its own number and `ArsenalTests` defends the map surviving a dozen rounds. A round resolves before its first frame is drawn, so anything read from live state during playback gives the ending away: the map and the score are both replayed from the recording instead. And a gauge scaled by its own value is unreadable at low values, which is why the wind arrow keeps its length and puts the strength in the streaks behind it.
+
+Sound is synthesised at startup with no audio assets at all: seven waveforms built from sine, square and noise, played off the same recording the damage numbers come from so each lands on the tick it belongs to. It exists because the gate asks whether the slapstick is funny, and silent slapstick is not the same thing being tested.
+
+`--demo` drives the game through its own interface without a player, `--frail` starts everybody nearly out so the knockouts can be watched, `--split` forces the panes apart, `--touch` brings up the phone controls on a desktop, and `--mute` shuts it up. With Godot's `--write-movie` they make the render layer inspectable frame by frame, which is how every finding above turned up:
 
 ```bash
 godot --path client --write-movie frames/f.png --fixed-fps 30 --quit-after 300 -- --demo --split
 ```
 
-Still owed: the gamepad axis reads have never met real hardware, though the simultaneous planning they feed is exercised by the driver. And the structured playtests, which are the actual gate. No amount of this code can answer whether it is funny.
+For a phone, `tools/scripts/deploy-android.sh` exports a signed debug APK, checks that the C# actually made it in, and installs it if a device is connected. Pass `--export-only`, or just leave the phone unplugged, and it hands over the APK to sideload instead. USB debugging is not required.
+
+Still owed: the gamepad axis reads and the touch gestures have never met real hardware, though the simultaneous planning and the plan verbs they feed are exercised by the driver. And the structured playtests, which are the actual gate. No amount of this code can answer whether it is funny.
 
 ## Licence
 

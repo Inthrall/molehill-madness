@@ -173,6 +173,50 @@ namespace MoleSim.Match
         /// <summary>Sub-charge produced when the Acorn Mortar splits.</summary>
         public const WeaponId AcornShard = WeaponId.ClodLobber;
 
+        /// <summary>
+        /// What a platoon starts a match holding, with -1 meaning unlimited.
+        /// </summary>
+        /// <remarks>
+        /// Without this the wheel offered all fifteen every turn, including the two the design
+        /// calls the crate rarities, and half of what a crate can contain was thrown away for
+        /// want of anywhere to put it. Free access to the Moly Hand Grenade would be the only
+        /// thing anybody ever chose, and the crate scramble the design leans on to force
+        /// contact would be worth nothing.
+        ///
+        /// Exactly one weapon is unlimited, so a platoon can never be left unable to act. It is
+        /// the Clod Lobber, the weakest thing in the arsenal, which makes everything else a
+        /// resource and every crate worth crossing the map for.
+        ///
+        /// Prototype numbers, as the design says of the arsenal table.
+        /// </remarks>
+        public static int StartingStock(WeaponId weapon) => weapon switch
+        {
+            WeaponId.ClodLobber => Unlimited,
+            WeaponId.BeetleLauncher => 3,
+            WeaponId.AcornMortar => 2,
+            WeaponId.Fracking => 2,
+            WeaponId.BigWhack => 2,
+            WeaponId.SnapTrap => 2,
+            WeaponId.RootSnare => 2,
+            WeaponId.TunnelTorpedo => 2,
+            WeaponId.PowerClaws => 2,
+            WeaponId.Sandbag => 3,
+            WeaponId.GeyserCap => 1,
+            WeaponId.BoomBeets => 2,
+            WeaponId.SpecialDelivery => 1,
+
+            // The crate rarities. One per crate, and no other way to get one.
+            WeaponId.MolyHandGrenade => 0,
+            WeaponId.GnomeMercy => 0,
+
+            _ => 0,
+        };
+
+        /// <summary>Stock value meaning there is no limit.</summary>
+        public const int Unlimited = -1;
+
+        public static bool IsUnlimited(WeaponId weapon) => StartingStock(weapon) == Unlimited;
+
         private static readonly WeaponSpec[] Specs = BuildSpecs();
 
         public static WeaponSpec Of(WeaponId weapon) => Specs[(int)weapon];

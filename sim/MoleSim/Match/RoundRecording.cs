@@ -33,6 +33,7 @@ namespace MoleSim.Match
         private readonly int[] _hitsUpTo;
         private readonly int[] _knockoutsUpTo;
         private readonly int[] _changesUpTo;
+        private readonly int[] _detonationsUpTo;
 
         internal RoundRecording(int round, int moleCount, int ticks)
         {
@@ -50,6 +51,7 @@ namespace MoleSim.Match
             _hitsUpTo = new int[ticks];
             _knockoutsUpTo = new int[ticks];
             _changesUpTo = new int[ticks];
+            _detonationsUpTo = new int[ticks];
         }
 
         public int Round { get; }
@@ -97,6 +99,19 @@ namespace MoleSim.Match
         /// <summary>How far into <see cref="TerrainChanges"/> things had got by this tick.</summary>
         public int ChangesUpTo(int tick) => _changesUpTo[Clamp(tick)];
 
+        /// <summary>
+        /// How many things had gone off by this tick, so a client can make a noise at the
+        /// moment one did.
+        /// </summary>
+        /// <remarks>
+        /// The same shape as the hit and knockout counts, and for the same reason: the round is
+        /// over before anybody watches it, so the only way to put a sound in the right place is
+        /// to know which tick it belonged to. Comparing this tick's count with the last one is
+        /// also how the client tells a crater apart from a mole digging, since both change the
+        /// terrain and only one of them is an explosion.
+        /// </remarks>
+        public int DetonationsUpTo(int tick) => _detonationsUpTo[Clamp(tick)];
+
         /// <summary>The list the grid appends to while the round resolves.</summary>
         internal List<TerrainChange> Journal { get; }
 
@@ -134,7 +149,9 @@ namespace MoleSim.Match
             return Vec2.Lerp(PositionOf(tick, moleSlot), PositionOf(tick + 1, moleSlot), blend);
         }
 
-        internal void Capture(int tick, IReadOnlyList<Mole> moles, IReadOnlyList<Projectile> shots, int hits, int knockouts)
+        internal void Capture(
+            int tick, IReadOnlyList<Mole> moles, IReadOnlyList<Projectile> shots,
+            int hits, int knockouts, int detonations)
         {
             for (int slot = 0; slot < moles.Count; slot++)
             {
@@ -163,6 +180,7 @@ namespace MoleSim.Match
             _hitsUpTo[tick] = hits;
             _knockoutsUpTo[tick] = knockouts;
             _changesUpTo[tick] = Journal.Count;
+            _detonationsUpTo[tick] = detonations;
         }
 
         private int Index(int tick, int moleSlot) => (Clamp(tick) * MoleCount) + moleSlot;

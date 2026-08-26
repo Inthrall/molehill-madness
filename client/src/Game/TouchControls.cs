@@ -1,5 +1,6 @@
 using Godot;
 using MoleSim.Match;
+using WeaponId = MoleSim.Match.WeaponId;
 
 /// <summary>What a thumb landed on.</summary>
 public enum TouchTarget
@@ -21,6 +22,12 @@ public enum TouchTarget
 
     /// <summary>Done. Lock it in and stop watching the clock.</summary>
     Commit = 5,
+
+    /// <summary>Arm hop placement, then tap the route.</summary>
+    Hop = 6,
+
+    /// <summary>Dig in where the route ends.</summary>
+    Brace = 7,
 }
 
 /// <summary>
@@ -47,6 +54,8 @@ public partial class TouchControls : Control
     private Vector2 _dynamite;
     private Vector2 _reset;
     private Vector2 _commit;
+    private Vector2 _hop;
+    private Vector2 _brace;
     private Rect2 _wheel;
     private float _button;
     private float _glyph;
@@ -77,10 +86,16 @@ public partial class TouchControls : Control
         float right = screen.X - margin - _button;
         float bottom = screen.Y - margin - _button;
 
+        // Everything that fires or commits goes under the right thumb; everything that shapes
+        // the plan goes under the left, which is where the hand not laying ink already is.
         _fire = new Vector2(right, bottom);
         _dynamite = new Vector2(right - (_button * 2.2f), bottom);
         _commit = new Vector2(right, bottom - (_button * 2.2f));
-        _reset = new Vector2(_button + margin, bottom);
+
+        float left = _button + margin;
+        _reset = new Vector2(left, bottom);
+        _hop = new Vector2(left + (_button * 2.2f), bottom);
+        _brace = new Vector2(left, bottom - (_button * 2.2f));
 
         // The wheel runs up the right edge above the buttons, clear of the topmost of them by
         // a margin, so a flick can never be mistaken for a press. Overlapping them was the
@@ -114,6 +129,16 @@ public partial class TouchControls : Control
         if (Within(at, _reset))
         {
             return TouchTarget.Reset;
+        }
+
+        if (Within(at, _hop))
+        {
+            return TouchTarget.Hop;
+        }
+
+        if (Within(at, _brace))
+        {
+            return TouchTarget.Brace;
         }
 
         return _wheel.HasPoint(at) ? TouchTarget.Wheel : TouchTarget.None;
@@ -155,6 +180,8 @@ public partial class TouchControls : Control
         DrawButton(_dynamite, TouchTarget.Dynamite);
         DrawButton(_commit, TouchTarget.Commit);
         DrawButton(_reset, TouchTarget.Reset);
+        DrawButton(_hop, TouchTarget.Hop);
+        DrawButton(_brace, TouchTarget.Brace);
         DrawAimStick();
     }
 
@@ -214,11 +241,16 @@ public partial class TouchControls : Control
 
     private void DrawButton(Vector2 at, TouchTarget target)
     {
-        bool down = _pressed == target;
-        Color face = down ? new Color(Palette.OnPanel, 0.22f) : Palette.Panel;
+        SeatPlanner planner = Planner!;
+        bool armed = target == TouchTarget.Hop && planner.PlacingHop;
+        bool active = target == TouchTarget.Brace && planner.BraceAt is not null;
+        bool down = _pressed == target || armed || active;
 
-        DrawCircle(at, _button, face);
-        DrawArc(at, _button, 0, Mathf.Tau, 32, new Color(Palette.OnPanel, 0.3f), 2f);
+        DrawCircle(at, _button, down ? new Color(Palette.OnPanel, 0.22f) : Palette.Panel);
+        DrawArc(
+            at, _button, 0, Mathf.Tau, 32,
+            armed || active ? Palette.OnPanel : new Color(Palette.OnPanel, 0.3f),
+            armed || active ? 3f : 2f);
 
         switch (target)
         {
@@ -227,11 +259,31 @@ public partial class TouchControls : Control
                 break;
 
             case TouchTarget.Dynamite:
-                Glyphs.Dynamite(this, at, _glyph * 0.9f, Palette.OnPanel);
+                // Dimmed when there are none left rather than hidden, so its absence is
+                // legible as "spent" rather than as a layout that moved.
+                Glyphs.Dynamite(
+                    this, at, _glyph * 0.9f,
+                    planner.HasCharges ? Palette.OnPanel : Palette.OnPanelDim);
+                DrawCount(at, planner.Stock(WeaponId.BoomBeets));
                 break;
 
             case TouchTarget.Commit:
                 Glyphs.Committed(this, at, _glyph, new Color(0.435f, 0.647f, 0.325f));
+                break;
+
+            case TouchTarget.Hop:
+                Glyphs.Hop(
+                    this, at, _glyph,
+                    planner.Hops.Count < SeatPlanner.MaxHops
+                        ? Palette.OnPanel
+                        : Palette.OnPanelDim);
+                DrawCount(at, SeatPlanner.MaxHops - planner.Hops.Count);
+                break;
+
+            case TouchTarget.Brace:
+                Glyphs.Brace(
+                    this, at, _glyph * 0.9f,
+                    active ? new Color(0.435f, 0.647f, 0.325f) : Palette.OnPanel);
                 break;
 
             case TouchTarget.Reset:
@@ -240,6 +292,19 @@ public partial class TouchControls : Control
 
             default:
                 break;
+        }
+    }
+
+    /// <summary>How many are left, as pips around a button's rim.</summary>
+    private void DrawCount(Vector2 at, int count)
+    {
+        for (int pip = 0; pip < Mathf.Min(count, 5); pip++)
+        {
+            float angle = -2.2f + (pip * 0.42f);
+
+            DrawCircle(
+                at + (new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * _button * 1.08f),
+                _button * 0.11f, Palette.OnPanel);
         }
     }
 

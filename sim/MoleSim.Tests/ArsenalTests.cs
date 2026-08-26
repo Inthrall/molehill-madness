@@ -453,6 +453,9 @@ public sealed class ArsenalTests
     {
         MoleMatch match = NewMatch();
 
+        // A crate rarity, so nobody starts with one. This is what claiming a crate does.
+        match.Restock(0, WeaponId.GnomeMercy, 1);
+
         match.SubmitPlan(Wield(0, 0, WeaponId.GnomeMercy, Vec2.UnitX, 100, tick: 1));
         match.SubmitPlan(Plan.Brace(1, 0));
         RoundResult result = match.ResolveRound();
@@ -527,6 +530,70 @@ public sealed class ArsenalTests
 
         Assert.That(match.Placements.Any(p => p.Weapon == WeaponId.RootSnare), Is.False,
             "a snare costs its victim one turn, not the match");
+    }
+
+    // ---- Bracing --------------------------------------------------------------------
+
+    [Test]
+    public void ABracedMoleTakesLessThanAnUnbracedOne()
+    {
+        // Bracing used to only stop a mole moving, which is also what planning nothing does,
+        // so it was a choice with no consequence and a button that would do nothing. Digging in
+        // is what the action has always claimed to be for.
+        Assert.That(DamageTakenWhileBracing(brace: true),
+            Is.LessThan(DamageTakenWhileBracing(brace: false)));
+    }
+
+    [Test]
+    public void BracingWearsOffAfterTheRound()
+    {
+        MoleMatch match = NewMatch();
+        Mole target = MoleOf(match, 1, 0);
+
+        match.SubmitPlan(new Plan(
+            1, 0, WeaponId.None, Array.Empty<RoutePoint>(), new[] { PlanAction.Brace(1) }));
+        match.SubmitPlan(Plan.Brace(0, 0));
+        match.ResolveRound();
+
+        Assume.That(target.IsBraced, Is.True, "it should be dug in by the end of its own round");
+
+        match.SubmitPlan(Plan.Brace(0, 1));
+        match.SubmitPlan(Plan.Brace(1, 1));
+        match.ResolveRound();
+
+        // One round of cover, and it has to be chosen again. Otherwise the first player to
+        // brace is permanently harder to shift, which is the opposite of what the design wants.
+        Assert.That(target.IsBraced, Is.False);
+    }
+
+    private static int DamageTakenWhileBracing(bool brace)
+    {
+        MoleMatch match = NewMatch();
+        Mole shooter = MoleOf(match, 0, 0);
+        Mole target = MoleOf(match, 1, 0);
+
+        target.Position = shooter.Position + new Vec2(Fix64.Ratio(1, 2), Fix64.Zero);
+
+        PlanAction[] actions = brace
+            ? new[] { PlanAction.Brace(0) }
+            : Array.Empty<PlanAction>();
+
+        match.SubmitPlan(new Plan(
+            1, 0, WeaponId.None, Array.Empty<RoutePoint>(), actions));
+        match.SubmitPlan(Wield(0, 0, WeaponId.ClodLobber, Vec2.UnitX, 255, tick: 4));
+
+        RoundResult result = match.ResolveRound();
+        int taken = 0;
+
+        foreach (BlastHit hit in result.Hits)
+        {
+            if (hit.Seat == 1 && hit.MoleIndex == 0)
+            {
+                taken += hit.Damage;
+            }
+        }
+
+        return taken;
     }
 
     // ---- The map has to survive long enough to be played on -------------------------

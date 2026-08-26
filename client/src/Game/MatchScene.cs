@@ -80,6 +80,8 @@ public partial class MatchScene : Node2D
 
     private AutoPilot? _autoPilot;
     private double _autoClock;
+    private Sfx? _sfx;
+    private int _sounded;
     private bool _forceSplit;
     private TouchTarget _held = TouchTarget.None;
 
@@ -110,6 +112,12 @@ public partial class MatchScene : Node2D
 
         _hud = new MatchHud();
         overlay.AddChild(_hud);
+
+        if (!WasAskedFor("--mute"))
+        {
+            _sfx = new Sfx();
+            AddChild(_sfx);
+        }
 
         if (WantsTouch())
         {
@@ -278,6 +286,7 @@ public partial class MatchScene : Node2D
         _stage.Seconds = Fix64.Zero;
         _playback = 0;
         _appliedChanges = 0;
+        _sounded = 0;
         _beat = Beat.Resolving;
 
         NoteWhenThingsHappened();
@@ -521,6 +530,7 @@ public partial class MatchScene : Node2D
         _stage.Tick = CurrentTick();
         _stage.Seconds = Fix64.Ratio((int)(_playback * 1000), 1000);
         CatchTerrainUp(_result!.Recording!.ChangesUpTo(_stage.Tick));
+        SoundTheRound();
 
         if (_playback < PlaybackDuration())
         {
@@ -529,6 +539,77 @@ public partial class MatchScene : Node2D
 
         CatchTerrainUp(int.MaxValue);
         _beat = _result.MatchOver ? Beat.Finished : Beat.Aftermath;
+    }
+
+    /// <summary>
+    /// Makes the noises for every tick the clock has passed since the last frame.
+    /// </summary>
+    /// <remarks>
+    /// Driven off the recording, exactly like the damage numbers, because the round finished
+    /// before the first frame of it was drawn. A frame can span several ticks, so this walks
+    /// them rather than looking only at the current one: skipping a tick would silently drop the
+    /// bang that happened on it.
+    ///
+    /// A crater and a mole digging both change the terrain, and only one of them is an
+    /// explosion, which is what the detonation count is for.
+    /// </remarks>
+    private void SoundTheRound()
+    {
+        if (_sfx is null || _result?.Recording is null)
+        {
+            return;
+        }
+
+        RoundRecording recording = _result.Recording;
+
+        while (_sounded < _stage.Tick)
+        {
+            int previous = _sounded;
+            _sounded++;
+
+            bool banged = recording.DetonationsUpTo(_sounded) > recording.DetonationsUpTo(previous);
+            bool dug = recording.ChangesUpTo(_sounded) > recording.ChangesUpTo(previous);
+            int flying = recording.ShotsAt(_sounded).Count;
+            int wasFlying = recording.ShotsAt(previous).Count;
+
+            if (banged)
+            {
+                _sfx.Play(Sound.Boom, volumeDb: -4f);
+            }
+            else if (dug)
+            {
+                // Terrain changing with nothing going off is somebody tunnelling.
+                _sfx.Play(Sound.Dig, volumeDb: -12f);
+            }
+
+            if (flying > wasFlying)
+            {
+                _sfx.Play(Sound.Launch, volumeDb: -8f);
+            }
+
+            if (recording.HitsUpTo(_sounded) > recording.HitsUpTo(previous))
+            {
+                _sfx.Play(Sound.Ouch, volumeDb: -5f);
+            }
+
+            if (recording.KnockoutsUpTo(_sounded) > recording.KnockoutsUpTo(previous))
+            {
+                _sfx.Play(Sound.Poof, volumeDb: -3f);
+            }
+
+            if (_sounded == CrateLandingTick && _match.Crates.Count > 0)
+            {
+                _sfx.Play(Sound.Thunk, volumeDb: -8f);
+            }
+        }
+    }
+
+    /// <summary>Halfway through the round, which is when the crates arrive.</summary>
+    private const int CrateLandingTick = MatchSettings.TicksPerRound / 2;
+
+    private void Click()
+    {
+        _sfx?.Play(Sound.Click, volumeDb: -14f, pitchSpread: 0.05f);
     }
 
     private int CurrentTick()
@@ -633,15 +714,25 @@ public partial class MatchScene : Node2D
         switch (@event)
         {
             case InputEventMouseButton { ButtonIndex: MouseButton.Left } left:
-                if (left.Pressed)
-                {
-                    planner.PenDown(PointerWorld(left.Position, planner.Seat));
-                }
-                else
+                if (!left.Pressed)
                 {
                     planner.PenUp();
+                    break;
                 }
 
+                // With hop placement armed, a click puts a hop on the route rather than
+                // starting a new stroke, which would wipe the route it is being placed on.
+                if (planner.PlacingHop)
+                {
+                    if (planner.PlaceHopNear(PointerWorld(left.Position, planner.Seat)))
+                    {
+                        Click();
+                    }
+
+                    break;
+                }
+
+                planner.PenDown(PointerWorld(left.Position, planner.Seat));
                 break;
 
             case InputEventMouseButton { ButtonIndex: MouseButton.Right } right:
@@ -719,6 +810,16 @@ public partial class MatchScene : Node2D
         switch (_held)
         {
             case TouchTarget.None:
+                if (planner.PlacingHop)
+                {
+                    if (planner.PlaceHopNear(PointerWorld(at, planner.Seat)))
+                    {
+                        Click();
+                    }
+
+                    break;
+                }
+
                 planner.PenDown(PointerWorld(at, planner.Seat));
                 break;
 
@@ -728,6 +829,17 @@ public partial class MatchScene : Node2D
 
             case TouchTarget.Commit:
                 planner.Commit();
+                Click();
+                break;
+
+            case TouchTarget.Hop:
+                planner.ArmHop();
+                Click();
+                break;
+
+            case TouchTarget.Brace:
+                planner.ToggleBrace();
+                Click();
                 break;
 
             default:
@@ -758,6 +870,7 @@ public partial class MatchScene : Node2D
                 {
                     planner.CycleWeapon(_wheelTravel > 0 ? 1 : -1);
                     _wheelTravel -= Mathf.Sign(_wheelTravel) * _touch.WheelNotch;
+                    Click();
                 }
 
                 break;
@@ -781,6 +894,7 @@ public partial class MatchScene : Node2D
 
             case TouchTarget.Dynamite:
                 planner.PlantCharge();
+                Click();
                 break;
 
             default:
@@ -878,18 +992,32 @@ public partial class MatchScene : Node2D
 
             case Key.Q:
                 planner?.CycleWeapon(-1);
+                Click();
                 break;
 
             case Key.E:
                 planner?.CycleWeapon(1);
+                Click();
                 break;
 
             case Key.Tab:
                 planner?.CycleActor();
+                Click();
                 break;
 
             case Key.F:
                 planner?.PlantCharge();
+                Click();
+                break;
+
+            case Key.H:
+                planner?.ArmHop();
+                Click();
+                break;
+
+            case Key.B:
+                planner?.ToggleBrace();
+                Click();
                 break;
 
             default:
@@ -1011,6 +1139,31 @@ public partial class MatchScene : Node2D
         }
 
         _plantHeld[seat] = planting;
+
+        bool hopping = Input.IsJoyButtonPressed(pad, JoyButton.Y);
+
+        if (hopping && !_hopHeld[seat])
+        {
+            // Armed rather than placed. The next press of the lay button drops it wherever the
+            // pen is, which is the same two-step gesture a thumb uses.
+            planner.ArmHop();
+        }
+
+        _hopHeld[seat] = hopping;
+
+        if (planner.PlacingHop && laying)
+        {
+            planner.PlaceHopNear(_penAt[seat]);
+        }
+
+        bool bracing = Input.IsJoyButtonPressed(pad, JoyButton.DpadDown);
+
+        if (bracing && !_braceHeld[seat])
+        {
+            planner.ToggleBrace();
+        }
+
+        _braceHeld[seat] = bracing;
         TurnWheel(seat, pad, planner);
     }
 
@@ -1040,6 +1193,8 @@ public partial class MatchScene : Node2D
     private readonly bool[] _shoulderHeldUp = new bool[PlayerCount];
     private readonly bool[] _shoulderHeldDown = new bool[PlayerCount];
     private readonly bool[] _plantHeld = new bool[PlayerCount];
+    private readonly bool[] _hopHeld = new bool[PlayerCount];
+    private readonly bool[] _braceHeld = new bool[PlayerCount];
 
     private const float StickDeadZone = 0.2f;
 
@@ -1089,6 +1244,10 @@ public partial class MatchScene : Node2D
                 continue;
             }
 
+            // A notch of the wheel each turn, so the driver works its way through the arsenal
+            // and the holdings it is spending from actually run down.
+            planner.CycleWeapon(1);
+
             AutoPilot.Intent intent = _autoPilot.Decide(planner.Actor, planner.Weapon);
 
             planner.PenDown(planner.Actor.Position);
@@ -1105,6 +1264,17 @@ public partial class MatchScene : Node2D
             if (intent.PlantCharge)
             {
                 planner.PlantCharge();
+            }
+
+            if (intent.Hop && intent.Route.Count > 1)
+            {
+                planner.ArmHop();
+                planner.PlaceHopNear(intent.Route[intent.Route.Count / 2]);
+            }
+
+            if (intent.Brace)
+            {
+                planner.ToggleBrace();
             }
 
             laid = true;

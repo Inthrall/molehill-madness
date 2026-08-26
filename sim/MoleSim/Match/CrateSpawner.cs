@@ -176,6 +176,36 @@ namespace MoleSim.Match
             return unfairness + (offCentre / Fix64.FromInt(10));
         }
 
+        /// <summary>
+        /// Everything a platoon holds a finite number of, which an ordinary crate can replace.
+        /// </summary>
+        /// <remarks>
+        /// A weapon that can run out and never be replaced would be a one-match curiosity, so
+        /// anything with a finite starting stock has to be reachable from here. Public because
+        /// that is a property worth asserting rather than hoping for.
+        /// </remarks>
+        public static readonly WeaponId[] Restockable =
+        {
+            WeaponId.BeetleLauncher,
+            WeaponId.AcornMortar,
+            WeaponId.Fracking,
+            WeaponId.BigWhack,
+            WeaponId.SnapTrap,
+            WeaponId.RootSnare,
+            WeaponId.TunnelTorpedo,
+            WeaponId.PowerClaws,
+            WeaponId.Sandbag,
+            WeaponId.GeyserCap,
+            WeaponId.SpecialDelivery,
+        };
+
+        /// <summary>The two nobody starts with and only a crate can provide.</summary>
+        public static readonly WeaponId[] Rarities =
+        {
+            WeaponId.MolyHandGrenade,
+            WeaponId.GnomeMercy,
+        };
+
         private static CrateContents RollContents(MatchRng rng)
         {
             // Weighted so grubs are common and the rarities are rare, which is what makes
@@ -199,28 +229,13 @@ namespace MoleSim.Match
 
             if (roll < 96)
             {
-                WeaponId[] limited =
-                {
-                    WeaponId.AcornMortar,
-                    WeaponId.Fracking,
-                    WeaponId.BigWhack,
-                    WeaponId.SnapTrap,
-                    WeaponId.RootSnare,
-                    WeaponId.TunnelTorpedo,
-                    WeaponId.PowerClaws,
-                    WeaponId.Sandbag,
-                    WeaponId.GeyserCap,
-                };
-
                 return new CrateContents(
-                    CrateKind.Weapon, limited[rng.NextIndex(limited.Length)], 1);
+                    CrateKind.Weapon, Restockable[rng.NextIndex(Restockable.Length)], 1);
             }
 
             // The crate rarities, four times in a hundred between them.
             return new CrateContents(
-                CrateKind.Weapon,
-                rng.NextBool() ? WeaponId.MolyHandGrenade : WeaponId.GnomeMercy,
-                1);
+                CrateKind.Weapon, Rarities[rng.NextBool() ? 0 : 1], 1);
         }
     }
 }

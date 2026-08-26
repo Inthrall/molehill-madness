@@ -26,12 +26,18 @@ public sealed class SeatPlanner
 
     private readonly MoleMatch _match;
 
+    private readonly List<PlanAction> _hops = new List<PlanAction>();
+
     public SeatPlanner(MoleMatch match, int seat)
     {
         _match = match;
         Seat = seat;
         Route = new List<Vec2>();
+        Weapon = FirstAvailable();
     }
+
+    /// <summary>How many hops one turn may schedule. More than this and a plan stops reading.</summary>
+    public const int MaxHops = 3;
 
     public int Seat { get; }
 
@@ -44,7 +50,22 @@ public sealed class SeatPlanner
     /// <summary>What the route would actually do, or null while nothing is laid.</summary>
     public GhostPreview? Preview { get; private set; }
 
-    public WeaponId Weapon { get; private set; } = WeaponId.ClodLobber;
+    public WeaponId Weapon { get; private set; }
+
+    /// <summary>Hops scheduled along the route, in the order they will happen.</summary>
+    public IReadOnlyList<PlanAction> Hops => _hops;
+
+    /// <summary>Whether the turn ends dug in, and at which tick.</summary>
+    public PlanAction? BraceAt { get; private set; }
+
+    /// <summary>Whether the next tap on the route should drop a hop there.</summary>
+    public bool PlacingHop { get; private set; }
+
+    /// <summary>How many of a weapon this platoon has, or -1 for unlimited.</summary>
+    public int Stock(WeaponId weapon) => _match.Stock(Seat, weapon);
+
+    /// <summary>Whether the charge button has anything left to plant.</summary>
+    public bool HasCharges => _match.CanUse(Seat, WeaponId.BoomBeets);
 
     public PlanAction? Shot { get; private set; }
 
@@ -87,6 +108,8 @@ public sealed class SeatPlanner
         Preview = null;
         Shot = null;
         Charge = null;
+        BraceAt = null;
+        ClearHops();
         Aiming = false;
         Committed = false;
         ResetHeld = 0;
@@ -135,17 +158,66 @@ public sealed class SeatPlanner
         Preview = null;
         Shot = null;
         Charge = null;
+        BraceAt = null;
+        ClearHops();
     }
 
+    /// <summary>
+    /// Turns the wheel, skipping anything this platoon has none of.
+    /// </summary>
+    /// <remarks>
+    /// Filtered rather than greyed out. A wheel of fifteen where eleven are unavailable is
+    /// eleven flicks of nothing, and the simulation would refuse the plan anyway.
+    /// </remarks>
     public void CycleWeapon(int direction)
     {
-        if (Committed)
+        if (Committed || direction == 0)
         {
             return;
         }
 
+        int step = direction > 0 ? 1 : -1;
         int at = System.Array.IndexOf(Arsenal.Wheel, Weapon);
-        Weapon = Arsenal.Wheel[(at + direction + Arsenal.Wheel.Length) % Arsenal.Wheel.Length];
+
+        for (int tried = 0; tried < Arsenal.Wheel.Length; tried++)
+        {
+            at = (at + step + Arsenal.Wheel.Length) % Arsenal.Wheel.Length;
+
+            if (_match.CanUse(Seat, Arsenal.Wheel[at]))
+            {
+                Weapon = Arsenal.Wheel[at];
+                return;
+            }
+        }
+    }
+
+    /// <summary>Everything this platoon could pick right now, in wheel order.</summary>
+    public List<WeaponId> Available()
+    {
+        List<WeaponId> available = new List<WeaponId>(Arsenal.Wheel.Length);
+
+        foreach (WeaponId weapon in Arsenal.Wheel)
+        {
+            if (_match.CanUse(Seat, weapon))
+            {
+                available.Add(weapon);
+            }
+        }
+
+        return available;
+    }
+
+    private WeaponId FirstAvailable()
+    {
+        foreach (WeaponId weapon in Arsenal.Wheel)
+        {
+            if (_match.CanUse(Seat, weapon))
+            {
+                return weapon;
+            }
+        }
+
+        return WeaponId.ClodLobber;
     }
 
     // ---- Laying ink ----------------------------------------------------------------
@@ -280,10 +352,115 @@ public sealed class SeatPlanner
             return;
         }
 
+        if (!HasCharges)
+        {
+            return;
+        }
+
+        Charge = PlanAction.Dynamite(EndTick());
+    }
+
+    // ---- Hopping and bracing -------------------------------------------------------
+
+    /// <summary>
+    /// Arms hop placement. The next tap on the route drops one there.
+    /// </summary>
+    /// <remarks>
+    /// Two steps rather than one because a hop has to go somewhere in particular, and a single
+    /// finger laying a route cannot also press a button partway along it. Arming first means
+    /// the same gesture works with a mouse, a thumb and a gamepad.
+    /// </remarks>
+    public void ArmHop()
+    {
+        if (!IsPlanning)
+        {
+            return;
+        }
+
+        PlacingHop = !PlacingHop && _hops.Count < MaxHops;
+    }
+
+    /// <summary>
+    /// Drops a hop at whichever moment of the route runs nearest the given point.
+    /// </summary>
+    /// <returns>Whether one was actually placed.</returns>
+    public bool PlaceHopNear(Vec2 at)
+    {
+        PlacingHop = false;
+
+        if (!IsPlanning || Preview is null || Preview.Path.Count == 0 || _hops.Count >= MaxHops)
+        {
+            return false;
+        }
+
+        int nearest = 0;
+        Fix64 best = Fix64.MaxValue;
+
+        for (int tick = 0; tick < Preview.Path.Count; tick++)
+        {
+            Fix64 distance = Vec2.DistanceSquared(Preview.Path[tick], at);
+
+            if (distance >= best)
+            {
+                continue;
+            }
+
+            best = distance;
+            nearest = tick;
+        }
+
+        // A hop is scheduled at a moment, not at a place, so two of them at the same tick
+        // would be one hop and one wasted press.
+        foreach (PlanAction existing in _hops)
+        {
+            if (existing.Tick == nearest)
+            {
+                return false;
+            }
+        }
+
+        _hops.Add(PlanAction.Hop(
+            nearest >= MatchSettings.TicksPerRound ? MatchSettings.TicksPerRound - 1 : nearest));
+
+        _hops.Sort((first, second) => first.Tick.CompareTo(second.Tick));
+        return true;
+    }
+
+    public void ClearHops()
+    {
+        _hops.Clear();
+        PlacingHop = false;
+    }
+
+    /// <summary>Where a hop lands on the drawn route, for the client to mark it.</summary>
+    public Vec2 HopPosition(PlanAction hop)
+    {
+        if (Preview is null || Preview.Path.Count == 0)
+        {
+            return Actor?.Position ?? Vec2.Zero;
+        }
+
+        int tick = hop.Tick >= Preview.Path.Count ? Preview.Path.Count - 1 : hop.Tick;
+
+        return Preview.Path[tick];
+    }
+
+    /// <summary>Ends the turn dug in, or stops doing so. Costs nothing to change your mind.</summary>
+    public void ToggleBrace()
+    {
+        if (!IsPlanning)
+        {
+            return;
+        }
+
+        BraceAt = BraceAt is null ? PlanAction.Brace(EndTick()) : null;
+    }
+
+    private int EndTick()
+    {
         int tick = Preview?.TicksUsed ?? 0;
 
-        Charge = PlanAction.Dynamite(
-            tick >= MatchSettings.TicksPerRound ? MatchSettings.TicksPerRound - 1 : tick);
+        return tick >= MatchSettings.TicksPerRound ? MatchSettings.TicksPerRound - 1 : tick;
     }
 
     // ---- Resetting -----------------------------------------------------------------
@@ -339,6 +516,8 @@ public sealed class SeatPlanner
         Preview = null;
         Shot = null;
         Charge = null;
+        BraceAt = null;
+        ClearHops();
     }
 
     // ---- Committing ----------------------------------------------------------------
@@ -362,7 +541,8 @@ public sealed class SeatPlanner
             route[index] = RoutePoint.FromWorld(Route[index]);
         }
 
-        List<PlanAction> actions = new List<PlanAction>(2);
+        List<PlanAction> actions = new List<PlanAction>(MaxHops + 3);
+        actions.AddRange(_hops);
 
         if (Charge is not null)
         {
@@ -372,6 +552,13 @@ public sealed class SeatPlanner
         if (Shot is not null)
         {
             actions.Add(Shot.Value);
+        }
+
+        // Bracing last, so on a tick it shares with the shot the mole fires and then digs in
+        // rather than stopping before it has thrown anything.
+        if (BraceAt is not null)
+        {
+            actions.Add(BraceAt.Value);
         }
 
         _match.SubmitPlan(new Plan(Seat, Actor.Index, Weapon, route, actions.ToArray()));

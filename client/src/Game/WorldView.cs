@@ -251,10 +251,11 @@ public partial class WorldView : Control
         float width = (glyph * 1.4f) + barWidth + tokens + (pad * 5f);
         DrawRect(new Rect2(pad, pad, width, height), Palette.Panel);
 
-        // What is on the wheel, in the platoon's own colour ring.
+        // What is on the wheel, in the platoon's own colour ring, with how many are left.
         Vector2 wheelAt = new Vector2(pad + pad + (glyph * 0.7f), pad + (height / 2f));
         DrawArc(wheelAt, glyph * 0.5f, 0, Mathf.Tau, 28, new Color(seat, 0.6f), 2f);
         Glyphs.Weapon(this, planner.Weapon, wheelAt, glyph * 0.78f, Palette.OnPanel);
+        DrawStockPips(planner.Stock(planner.Weapon), wheelAt, glyph * 0.5f);
 
         float left = pad + (glyph * 1.4f) + (pad * 3f);
         float first = pad + pad;
@@ -276,6 +277,34 @@ public partial class WorldView : Control
             barHeight * 1.6f, Palette.OnPanel);
 
         DrawResets(planner, left + barWidth + (pad * 1.5f), pad + (height / 2f), glyph);
+    }
+
+    /// <summary>
+    /// How many of the selected weapon are left, as pips around its ring.
+    /// </summary>
+    /// <remarks>
+    /// Pips rather than a numeral, because the design spends its one numeral exception on
+    /// damage. Unlimited draws nothing at all, which is the right answer: there is no count to
+    /// read on the one weapon that never runs out, and an infinity mark would be a symbol to
+    /// learn for no gain.
+    /// </remarks>
+    private void DrawStockPips(int stock, Vector2 at, float radius)
+    {
+        if (stock < 0)
+        {
+            return;
+        }
+
+        int shown = Mathf.Min(stock, 5);
+
+        for (int pip = 0; pip < shown; pip++)
+        {
+            float angle = (-Mathf.Pi / 2f) + 0.45f + (pip * 0.42f);
+
+            DrawCircle(
+                at + (new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * radius * 1.35f),
+                radius * 0.16f, Palette.OnPanel);
+        }
     }
 
     /// <summary>
@@ -656,6 +685,26 @@ public partial class WorldView : Control
         foreach (Vec2 point in planner.Route)
         {
             DrawCircle(ToPixels(point), radius * 0.28f, ink);
+        }
+
+        // Hops, marked where they will happen. A hop is scheduled at a moment rather than at a
+        // place, so backing the pen up moves the marker, which is honest about what was booked.
+        float marker = Mathf.Max(radius * 2.2f, 18f);
+
+        foreach (PlanAction hop in planner.Hops)
+        {
+            Vector2 at = ToPixels(planner.HopPosition(hop)) + new Vector2(0, -radius * 1.4f);
+
+            DrawCircle(at, marker * 0.5f, new Color(Palette.Paper, 0.75f));
+            Glyphs.Hop(this, at, marker * 0.9f, seat);
+        }
+
+        if (planner.BraceAt is not null)
+        {
+            Vector2 at = ToPixels(planner.Muzzle) + new Vector2(0, -radius * 2.4f);
+
+            DrawCircle(at, marker * 0.5f, new Color(Palette.Paper, 0.75f));
+            Glyphs.Brace(this, at, marker * 0.85f, seat);
         }
 
         // The charge, where the ghost will drop it. Plant, run, regret, and knowing exactly

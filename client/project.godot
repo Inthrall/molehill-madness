@@ -21,6 +21,10 @@ window/size/viewport_height=720
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 
+; Either way round, but never portrait. The touch layout puts the wheel and the fire
+; button under one thumb and the plan controls under the other, which needs the width.
+window/handheld/orientation=4
+
 [dotnet]
 
 project/assembly_name="Molehill.Client"
