@@ -1,0 +1,32 @@
+; Molehill Mayhem client.
+;
+; At Phase 0 this project exists for one reason: to run MoleSim on a phone and
+; show whether the answers match the desktop. The real client starts at Phase 2.
+
+config_version=5
+
+[application]
+
+config/name="Molehill Mayhem"
+config/description="Phase 0 probe: does the simulation agree with the desktop?"
+run/main_scene="res://scenes/Phase0.tscn"
+config/features=PackedStringArray("4.7", "C#", "Mobile")
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
+[dotnet]
+
+project/assembly_name="Molehill.Client"
+
+[rendering]
+
+; Compatibility rather than Forward+, because the widest possible spread of
+; Android hardware matters more to this game than any modern rendering feature.
+; It is a hand-drawn 2D game; there is nothing here Forward+ would buy.
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"

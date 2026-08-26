@@ -1,0 +1,19 @@
+<Project Sdk="Godot.NET.Sdk/4.7.2">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <Nullable>enable</Nullable>
+    <LangVersion>12</LangVersion>
+  </PropertyGroup>
+
+  <!--
+    The client consumes the simulation and never the other way round. MoleSim targets
+    netstandard2.1 precisely so that whatever engine ends up rendering the game can pick
+    it up unchanged.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\sim\MoleSim\MoleSim.csproj" />
+  </ItemGroup>
+
+</Project>

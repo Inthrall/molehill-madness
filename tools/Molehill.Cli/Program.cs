@@ -2,6 +2,7 @@ using System;
 using System.Globalization;
 using System.IO;
 using MoleSim;
+using MoleSim.Diagnostics;
 using MoleSim.Numerics;
 using MoleSim.Terrain;
 
@@ -39,72 +40,31 @@ internal static class Program
     /// </summary>
     private static int SelfTest()
     {
+        DeterminismFingerprint print = DeterminismProbe.Run();
+
         Console.WriteLine("Molehill determinism fingerprint");
         Console.WriteLine("--------------------------------");
         Console.WriteLine($"runtime      {Environment.Version}");
         Console.WriteLine($"os           {Environment.OSVersion}");
         Console.WriteLine($"64-bit       {Environment.Is64BitProcess}");
         Console.WriteLine();
-
-        // Arithmetic: exercises the wide intermediates in multiply, divide and root.
-        Fix64 accumulator = Fix64.One;
-        for (int step = 1; step <= 500; step++)
-        {
-            Fix64 value = Fix64.FromInt(step);
-            accumulator += Fix64.Sqrt(value) * Fix64.Ratio(7, 13);
-            accumulator = accumulator / Fix64.Ratio(1001, 1000);
-            accumulator += Fix64.Hypot(value, Fix64.FromInt(step * 3));
-        }
-
-        Console.WriteLine($"fix64        {accumulator.Raw:X16}  ({accumulator})");
-
-        // Vectors: normalise, cap and convert, which is what physics leans on hardest.
-        Vec2 drift = Vec2.Zero;
-        for (int step = 1; step <= 400; step++)
-        {
-            Vec2 velocity = new Vec2(Fix64.FromInt(step % 37) - Fix64.FromInt(18), Fix64.FromInt(step % 23));
-            drift += velocity.Normalised() * Fix64.Ratio(step % 11, 4);
-            drift = drift.WithMaxLength(Fix64.FromInt(120));
-        }
-
-        WorldScale.ToCell(drift, out int driftCellX, out int driftCellY);
-        Console.WriteLine($"vec2         {drift.X.Raw:X16} {drift.Y.Raw:X16}  cell {driftCellX},{driftCellY}");
-
-        // Randomness: the exact draw sequence a match depends on.
-        MatchRng rng = new MatchRng(20260826UL);
-        ulong mixed = 0;
-        for (int draw = 0; draw < 10_000; draw++)
-        {
-            mixed ^= rng.NextUInt64();
-            mixed = (mixed << 1) | (mixed >> 63);
-        }
-
-        Console.WriteLine($"rng          {mixed:X16}");
-
-        // Terrain: a scripted sequence of carves, then both hashes. They must match each
-        // other as well as the other machine.
-        TerrainGrid grid = BuildTestMap(600, 320);
-        MatchRng carveRng = new MatchRng(1337UL);
-        for (int carve = 0; carve < 2000; carve++)
-        {
-            grid.CarveCircle(
-                carveRng.NextInt(grid.Width),
-                carveRng.NextInt(grid.Height),
-                carveRng.NextInt(2, 14));
-        }
-
-        Console.WriteLine($"terrain      {grid.Hash:X16}");
-        Console.WriteLine($"terrain full {grid.ComputeFullHash():X16}");
+        Console.WriteLine($"fix64        {print.Arithmetic:X16}");
+        Console.WriteLine($"vec2         {print.DriftX:X16} {print.DriftY:X16}  cell {print.CellX},{print.CellY}");
+        Console.WriteLine($"rng          {print.Randomness:X16}");
+        Console.WriteLine($"terrain      {print.TerrainRolling:X16}");
+        Console.WriteLine($"terrain full {print.TerrainFull:X16}");
+        Console.WriteLine();
+        Console.WriteLine($"COMBINED     {print.Combined:X16}");
         Console.WriteLine();
 
-        if (grid.Hash != grid.ComputeFullHash())
+        if (!print.TerrainHashesAgree)
         {
             Console.Error.WriteLine("FAIL: the rolling terrain hash has drifted from a full recompute.");
             return 1;
         }
 
         Console.WriteLine("Rolling and full terrain hashes agree.");
-        Console.WriteLine("Compare every line above against the other platform.");
+        Console.WriteLine("The COMBINED line is the one to compare against another device.");
         return 0;
     }
 
@@ -113,7 +73,7 @@ internal static class Program
         const int Width = 900;
         const int Height = 480;
 
-        TerrainGrid grid = BuildTestMap(Width, Height);
+        TerrainGrid grid = DeterminismProbe.BuildProbeMap(Width, Height);
 
         // A few craters and a tunnel, so the dump shows carving as well as strata.
         grid.CarveCircle(200, 150, 34);
@@ -172,33 +132,6 @@ internal static class Program
         Console.WriteLine("An 8-second turn at 5 m/s covers at most 40 m, so on the surface");
         Console.WriteLine("the clock binds first and underground the stamina does.");
         return 0;
-    }
-
-    /// <summary>
-    /// A miniature of the shipping cross-section: turf line, strata beneath, bedrock along
-    /// the floor. Used by both the fingerprint and the dump so they exercise the same map.
-    /// </summary>
-    private static TerrainGrid BuildTestMap(int width, int height)
-    {
-        TerrainGrid grid = new TerrainGrid(width, height);
-        int surface = height / 4;
-
-        // A rolling surface, drawn with whole-number arithmetic so the shape is identical
-        // everywhere. The client's real maps come from baked art instead.
-        for (int x = 0; x < width; x++)
-        {
-            int rise = ((x * 7 / 40) % 24) - 12;
-            int top = surface + (rise / 3);
-
-            grid.FillRectangle(x, top, 1, 3, Material.Turf);
-            grid.FillRectangle(x, top + 3, 1, height / 8, Material.LooseSoil);
-            grid.FillRectangle(x, top + 3 + (height / 8), 1, height / 3, Material.PackedSoil);
-        }
-
-        grid.FillRectangle(0, height - (height / 6), width, height / 12, Material.RootMat);
-        grid.FillRectangle(0, height - (height / 12), width, height / 12, Material.Bedrock);
-
-        return grid;
     }
 
     private static (byte Red, byte Green, byte Blue) ColourOf(Material material) => material switch
