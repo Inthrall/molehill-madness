@@ -33,6 +33,7 @@ public partial class Phase0Probe : Node2D
     private double _elapsed;
     private float _moleX;
     private int _moleDirection = 1;
+    private int _framesDrawn;
 
     public override void _Ready()
     {
@@ -50,9 +51,13 @@ public partial class Phase0Probe : Node2D
         GD.Print($"  expected  {ExpectedFromDesktop}");
         GD.Print($"  agrees    {_matchesDesktop}");
         GD.Print($"  took      {_probeMilliseconds} ms");
+        GD.Print($"  user args [{string.Join("] [", OS.GetCmdlineUserArgs())}]");
 
         BuildInterface(combined);
     }
+
+    private MarginContainer _margin = null!;
+    private Label _title = null!;
 
     private void BuildInterface(string combined)
     {
@@ -64,36 +69,98 @@ public partial class Phase0Probe : Node2D
             AnchorRight = 1,
             AnchorBottom = 1,
         };
-        margin.AddThemeConstantOverride("margin_left", 48);
-        margin.AddThemeConstantOverride("margin_top", 40);
-        margin.AddThemeConstantOverride("margin_right", 48);
-        margin.AddThemeConstantOverride("margin_bottom", 40);
+        _margin = margin;
         layer.AddChild(margin);
 
         VBoxContainer column = new VBoxContainer();
-        column.AddThemeConstantOverride("separation", 18);
+        column.AddThemeConstantOverride("separation", 22);
         margin.AddChild(column);
 
-        Label title = MakeLabel("MOLEHILL  ·  PHASE 0 PROBE", 30, new Color(0.42f, 0.65f, 0.33f));
-        column.AddChild(title);
+        // Spacers above and below the text so the block sits in the middle of whatever
+        // shape of screen this lands on. A phone held in portrait stretches the viewport
+        // to well over twice its base height, and without this everything huddles at the
+        // top of an empty screen.
+        column.AddChild(new Control { SizeFlagsVertical = Control.SizeFlags.ExpandFill });
+
+        _title = MakeLabel("MOLEHILL  ·  PHASE 0 PROBE", 38, new Color(0.42f, 0.65f, 0.33f));
+        column.AddChild(_title);
 
         // The verdict, as large as it can reasonably be: this is the line somebody reads
         // off a phone screen while standing next to the desktop that produced the other one.
         _headline = MakeLabel(
             _matchesDesktop ? "SIMULATIONS AGREE" : "MISMATCH",
-            56,
+            80,
             _matchesDesktop ? new Color(0.42f, 0.65f, 0.33f) : new Color(0.77f, 0.16f, 0.05f));
+        _headline.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         column.AddChild(_headline);
 
-        _detail = MakeLabel(BuildDetail(combined), 24, new Color(0.18f, 0.14f, 0.10f));
+        _detail = MakeLabel(BuildDetail(combined), 30, new Color(0.18f, 0.14f, 0.10f));
         column.AddChild(_detail);
 
-        Control spacer = new Control { SizeFlagsVertical = Control.SizeFlags.ExpandFill };
-        column.AddChild(spacer);
+        column.AddChild(new Control { SizeFlagsVertical = Control.SizeFlags.ExpandFill });
 
-        _frameRate = MakeLabel("", 22, new Color(0.43f, 0.36f, 0.28f));
+        _frameRate = MakeLabel("", 26, new Color(0.43f, 0.36f, 0.28f));
         column.AddChild(_frameRate);
+
+        ApplyLayout();
+        GetViewport().SizeChanged += ApplyLayout;
     }
+
+    /// <summary>
+    /// Sizes the text against the viewport rather than fixing it.
+    /// </summary>
+    /// <remarks>
+    /// The stretch settings keep a base width of 1280 and let the height run, so the
+    /// viewport is about 1280x2844 on a phone held upright and 1280x576 on its side. A
+    /// font size that reads well in one is unusable in the other: fixed sizes tuned for
+    /// portrait ran straight off the bottom of the screen in landscape. Scaling by
+    /// viewport height and clamping the result keeps it readable either way, and
+    /// re-running on rotation means turning the phone over does the right thing.
+    /// </remarks>
+    private void ApplyLayout()
+    {
+        float height = GetViewportRect().Size.Y;
+
+        int titleSize = (int)Mathf.Clamp(height * 0.045f, 20f, 44f);
+        int headlineSize = (int)Mathf.Clamp(height * 0.100f, 42f, 110f);
+        int frameRateSize = (int)Mathf.Clamp(height * 0.030f, 15f, 32f);
+        int separation = (int)Mathf.Clamp(height * 0.020f, 8f, 30f);
+        int side = (int)Mathf.Max(32f, height * 0.03f);
+        int bottom = (int)(GroundBandHeight() + (side / 2f));
+
+        // Work out what room is left once everything of a fixed size has had its share,
+        // then size the detail block to fit that. Choosing a size and hoping is how the
+        // device and renderer lines ended up underneath the soil in landscape.
+        const float LineSpacing = 1.35f;
+        float reserved =
+            side + bottom
+            + ((titleSize + headlineSize + frameRateSize) * LineSpacing)
+            + (separation * 5);
+
+        int detailLines = _detail.Text.Split('\n').Length;
+        float available = Mathf.Max(0f, height - reserved);
+        int detailSize = (int)Mathf.Clamp(available / (detailLines * LineSpacing), 13f, 40f);
+
+        _title.AddThemeFontSizeOverride("font_size", titleSize);
+        _headline.AddThemeFontSizeOverride("font_size", headlineSize);
+        _detail.AddThemeFontSizeOverride("font_size", detailSize);
+        _frameRate.AddThemeFontSizeOverride("font_size", frameRateSize);
+
+        if (_detail.GetParent() is VBoxContainer column)
+        {
+            column.AddThemeConstantOverride("separation", separation);
+        }
+
+        _margin.AddThemeConstantOverride("margin_left", side);
+        _margin.AddThemeConstantOverride("margin_right", side);
+        _margin.AddThemeConstantOverride("margin_top", side);
+
+        // Keep the bottom of the text clear of the ground band the mole walks on.
+        _margin.AddThemeConstantOverride("margin_bottom", bottom);
+    }
+
+    /// <summary>Height of the soil strip along the bottom, proportional to the screen.</summary>
+    private float GroundBandHeight() => Mathf.Max(90f, GetViewportRect().Size.Y * 0.11f);
 
     private string BuildDetail(string combined)
     {
@@ -123,9 +190,37 @@ public partial class Phase0Probe : Node2D
         return label;
     }
 
+    /// <summary>
+    /// Saves a screenshot and quits, so the layout can be checked without a device.
+    /// Run with: godot --path client -- --probe-screenshot &lt;path&gt;
+    /// </summary>
+    private void CaptureIfAsked()
+    {
+        string[] arguments = OS.GetCmdlineUserArgs();
+        int flag = System.Array.IndexOf(arguments, "--probe-screenshot");
+
+        if (flag < 0 || flag + 1 >= arguments.Length)
+        {
+            return;
+        }
+
+        // Give the interface a couple of frames to lay itself out first.
+        if (_framesDrawn < 3)
+        {
+            return;
+        }
+
+        Image image = GetViewport().GetTexture().GetImage();
+        image.SavePng(arguments[flag + 1]);
+        GD.Print($"  saved     {arguments[flag + 1]}");
+        GetTree().Quit();
+    }
+
     public override void _Process(double delta)
     {
         _elapsed += delta;
+        _framesDrawn++;
+        CaptureIfAsked();
 
         // A placeholder mole walking a flat floor. Not a simulation, just proof that the
         // engine is running C# and drawing at a sensible rate on this hardware.
@@ -183,7 +278,7 @@ public partial class Phase0Probe : Node2D
     public override void _Draw()
     {
         Vector2 size = GetViewportRect().Size;
-        float groundY = size.Y - 120f;
+        float groundY = size.Y - GroundBandHeight();
 
         // The document's palette, so the probe already looks like the game it belongs to.
         Color sky = new Color(0.949f, 0.945f, 0.894f);
