@@ -44,7 +44,9 @@ dotnet test
 
 ## Status
 
-Phase 0: killing the unknowns. The current gate is proving Godot 4's C# export runs on real iOS and Android hardware and that the simulation hashes identically across platforms. Nothing above that gate is worth building until it passes.
+**Phase 0 gate: passed.** The simulation computes identical results on Windows, Linux and Android, across two CPU architectures and two .NET runtime versions, and the probe runs in 22 ms at 60 fps on a phone. Full evidence and the deferred risks are in [`docs/phase-0-gate.md`](docs/phase-0-gate.md).
+
+Next: Phase 1, MoleSim v0. The whole game, headless, playable by two scripts in a console before a single pixel is drawn.
 
 ## Licence
 
