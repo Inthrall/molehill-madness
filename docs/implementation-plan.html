@@ -241,7 +241,7 @@
 </style>
 
 <header class="col">
-  <p class="eyebrow">Implementation plan · v0.1 · 26 August 2026 · companion to the design document v0.8</p>
+  <p class="eyebrow">Implementation plan · v0.2 · 26 August 2026 · companion to the design document v0.8 · Phase 0 gate passed</p>
   <h1 class="masthead-title">DIGGING <span class="hill">IN</span></h1>
   <p class="tagline">How Molehill Mayhem actually gets built.</p>
   <div class="chips">
@@ -250,6 +250,7 @@
     <span class="chip">7 phases · 2 hard gates</span>
     <span class="chip">Solo-dev scale</span>
     <span class="chip">Gates, not dates</span>
+    <span class="chip">Tech gate passed</span>
   </div>
   <svg class="crosssection" viewBox="0 0 900 120" role="img" aria-label="Decorative cross-section: grass and dirt with one molehill flying a small flag, dashed tunnel below, and a thin band of lava along the bottom.">
     <rect x="0" y="34" width="900" height="66" rx="6" style="fill:var(--dirt-band)"/>
@@ -456,9 +457,11 @@ ulong hash = match.StateHash();            // for CI + cheat verification</code>
       </tbody>
     </table>
   </div>
-  <div class="fieldnote gate">
-    <span class="tag">Tech gate</span>
-    <p>Pass: 0.4 and 0.5 both green. Fail: the engine decision reopens before anything else is built, exactly as the design document's "replace the lens" clause intends (GDD §16). Nothing above Phase 0 is worth doing on an unproven export path.</p>
+  <div class="fieldnote">
+    <span class="tag">Tech gate · passed</span>
+    <p><strong>The simulation computes byte-identical results on Windows, Linux and Android:</strong> combined hash <code>D1096413CA1B6CF8</code> across two CPU architectures and two .NET runtime versions. The ARM64 result is the one that counts, because x86-64 against ARM64 is exactly where IEEE 754 arithmetic diverges in practice, and that boundary is the entire reason the sim is integer-only. The probe runs in 22 ms at 60 fps on a Mali-G78, against a 250 ms budget, so the plan's reliance on cheap re-simulation is affordable rather than hopeful.</p>
+    <p><strong>One leg is deferred, not passed.</strong> Godot reports that Apple Embedded export with C#/.NET is experimental and requires macOS, so 0.4 could not be attempted for iOS from a Windows machine. Acceptable because MoleSim has no engine dependencies and the risk stays inside a deliberately thin client layer, but a Mac is now a dated dependency: needed before Phase 4 for TestFlight.</p>
+    <p>Three things the gate caught that would otherwise have been assumed: Godot 4.7.2's Android export template accepts <code>net9.0</code> only though its own editor assemblies are <code>net8.0</code>; Android export needs ETC2/ASTC enabled; and Godot wants a classic <code>.sln</code> where .NET 10 now writes <code>.slnx</code>, without which the export <strong>silently produced a signed APK containing no C# at all</strong>. Full write-up in <code>docs/phase-0-gate.md</code>.</p>
   </div>
 </section>
 
@@ -732,8 +735,9 @@ ulong hash = match.StateHash();            // for CI + cheat verification</code>
     <table>
       <thead><tr><th>Risk</th><th>Retired by</th><th>How</th></tr></thead>
       <tbody>
-        <tr><td class="k">Godot C# mobile export</td><td>Phase 0 <span class="pill gate">Gate</span></td><td>Real devices, week one, before anything else exists.</td></tr>
-        <tr><td class="k">Determinism drift</td><td>Phase 0, then forever</td><td>Fix64 from the first commit, corpus from Phase 1, device matrix from Phase 3, field hashes from Phase 4.</td></tr>
+        <tr><td class="k">Godot C# mobile export</td><td>Phase 0 <span class="pill ship">Android done</span></td><td>Runs at 60 fps on a real phone. <strong>iOS still open:</strong> Godot's Apple Embedded .NET export requires macOS, so it could not be attempted. Needs a Mac before Phase 4.</td></tr>
+        <tr><td class="k">Godot calls .NET mobile export experimental</td><td>Watch through Phase 3</td><td>Godot's own warning, not ours. It produced a correct Android build, but the label is a live risk to the engine choice and wants watching as the client grows past one scene.</td></tr>
+        <tr><td class="k">Determinism drift</td><td>Phase 0 <span class="pill ship">Proven</span>, then forever</td><td>Identical hashes on x86-64 and ARM64, .NET 9 and .NET 10. Corpus from Phase 1, device matrix from Phase 3, field hashes from Phase 4.</td></tr>
         <tr><td class="k">WeGo not actually fun</td><td>Phase 2 <span class="pill gate">Gate</span></td><td>Fun proof with four humans before any content or online money.</td></tr>
         <tr><td class="k">Four-player readability</td><td>Phase 3</td><td>Camera director + digits + slow-mo, tuned in couch playtests.</td></tr>
         <tr><td class="k">Wordless UI inscrutable</td><td>Phases 3&#8211;4</td><td>Stranger test at P3, teaching spike at P4; the labels toggle is the honest fallback.</td></tr>
@@ -769,5 +773,5 @@ ulong hash = match.StateHash();            // for CI + cheat verification</code>
 </section>
 
 <footer class="col footer-note">
-  <p>Digging In · implementation plan v0.1 · 26 August 2026 · companion to the Molehill Mayhem game design document v0.8. Phases map to GDD milestones M0&#8211;M4; the two hard gates are Phase 0 (tech) and Phase 2 (fun). Source lives at <code>C:\Personal\Molehill\docs\</code>.</p>
+  <p>Digging In · implementation plan v0.2 · 26 August 2026 · companion to the Molehill Mayhem game design document v0.8. Phases map to GDD milestones M0&#8211;M4; the two hard gates are Phase 0 (tech, <strong>passed</strong>) and Phase 2 (fun). Gate evidence in <code>docs/phase-0-gate.md</code>; code at <a href="https://github.com/Inthrall/molehill-mayhem">github.com/Inthrall/molehill-mayhem</a>.</p>
 </footer>
