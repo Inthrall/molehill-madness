@@ -1,8 +1,8 @@
+using System;
 using System.Collections.Generic;
 using MoleSim;
 using MoleSim.Match;
 using MoleSim.Numerics;
-using MoleSim.Terrain;
 
 /// <summary>
 /// One platoon's turn, in progress.
@@ -10,17 +10,20 @@ using MoleSim.Terrain;
 /// <remarks>
 /// The design has everybody planning at once, which is the whole reason split screen exists,
 /// so there is no such thing as "the" plan being laid: there are up to four, side by side,
-/// each with its own ink, its own aim and its own reset token. This holds one of them.
+/// each with its own mole, its own aim and its own reset token. This holds one of them.
 ///
-/// It knows nothing about input devices or screens. A mouse, a gamepad or a thumb all reach
-/// the game through the same handful of verbs here, which is what lets the same match run on
-/// a phone and in a four-way couch split without the rules caring which.
+/// A turn is steered rather than drawn. The player pushes, the mole walks, and the route it
+/// leaves behind is the plan. The first version drew the route as a line and looped a
+/// translucent ghost along it, which put two moles on the screen and left a first-time player
+/// unable to say which one was theirs or what the line was for. Steering says the same thing
+/// with one mole in it, and it costs the player nothing to learn.
+///
+/// It knows nothing about input devices or screens. A stick, a keyboard or a thumb all reach the
+/// game through the same handful of verbs here, which is what lets the same match run on a phone
+/// and in a four-way couch split without the rules caring which.
 /// </remarks>
 public sealed class SeatPlanner
 {
-    /// <summary>How far the pen travels before another waypoint drops.</summary>
-    private static Fix64 PenStep => Fix64.Ratio(3, 4);
-
     /// <summary>Drag distance, in metres, that charges a shot fully.</summary>
     public static Fix64 FullPowerDrag => Fix64.FromInt(20);
 
@@ -32,7 +35,6 @@ public sealed class SeatPlanner
     {
         _match = match;
         Seat = seat;
-        Route = new List<Vec2>();
         Weapon = FirstAvailable();
     }
 
@@ -44,22 +46,23 @@ public sealed class SeatPlanner
     /// <summary>Which mole is taking the turn. Null when the platoon has nobody eligible.</summary>
     public Mole? Actor { get; private set; }
 
-    /// <summary>The waypoints as laid, in world metres.</summary>
-    public List<Vec2> Route { get; }
-
-    /// <summary>What the route would actually do, or null while nothing is laid.</summary>
-    public GhostPreview? Preview { get; private set; }
+    /// <summary>The turn being walked out, or null when there is nobody to walk it.</summary>
+    public SteeredWalk? Walk { get; private set; }
 
     public WeaponId Weapon { get; private set; }
 
-    /// <summary>Hops scheduled along the route, in the order they will happen.</summary>
+    /// <summary>Hops scheduled along the way, in the order they will happen.</summary>
     public IReadOnlyList<PlanAction> Hops => _hops;
 
-    /// <summary>Whether the turn ends dug in, and at which tick.</summary>
-    public PlanAction? BraceAt { get; private set; }
-
-    /// <summary>Whether the next tap on the route should drop a hop there.</summary>
-    public bool PlacingHop { get; private set; }
+    /// <summary>Whether the turn ends dug in.</summary>
+    /// <remarks>
+    /// A flag rather than a booked action, because bracing is the one thing in a plan that means
+    /// "when I have finished moving" rather than "now". Booking it at the moment the button went
+    /// down was a quiet trap: bracing early cancelled the mole's own input partway along, so the
+    /// walk the player was still steering was silently truncated at the press. The tick is worked
+    /// out in <see cref="Commit"/>, by which time where the walk ended is known.
+    /// </remarks>
+    public bool Bracing { get; private set; }
 
     /// <summary>How many of a weapon this platoon has, or -1 for unlimited.</summary>
     public int Stock(WeaponId weapon) => _match.Stock(Seat, weapon);
@@ -75,6 +78,9 @@ public sealed class SeatPlanner
     /// </summary>
     public PlanAction? Charge { get; private set; }
 
+    /// <summary>Where the charge was planted, which is not where the mole ends up.</summary>
+    public Vec2 ChargeAt { get; private set; }
+
     /// <summary>Whether an aim is being dragged out right now.</summary>
     public bool Aiming { get; private set; }
 
@@ -86,11 +92,8 @@ public sealed class SeatPlanner
     /// <summary>Whether this seat has locked its plan in for the round.</summary>
     public bool Committed { get; private set; }
 
-    /// <summary>Drives the looping ghost. Presentation only.</summary>
-    public double GhostClock { get; private set; }
-
-    private bool _penDown;
     private bool _freeResetSpent;
+    private double _tickDebt;
 
     /// <summary>Resets tokens left: one free a turn, then whatever the crates have given.</summary>
     public int ResetsLeft => (_freeResetSpent ? 0 : 1) + (Actor?.ResetTokens ?? 0);
@@ -98,23 +101,49 @@ public sealed class SeatPlanner
     /// <summary>Whether this seat still has anything to do this round.</summary>
     public bool IsPlanning => Actor is not null && !Committed;
 
-    /// <summary>Where a stamped shot would leave from: the pen's tip, not the mole's feet.</summary>
-    public Vec2 Muzzle => Preview?.End ?? Actor?.Position ?? Vec2.Zero;
+    /// <summary>
+    /// Where the mole has been steered to. This is where it is drawn, where the shot leaves
+    /// from, and where anything else in the plan happens.
+    /// </summary>
+    public Vec2 PlannedPosition => Walk?.Position ?? Actor?.Position ?? Vec2.Zero;
+
+    /// <summary>How much of the round the walk has eaten, from zero to one.</summary>
+    public double TimeSpent =>
+        Walk is null ? 0 : Math.Min(Walk.TicksUsed / (double)MatchSettings.TicksPerRound, 1);
+
+    /// <summary>How much of the mole's puff the walk has eaten, from zero to one.</summary>
+    public double PuffSpent
+    {
+        get
+        {
+            if (Walk is null || Actor is null)
+            {
+                return 0;
+            }
+
+            double total = (double)Actor.Stamina.ToDecimal();
+
+            return total <= 0 ? 0 : Math.Min((double)Walk.StaminaSpent.ToDecimal() / total, 1);
+        }
+    }
+
+    public bool RanOutOfPuff => Walk?.RanOutOfPuff == true;
+
+    /// <summary>Whether there is any of the round left to walk in.</summary>
+    public bool HasTimeLeft => Walk?.HasTimeLeft == true;
 
     public void BeginRound()
     {
         Actor = null;
-        Route.Clear();
-        Preview = null;
+        Walk = null;
         Shot = null;
         Charge = null;
-        BraceAt = null;
-        ClearHops();
+        Bracing = false;
+        _hops.Clear();
         Aiming = false;
         Committed = false;
         ResetHeld = 0;
-        GhostClock = 0;
-        _penDown = false;
+        _tickDebt = 0;
         _freeResetSpent = false;
 
         foreach (Mole candidate in _match.Eligible(Seat))
@@ -126,11 +155,7 @@ public sealed class SeatPlanner
         // A platoon with nobody left to move has nothing to commit, and must not hold the
         // round open waiting for a plan that cannot exist.
         Committed = Actor is null;
-    }
-
-    public void Tick(double delta)
-    {
-        GhostClock += delta;
+        StartWalk();
     }
 
     /// <summary>Steps to the next mole that has not had its turn this cycle.</summary>
@@ -154,12 +179,7 @@ public sealed class SeatPlanner
         }
 
         Actor = choices[(choices.IndexOf(Actor) + 1) % choices.Count];
-        Route.Clear();
-        Preview = null;
-        Shot = null;
-        Charge = null;
-        BraceAt = null;
-        ClearHops();
+        Discard();
     }
 
     /// <summary>
@@ -177,7 +197,7 @@ public sealed class SeatPlanner
         }
 
         int step = direction > 0 ? 1 : -1;
-        int at = System.Array.IndexOf(Arsenal.Wheel, Weapon);
+        int at = Array.IndexOf(Arsenal.Wheel, Weapon);
 
         for (int tried = 0; tried < Arsenal.Wheel.Length; tried++)
         {
@@ -220,60 +240,57 @@ public sealed class SeatPlanner
         return WeaponId.ClodLobber;
     }
 
-    // ---- Laying ink ----------------------------------------------------------------
-
-    public void PenDown(Vec2 at)
-    {
-        if (!IsPlanning)
-        {
-            return;
-        }
-
-        // A fresh stroke replaces the old one. Ink only dries when the pen lifts, which is
-        // what lets it be backed up mid-stroke.
-        _penDown = true;
-        Route.Clear();
-        Extend(at);
-    }
-
-    public void PenUp()
-    {
-        _penDown = false;
-        RebuildPreview();
-    }
-
-    public bool PenIsDown => _penDown;
+    // ---- Steering ------------------------------------------------------------------
 
     /// <summary>
-    /// Lays or retracts ink. The pen may be backed up along its own stroke while it is still
-    /// down, which is the design's one concession to a wobbly hand.
+    /// Walks the mole for however much of the round the last frame was worth.
     /// </summary>
-    public void Extend(Vec2 at)
+    /// <remarks>
+    /// Real time in, simulation ticks out, which is what makes the movement budget legible: hold
+    /// the stick for a second and a second of the round is gone. The eight seconds are eight
+    /// seconds of walking rather than of wall clock, so nothing is spent while nobody is pushing.
+    ///
+    /// The debt is capped rather than carried. A dropped frame is not something the player did,
+    /// and paying it back afterwards would jerk the mole forward through ground they were still
+    /// deciding about.
+    /// </remarks>
+    public void Steer(Vec2 direction, double seconds)
     {
-        if (!IsPlanning || !_penDown)
+        if (!IsPlanning || Walk is null)
         {
             return;
         }
 
-        if (Route.Count == 0)
+        bool idle = direction.LengthSquared() == Fix64.Zero && !Walk.IsFalling;
+
+        if (idle || !Walk.HasTimeLeft)
         {
-            Route.Add(at);
-            RebuildPreview();
+            _tickDebt = 0;
             return;
         }
 
-        if (Route.Count >= 2
-            && Vec2.Distance(at, Route[Route.Count - 2]) < PenStep / Fix64.FromInt(2))
-        {
-            Route.RemoveAt(Route.Count - 1);
-            RebuildPreview();
-            return;
-        }
+        _tickDebt = Math.Min(
+            _tickDebt + (seconds * MatchSettings.TicksPerSecond), MaxTickDebt);
 
-        if (Vec2.Distance(at, Route[Route.Count - 1]) > PenStep)
+        while (_tickDebt >= 1 && Walk.HasTimeLeft)
         {
-            Route.Add(at);
-            RebuildPreview();
+            Walk.Advance(direction);
+            _tickDebt -= 1;
+        }
+    }
+
+    /// <summary>Ticks the debt may reach, which is about a fifth of a second's worth of hitch.</summary>
+    private const double MaxTickDebt = 6;
+
+    /// <summary>
+    /// Walks exactly one tick. What the test driver steers with, so it goes through the same
+    /// door a stick does rather than assembling a route behind the game's back.
+    /// </summary>
+    public void StepToward(Vec2 direction)
+    {
+        if (IsPlanning)
+        {
+            Walk?.Advance(direction);
         }
     }
 
@@ -300,7 +317,7 @@ public sealed class SeatPlanner
 
     /// <summary>
     /// Stamps the turn's shot: a direction from the drag, a power from its length, and a
-    /// moment from wherever the ghost had got to.
+    /// moment from wherever the mole has been steered to.
     /// </summary>
     public void ReleaseAim()
     {
@@ -311,7 +328,7 @@ public sealed class SeatPlanner
         }
 
         Aiming = false;
-        Vec2 aim = AimAt - Muzzle;
+        Vec2 aim = AimAt - PlannedPosition;
 
         if (aim.LengthSquared() == Fix64.Zero)
         {
@@ -320,24 +337,22 @@ public sealed class SeatPlanner
 
         Fix64 reach = Fix64.Min(aim.Length(), FullPowerDrag);
         int power = Fix64.ToInt(reach / FullPowerDrag * Fix64.FromInt(byte.MaxValue));
-        int tick = Preview?.TicksUsed ?? 0;
-
-        if (tick >= MatchSettings.TicksPerRound)
-        {
-            tick = MatchSettings.TicksPerRound - 1;
-        }
 
         Shot = PlanAction.Fire(
-            tick, aim, (byte)(power < 20 ? 20 : power > byte.MaxValue ? byte.MaxValue : power));
+            Now(), aim, (byte)(power < 20 ? 20 : power > byte.MaxValue ? byte.MaxValue : power));
     }
 
     /// <summary>
-    /// Plants the charge wherever the ghost has got to, or picks it back up.
+    /// Plants the charge where the mole is standing, or picks it back up.
     /// </summary>
     /// <remarks>
     /// A toggle rather than a one-way commitment, because it costs nothing to change your mind
-    /// about it while the ink is still wet and the reset token is far too precious to spend on
+    /// while the turn is still being walked and the reset token is far too precious to spend on
     /// a misplaced beet.
+    ///
+    /// Booked at the moment it is pressed rather than at the end of the route, which steering
+    /// makes possible and drawing did not: walk in, drop it, walk out, and the plan holds all
+    /// three. Plant, run, regret, in that order.
     /// </remarks>
     public void PlantCharge()
     {
@@ -357,108 +372,63 @@ public sealed class SeatPlanner
             return;
         }
 
-        Charge = PlanAction.Dynamite(EndTick());
+        Charge = PlanAction.Dynamite(Now());
+        ChargeAt = PlannedPosition;
     }
 
     // ---- Hopping and bracing -------------------------------------------------------
 
     /// <summary>
-    /// Arms hop placement. The next tap on the route drops one there.
+    /// Books a hop for the moment it is pressed.
     /// </summary>
     /// <remarks>
-    /// Two steps rather than one because a hop has to go somewhere in particular, and a single
-    /// finger laying a route cannot also press a button partway along it. Arming first means
-    /// the same gesture works with a mouse, a thumb and a gamepad.
+    /// One press, no arming. The drawn version needed two steps, because a single finger laying a
+    /// route could not also press a button partway along it, so a hop had to be armed and then
+    /// tapped onto the line. Steering has a "now" that a drawing never had, which is exactly what
+    /// a hop wants to be booked against.
     /// </remarks>
-    public void ArmHop()
+    /// <returns>Whether one was actually booked.</returns>
+    public bool BookHop()
     {
-        if (!IsPlanning)
-        {
-            return;
-        }
-
-        PlacingHop = !PlacingHop && _hops.Count < MaxHops;
-    }
-
-    /// <summary>
-    /// Drops a hop at whichever moment of the route runs nearest the given point.
-    /// </summary>
-    /// <returns>Whether one was actually placed.</returns>
-    public bool PlaceHopNear(Vec2 at)
-    {
-        PlacingHop = false;
-
-        if (!IsPlanning || Preview is null || Preview.Path.Count == 0 || _hops.Count >= MaxHops)
+        if (!IsPlanning || _hops.Count >= MaxHops)
         {
             return false;
         }
 
-        int nearest = 0;
-        Fix64 best = Fix64.MaxValue;
+        int tick = Now();
 
-        for (int tick = 0; tick < Preview.Path.Count; tick++)
-        {
-            Fix64 distance = Vec2.DistanceSquared(Preview.Path[tick], at);
-
-            if (distance >= best)
-            {
-                continue;
-            }
-
-            best = distance;
-            nearest = tick;
-        }
-
-        // A hop is scheduled at a moment, not at a place, so two of them at the same tick
-        // would be one hop and one wasted press.
+        // A hop is scheduled at a moment, not at a place, so two of them on the same tick would
+        // be one hop and one wasted press.
         foreach (PlanAction existing in _hops)
         {
-            if (existing.Tick == nearest)
+            if (existing.Tick == tick)
             {
                 return false;
             }
         }
 
-        _hops.Add(PlanAction.Hop(
-            nearest >= MatchSettings.TicksPerRound ? MatchSettings.TicksPerRound - 1 : nearest));
-
+        _hops.Add(PlanAction.Hop(tick));
         _hops.Sort((first, second) => first.Tick.CompareTo(second.Tick));
         return true;
     }
 
-    public void ClearHops()
-    {
-        _hops.Clear();
-        PlacingHop = false;
-    }
-
-    /// <summary>Where a hop lands on the drawn route, for the client to mark it.</summary>
-    public Vec2 HopPosition(PlanAction hop)
-    {
-        if (Preview is null || Preview.Path.Count == 0)
-        {
-            return Actor?.Position ?? Vec2.Zero;
-        }
-
-        int tick = hop.Tick >= Preview.Path.Count ? Preview.Path.Count - 1 : hop.Tick;
-
-        return Preview.Path[tick];
-    }
+    /// <summary>Where a hop was booked, for the client to mark it.</summary>
+    public Vec2 HopPosition(PlanAction hop) =>
+        Walk?.PositionAt(hop.Tick) ?? Actor?.Position ?? Vec2.Zero;
 
     /// <summary>Ends the turn dug in, or stops doing so. Costs nothing to change your mind.</summary>
     public void ToggleBrace()
     {
-        if (!IsPlanning)
+        if (IsPlanning)
         {
-            return;
+            Bracing = !Bracing;
         }
-
-        BraceAt = BraceAt is null ? PlanAction.Brace(EndTick()) : null;
     }
 
-    private int EndTick()
+    /// <summary>Which tick of the round the mole has walked as far as.</summary>
+    private int Now()
     {
-        int tick = Preview?.TicksUsed ?? 0;
+        int tick = Walk?.TicksUsed ?? 0;
 
         return tick >= MatchSettings.TicksPerRound ? MatchSettings.TicksPerRound - 1 : tick;
     }
@@ -493,9 +463,15 @@ public sealed class SeatPlanner
     private const double HoldSeconds = 0.5;
 
     /// <summary>
-    /// Tears up the whole turn. One free a turn, then only what the crates have handed over,
-    /// and the free one goes first so a hoarded token is still a token afterwards.
+    /// Tears up the whole turn and puts the mole back where it started. One free a turn, then
+    /// only what the crates have handed over, and the free one goes first so a hoarded token is
+    /// still a token afterwards.
     /// </summary>
+    /// <remarks>
+    /// This is the only undo. Backing up a few steps needs no machinery now that the turn is
+    /// steered: walking back the way you came does it, and costs the puff and the seconds it
+    /// would cost a real mole, which is a fairer price than a free rub of the eraser.
+    /// </remarks>
     private void SpendReset()
     {
         if (Actor is null || (_freeResetSpent && Actor.ResetTokens <= 0))
@@ -512,12 +488,23 @@ public sealed class SeatPlanner
             _freeResetSpent = true;
         }
 
-        Route.Clear();
-        Preview = null;
+        Discard();
+    }
+
+    private void Discard()
+    {
         Shot = null;
         Charge = null;
-        BraceAt = null;
-        ClearHops();
+        Bracing = false;
+        _hops.Clear();
+        Aiming = false;
+        _tickDebt = 0;
+        StartWalk();
+    }
+
+    private void StartWalk()
+    {
+        Walk = Actor is null ? null : SteeredWalk.From(Actor, _match.Terrain);
     }
 
     // ---- Committing ----------------------------------------------------------------
@@ -534,11 +521,12 @@ public sealed class SeatPlanner
             return;
         }
 
-        RoutePoint[] route = new RoutePoint[Route.Count];
+        List<Vec2> waypoints = Walk?.Waypoints() ?? new List<Vec2>();
+        RoutePoint[] route = new RoutePoint[waypoints.Count];
 
-        for (int index = 0; index < Route.Count; index++)
+        for (int index = 0; index < waypoints.Count; index++)
         {
-            route[index] = RoutePoint.FromWorld(Route[index]);
+            route[index] = RoutePoint.FromWorld(waypoints[index]);
         }
 
         List<PlanAction> actions = new List<PlanAction>(MaxHops + 3);
@@ -554,27 +542,15 @@ public sealed class SeatPlanner
             actions.Add(Shot.Value);
         }
 
-        // Bracing last, so on a tick it shares with the shot the mole fires and then digs in
-        // rather than stopping before it has thrown anything.
-        if (BraceAt is not null)
+        // Bracing at the end of the walk, and last in the list, so on a tick it shares with the
+        // shot the mole fires and then digs in rather than stopping before it has thrown anything.
+        if (Bracing)
         {
-            actions.Add(BraceAt.Value);
+            actions.Add(PlanAction.Brace(Now()));
         }
 
         _match.SubmitPlan(new Plan(Seat, Actor.Index, Weapon, route, actions.ToArray()));
         Committed = true;
-    }
-
-    private void RebuildPreview()
-    {
-        if (Actor is null || Route.Count == 0)
-        {
-            Preview = null;
-            return;
-        }
-
-        Preview = GhostPreview.Walk(Actor, _match.Terrain, Route);
-        GhostClock = 0;
     }
 }
 

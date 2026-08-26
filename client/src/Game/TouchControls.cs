@@ -5,7 +5,7 @@ using WeaponId = MoleSim.Match.WeaponId;
 /// <summary>What a thumb landed on.</summary>
 public enum TouchTarget
 {
-    /// <summary>The map. Laying ink, in other words.</summary>
+    /// <summary>The map, which pans and pinches and is not part of the plan.</summary>
     None = 0,
 
     /// <summary>The weapon wheel, which is flicked up and down.</summary>
@@ -23,30 +23,33 @@ public enum TouchTarget
     /// <summary>Done. Lock it in and stop watching the clock.</summary>
     Commit = 5,
 
-    /// <summary>Arm hop placement, then tap the route.</summary>
+    /// <summary>Book a hop for this moment of the walk.</summary>
     Hop = 6,
 
-    /// <summary>Dig in where the route ends.</summary>
+    /// <summary>Dig in where the walk ends.</summary>
     Brace = 7,
+
+    /// <summary>The movement stick, which walks the mole.</summary>
+    Stick = 8,
 }
 
 /// <summary>
-/// The phone layout: a weapon wheel you flick, a button to fire, one to plant, one to reset
-/// and one to commit.
+/// The phone layout: a stick that walks the mole, a wheel you flick, and a button each for the
+/// things that happen at a moment.
 /// </summary>
 /// <remarks>
-/// Straight out of the design, which specifies exactly this and for a good reason: a phone has
-/// no room for a cursor and no second button, so the gestures have to be a drag for the route
-/// and a thumb for everything else. The map takes the drag; these take the taps.
+/// The first version had the map itself take a drag, because the route was drawn rather than
+/// walked. That is gone: the mole is steered with the stick, and a drag on the map now pans the
+/// camera, which is what a drag on a map means everywhere else in the world. Two fingers zoom.
 ///
-/// Everything lives on the right, in one thumb's reach, and nothing overlaps the top strip
-/// where the gauges are. Aiming is a hold on the fire button and then a drag, so direction and
-/// power come out of the same gesture the way they do from a mouse, without needing a second
-/// finger or a second button.
+/// The stick goes bottom left and everything that fires or commits goes bottom right, so the two
+/// thumbs never reach across each other. The things that shape the plan sit on a shelf just above
+/// the stick, within reach of the same thumb that is already steering, because that is the hand
+/// that knows when the moment has arrived.
 ///
 /// This draws the controls and reports what was touched. It never touches the match: the scene
-/// routes a hit here into the same handful of verbs a mouse reaches, so the rules cannot tell
-/// a thumb from a cursor.
+/// routes a hit here into the same handful of verbs a keyboard reaches, so the rules cannot tell a
+/// thumb from a key.
 /// </remarks>
 public partial class TouchControls : Control
 {
@@ -56,17 +59,23 @@ public partial class TouchControls : Control
     private Vector2 _commit;
     private Vector2 _hop;
     private Vector2 _brace;
+    private Vector2 _stickHome;
     private Rect2 _wheel;
     private float _button;
+    private float _small;
+    private float _stickRadius;
     private float _glyph;
 
     private TouchTarget _pressed = TouchTarget.None;
 
-    /// <summary>The plan being laid, so the wheel can show what is on it.</summary>
+    /// <summary>The plan being made, so the controls can show what is on it.</summary>
     public SeatPlanner? Planner { get; set; }
 
     /// <summary>How far the fire button has been dragged, for the aim readout.</summary>
     public Vector2 AimDrag { get; set; }
+
+    /// <summary>How far the stick has been pushed, for the knob.</summary>
+    public Vector2 StickPush { get; set; }
 
     public override void _Ready()
     {
@@ -80,22 +89,38 @@ public partial class TouchControls : Control
         // Sized off the shorter edge, so the buttons stay thumb-sized in either orientation
         // and on either a phone or a tablet.
         _button = Mathf.Clamp(Mathf.Min(screen.X, screen.Y) * 0.085f, 34f, 76f);
+        _small = _button * 0.68f;
+        _stickRadius = _button * 1.45f;
         _glyph = _button * 1.05f;
 
         float margin = _button * 0.55f;
         float right = screen.X - margin - _button;
         float bottom = screen.Y - margin - _button;
 
-        // Everything that fires or commits goes under the right thumb; everything that shapes
-        // the plan goes under the left, which is where the hand not laying ink already is.
+        // Everything that fires or commits goes under the right thumb.
         _fire = new Vector2(right, bottom);
         _dynamite = new Vector2(right - (_button * 2.2f), bottom);
         _commit = new Vector2(right, bottom - (_button * 2.2f));
 
-        float left = _button + margin;
-        _reset = new Vector2(left, bottom);
-        _hop = new Vector2(left + (_button * 2.2f), bottom);
-        _brace = new Vector2(left, bottom - (_button * 2.2f));
+        // The stick takes the bottom left corner, where a thumb rests without being told to.
+        _stickHome = new Vector2(
+            margin + _stickRadius, screen.Y - margin - _stickRadius);
+
+        // The three things that happen at a moment go in a small column up the left edge, above
+        // the stick and clear of its grab ring. They were a row across the middle of the screen
+        // to begin with, at full size, which put three dinner plates over the one part of the
+        // picture the player is trying to aim into. They are pressed once or twice a turn, so they
+        // can be small and they can be slightly out of the way.
+        //
+        // Reset is furthest from the thumb on purpose. It is the one press nobody wants to make by
+        // accident, and it is a hold rather than a tap, so a little reach costs it nothing.
+        float column = margin + _small;
+        float lowest = _stickHome.Y - (_stickRadius * StickGrab) - (_small * 1.2f);
+        float gap = _small * 2.3f;
+
+        _hop = new Vector2(column, lowest);
+        _brace = new Vector2(column, lowest - gap);
+        _reset = new Vector2(column, lowest - (gap * 2f));
 
         // The wheel runs up the right edge above the buttons, clear of the topmost of them by
         // a margin, so a flick can never be mistaken for a press. Overlapping them was the
@@ -108,37 +133,46 @@ public partial class TouchControls : Control
             wheelHeight);
     }
 
-    /// <summary>What is under a touch, so the scene knows whether it is a tap or a stroke.</summary>
+    /// <summary>What is under a touch, so the scene knows whether it is a control or the map.</summary>
     public TouchTarget Hit(Vector2 at)
     {
-        if (Within(at, _fire))
-        {
-            return TouchTarget.Fire;
-        }
-
-        if (Within(at, _dynamite))
-        {
-            return TouchTarget.Dynamite;
-        }
-
-        if (Within(at, _commit))
-        {
-            return TouchTarget.Commit;
-        }
-
-        if (Within(at, _reset))
-        {
-            return TouchTarget.Reset;
-        }
-
-        if (Within(at, _hop))
+        // The small column is tested before the stick. Its lowest button sits just outside the
+        // stick's grab ring, and a thumb reaching for it lands a little short as often as not.
+        if (Within(at, _hop, _small))
         {
             return TouchTarget.Hop;
         }
 
-        if (Within(at, _brace))
+        if (Within(at, _brace, _small))
         {
             return TouchTarget.Brace;
+        }
+
+        if (Within(at, _reset, _small))
+        {
+            return TouchTarget.Reset;
+        }
+
+        // The stick with a generous margin. A thumb that lands a little outside it meant to steer,
+        // and the alternative reading is a camera pan the player did not ask for.
+        if (at.DistanceTo(_stickHome) <= _stickRadius * StickGrab)
+        {
+            return TouchTarget.Stick;
+        }
+
+        if (Within(at, _fire, _button))
+        {
+            return TouchTarget.Fire;
+        }
+
+        if (Within(at, _dynamite, _button))
+        {
+            return TouchTarget.Dynamite;
+        }
+
+        if (Within(at, _commit, _button))
+        {
+            return TouchTarget.Commit;
         }
 
         return _wheel.HasPoint(at) ? TouchTarget.Wheel : TouchTarget.None;
@@ -154,17 +188,27 @@ public partial class TouchControls : Control
     {
         _pressed = TouchTarget.None;
         AimDrag = Vector2.Zero;
+        StickPush = Vector2.Zero;
         QueueRedraw();
     }
 
     /// <summary>Where the fire button sits, which is where an aim is dragged from.</summary>
     public Vector2 FireAt => _fire;
 
-    /// <summary>How far a drag has to travel up or down the wheel to turn it one notch.</summary>
+    /// <summary>Where the stick sits, which is what a push is measured from.</summary>
+    public Vector2 StickAt => _stickHome;
+
+    /// <summary>How far the stick has to move for a full-speed push.</summary>
+    public float StickTravel => _stickRadius;
+
+    /// <summary>How far the stick has to travel up or down the wheel to turn it one notch.</summary>
     public float WheelNotch => _button * 0.8f;
 
-    private bool Within(Vector2 at, Vector2 centre) =>
-        at.DistanceTo(centre) <= _button;
+    /// <summary>How far outside the stick's ring still counts as grabbing it.</summary>
+    private const float StickGrab = 1.35f;
+
+    private static bool Within(Vector2 at, Vector2 centre, float radius) =>
+        at.DistanceTo(centre) <= radius;
 
     // ---- Drawing --------------------------------------------------------------------
 
@@ -175,14 +219,58 @@ public partial class TouchControls : Control
             return;
         }
 
+        DrawStick();
         DrawWheel();
-        DrawButton(_fire, TouchTarget.Fire);
-        DrawButton(_dynamite, TouchTarget.Dynamite);
-        DrawButton(_commit, TouchTarget.Commit);
-        DrawButton(_reset, TouchTarget.Reset);
-        DrawButton(_hop, TouchTarget.Hop);
-        DrawButton(_brace, TouchTarget.Brace);
+        DrawButton(_fire, TouchTarget.Fire, _button);
+        DrawButton(_dynamite, TouchTarget.Dynamite, _button);
+        DrawButton(_commit, TouchTarget.Commit, _button);
+        DrawButton(_reset, TouchTarget.Reset, _small);
+        DrawButton(_hop, TouchTarget.Hop, _small);
+        DrawButton(_brace, TouchTarget.Brace, _small);
         DrawAimStick();
+    }
+
+    /// <summary>
+    /// The movement stick: a ring to push out of, with a mole on the knob.
+    /// </summary>
+    /// <remarks>
+    /// The mole on the knob is the whole instruction. Wordless is the direction, and the one thing
+    /// a new player has to be told is which control is them, so the control wears it.
+    ///
+    /// It greys out when the round's eight seconds of walking are gone, which is the only way that
+    /// fact can be reported without a sentence: the gauge above says the budget is full, and the
+    /// stick says pushing will not achieve anything.
+    /// </remarks>
+    private void DrawStick()
+    {
+        bool spent = !Planner!.HasTimeLeft;
+        Color rim = spent ? Palette.OnPanelDim : new Color(Palette.OnPanel, 0.4f);
+
+        DrawCircle(_stickHome, _stickRadius, new Color(Palette.Panel, 0.75f));
+        DrawArc(_stickHome, _stickRadius, 0, Mathf.Tau, 40, rim, 2f);
+
+        // Four ticks around the rim, so it reads as something to push in any direction rather
+        // than a button. Down is a dig, which is worth the hint of it being a real direction.
+        for (int quarter = 0; quarter < 4; quarter++)
+        {
+            float angle = quarter * Mathf.Pi / 2f;
+            Vector2 outward = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
+
+            DrawLine(
+                _stickHome + (outward * _stickRadius * 0.82f),
+                _stickHome + (outward * _stickRadius * 0.96f), rim, 2f);
+        }
+
+        Vector2 knob = _stickHome + StickPush.LimitLength(_stickRadius);
+        float knobRadius = _button * 0.62f;
+
+        DrawCircle(knob, knobRadius, spent ? Palette.OnPanelDim : Palette.Panel);
+        DrawArc(
+            knob, knobRadius, 0, Mathf.Tau, 28,
+            _pressed == TouchTarget.Stick ? Palette.OnPanel : rim, 2f);
+        Glyphs.Mole(
+            this, knob, knobRadius * 1.5f,
+            spent ? new Color(Palette.OnPanel, 0.3f) : Palette.OnPanel);
     }
 
     /// <summary>
@@ -239,55 +327,56 @@ public partial class TouchControls : Control
             new Color(Palette.OnPanel, 0.35f));
     }
 
-    private void DrawButton(Vector2 at, TouchTarget target)
+    private void DrawButton(Vector2 at, TouchTarget target, float radius)
     {
         SeatPlanner planner = Planner!;
-        bool armed = target == TouchTarget.Hop && planner.PlacingHop;
-        bool active = target == TouchTarget.Brace && planner.BraceAt is not null;
-        bool down = _pressed == target || armed || active;
+        bool active = target == TouchTarget.Brace && planner.Bracing;
+        bool down = _pressed == target || active;
+        float glyph = radius * (_glyph / _button);
 
-        DrawCircle(at, _button, down ? new Color(Palette.OnPanel, 0.22f) : Palette.Panel);
+        DrawCircle(at, radius, down ? new Color(Palette.OnPanel, 0.22f) : Palette.Panel);
         DrawArc(
-            at, _button, 0, Mathf.Tau, 32,
-            armed || active ? Palette.OnPanel : new Color(Palette.OnPanel, 0.3f),
-            armed || active ? 3f : 2f);
+            at, radius, 0, Mathf.Tau, 32,
+            active ? Palette.OnPanel : new Color(Palette.OnPanel, 0.3f),
+            active ? 3f : 2f);
 
         switch (target)
         {
             case TouchTarget.Fire:
-                Glyphs.Fire(this, at, _glyph, Palette.Damage);
+                Glyphs.Fire(this, at, glyph, Palette.Damage);
                 break;
 
             case TouchTarget.Dynamite:
                 // Dimmed when there are none left rather than hidden, so its absence is
                 // legible as "spent" rather than as a layout that moved.
                 Glyphs.Dynamite(
-                    this, at, _glyph * 0.9f,
+                    this, at, glyph * 0.9f,
                     planner.HasCharges ? Palette.OnPanel : Palette.OnPanelDim);
-                DrawCount(at, planner.Stock(WeaponId.BoomBeets));
+                DrawCount(at, radius, planner.Stock(WeaponId.BoomBeets), Palette.OnPanel);
                 break;
 
             case TouchTarget.Commit:
-                Glyphs.Committed(this, at, _glyph, new Color(0.435f, 0.647f, 0.325f));
+                Glyphs.Committed(this, at, glyph, new Color(0.435f, 0.647f, 0.325f));
                 break;
 
             case TouchTarget.Hop:
                 Glyphs.Hop(
-                    this, at, _glyph,
+                    this, at, glyph,
                     planner.Hops.Count < SeatPlanner.MaxHops
                         ? Palette.OnPanel
                         : Palette.OnPanelDim);
-                DrawCount(at, SeatPlanner.MaxHops - planner.Hops.Count);
+                DrawCount(
+                    at, radius, SeatPlanner.MaxHops - planner.Hops.Count, Palette.OnPanel);
                 break;
 
             case TouchTarget.Brace:
                 Glyphs.Brace(
-                    this, at, _glyph * 0.9f,
+                    this, at, glyph * 0.9f,
                     active ? new Color(0.435f, 0.647f, 0.325f) : Palette.OnPanel);
                 break;
 
             case TouchTarget.Reset:
-                DrawReset(at);
+                DrawReset(at, radius, glyph);
                 break;
 
             default:
@@ -295,43 +384,35 @@ public partial class TouchControls : Control
         }
     }
 
-    /// <summary>How many are left, as pips around a button's rim.</summary>
-    private void DrawCount(Vector2 at, int count)
+    /// <summary>How many are left, as pips around a button's rim rather than as a digit.</summary>
+    private void DrawCount(Vector2 at, float radius, int count, Color ink)
     {
         for (int pip = 0; pip < Mathf.Min(count, 5); pip++)
         {
             float angle = -2.2f + (pip * 0.42f);
 
             DrawCircle(
-                at + (new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * _button * 1.08f),
-                _button * 0.11f, Palette.OnPanel);
+                at + (new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * radius * 1.08f),
+                Mathf.Max(radius * 0.11f, 2f), ink);
         }
     }
 
-    private void DrawReset(Vector2 at)
+    private void DrawReset(Vector2 at, float radius, float glyph)
     {
         SeatPlanner planner = Planner!;
         bool spent = planner.ResetsLeft <= 0;
 
-        Glyphs.Reset(
-            this, at, _glyph, spent ? Palette.OnPanelDim : Palette.Damage);
+        Glyphs.Reset(this, at, glyph, spent ? Palette.OnPanelDim : Palette.Damage);
 
         if (planner.ResetHeld > 0 && !spent)
         {
             DrawArc(
-                at, _button * 0.86f, -Mathf.Pi / 2f,
+                at, radius * 0.86f, -Mathf.Pi / 2f,
                 (-Mathf.Pi / 2f) + (Mathf.Tau * (float)Mathf.Min(planner.ResetHeld, 1)),
                 28, Palette.OnPanel, 4f);
         }
 
-        // How many are left, as pips around the rim rather than a digit.
-        for (int token = 0; token < planner.ResetsLeft; token++)
-        {
-            float angle = -2.2f + (token * 0.42f);
-            DrawCircle(
-                at + (new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * _button * 1.08f),
-                _button * 0.11f, Palette.Damage);
-        }
+        DrawCount(at, radius, planner.ResetsLeft, Palette.Damage);
     }
 
     /// <summary>

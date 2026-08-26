@@ -23,8 +23,13 @@ public partial class WorldView : Control
     private readonly Stage _stage;
     private Vector2 _cameraAt;
     private bool _cameraPlaced;
+    private float _base = 40f;
+    private float _zoom = 1f;
+    private bool _manual;
     private float _scale = 40f;
     private int _seat = -1;
+    private int[]? _watching;
+    private int _camera;
 
     public WorldView(Stage stage)
     {
@@ -37,22 +42,51 @@ public partial class WorldView : Control
     public int Seat => _seat;
 
     /// <summary>Takes up the pane the layout has given it.</summary>
-    public void Occupy(SplitLayout.Pane pane, double delta)
+    public void Occupy(SplitLayout.Pane pane, int index, double delta)
     {
         Position = pane.Rect.Position;
         Size = pane.Rect.Size;
+        _camera = index;
 
-        if (_seat != pane.Seat)
+        if (_seat != pane.Seat || !SameSubjects(_watching, pane.Watching))
         {
-            // A view that has changed hands should not glide across the map to its new
-            // subject; it should already be looking at it.
+            // A view that has changed hands should not glide across the map to its new subject;
+            // it should already be looking at it. A new camera also starts from the framing the
+            // director chose for it rather than from whatever the last player pinched it to.
             _seat = pane.Seat;
+            _watching = pane.Watching;
             _cameraPlaced = false;
+            _manual = false;
+            _zoom = 1f;
         }
 
-        _scale = pane.PixelsPerMetre;
+        _base = pane.PixelsPerMetre;
+        _scale = _base * _zoom;
         Chase(delta);
         QueueRedraw();
+    }
+
+    private static bool SameSubjects(int[]? mine, int[]? theirs)
+    {
+        if (ReferenceEquals(mine, theirs))
+        {
+            return true;
+        }
+
+        if (mine is null || theirs is null || mine.Length != theirs.Length)
+        {
+            return false;
+        }
+
+        for (int index = 0; index < mine.Length; index++)
+        {
+            if (mine[index] != theirs[index])
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>Turns a point on this pane into a point in the world.</summary>
@@ -67,8 +101,72 @@ public partial class WorldView : Control
 
     // ---- Camera ---------------------------------------------------------------------
 
+    /// <summary>
+    /// Drags the view. Once a player has done this the camera stops chasing, until the next beat
+    /// puts it back to work.
+    /// </summary>
+    /// <remarks>
+    /// A camera that fought back would be worse than no panning at all: every drag would slide
+    /// straight back to the mole and the player would conclude the gesture was not implemented.
+    /// So panning takes the camera outright, and the scene hands it back at each beat, which is
+    /// the moment a player wants to be shown the action rather than to be looking where they left
+    /// off.
+    /// </remarks>
+    public void Pan(Vector2 byPixels)
+    {
+        _manual = true;
+        _cameraAt = Clamped(_cameraAt - byPixels);
+        QueueRedraw();
+    }
+
+    /// <summary>
+    /// Zooms about a point on the pane, keeping whatever is under it where it is.
+    /// </summary>
+    /// <remarks>
+    /// About the finger rather than about the middle, because a pinch that drifts is a pinch
+    /// nobody can aim with. The pane's own zoom is a multiplier on the one the layout chose, so a
+    /// four-way split stays zoomed out relative to a full screen however far anybody pinches.
+    /// </remarks>
+    public void ZoomBy(float factor, Vector2 about)
+    {
+        float wanted = Mathf.Clamp(_zoom * factor, MinZoom, MaxZoom);
+
+        if (Mathf.IsEqualApprox(wanted, _zoom))
+        {
+            return;
+        }
+
+        Vector2 world = (about - Offset()) / _scale;
+
+        _manual = true;
+        _zoom = wanted;
+        _scale = _base * _zoom;
+        _cameraAt = Clamped((world * _scale) + (Size / 2f) - about);
+        QueueRedraw();
+    }
+
+    /// <summary>Puts the camera back on the action. The zoom is a preference and survives.</summary>
+    public void Recentre()
+    {
+        _manual = false;
+        _cameraPlaced = false;
+    }
+
+    /// <summary>How far in and out a pinch may go, either side of the layout's own zoom.</summary>
+    private const float MinZoom = 0.5f;
+
+    private const float MaxZoom = 3f;
+
     private void Chase(double delta)
     {
+        if (_manual)
+        {
+            // Still clamped: the pane or the zoom may have changed under a camera nobody is
+            // driving this frame.
+            _cameraAt = Clamped(_cameraAt);
+            return;
+        }
+
         // Biased so the subject sits below the middle of the pane. A mole centred exactly puts
         // half the view underground, which early in a match is undug soil and nothing else,
         // while the sky above it is where the shells actually go.
@@ -96,6 +194,11 @@ public partial class WorldView : Control
     /// </summary>
     private Vector2 Subject()
     {
+        if (_watching is not null)
+        {
+            return Watched();
+        }
+
         if (_seat >= 0)
         {
             return Actor(_seat);
@@ -118,6 +221,45 @@ public partial class WorldView : Control
         return counted == 0 ? Vector2.Zero : total / counted;
     }
 
+    /// <summary>
+    /// The middle of whatever this camera has been pointed at, as of right now.
+    /// </summary>
+    /// <remarks>
+    /// The middle of the box around them rather than their average position. The director chose
+    /// this camera's zoom from how far apart they ever get, so centring the box is what guarantees
+    /// they all stay in shot; an average is dragged about by whichever clump is largest, and the
+    /// mole on its own at the edge is the first thing to fall out of frame.
+    ///
+    /// Interpolated, so the camera moves at the display's rate rather than the simulation's. A
+    /// camera that advanced thirty times a second would judder against sixty-hertz moles.
+    /// </remarks>
+    private Vector2 Watched()
+    {
+        RoundRecording? recording = _stage.Recording;
+
+        if (recording is null || _watching is null || _watching.Length == 0)
+        {
+            return Vector2.Zero;
+        }
+
+        float leftmost = float.MaxValue;
+        float rightmost = float.MinValue;
+        float highest = float.MaxValue;
+        float lowest = float.MinValue;
+
+        foreach (int slot in _watching)
+        {
+            Vector2 at = ToPixels(recording.PositionAt(_stage.Seconds, slot));
+
+            leftmost = Mathf.Min(leftmost, at.X);
+            rightmost = Mathf.Max(rightmost, at.X);
+            highest = Mathf.Min(highest, at.Y);
+            lowest = Mathf.Max(lowest, at.Y);
+        }
+
+        return new Vector2((leftmost + rightmost) / 2f, (highest + lowest) / 2f);
+    }
+
     private Vector2 Actor(int seat)
     {
         if (seat >= _stage.Planners.Length)
@@ -125,7 +267,8 @@ public partial class WorldView : Control
             return Vector2.Zero;
         }
 
-        Mole? actor = _stage.Planners[seat].Actor;
+        SeatPlanner planner = _stage.Planners[seat];
+        Mole? actor = planner.Actor;
 
         if (actor is null)
         {
@@ -134,7 +277,14 @@ public partial class WorldView : Control
 
         RoundRecording? recording = _stage.Recording;
 
-        if (_stage.Planning || recording is null)
+        if (_stage.Planning)
+        {
+            // Follows where the mole has been steered to, not where it is standing. The camera
+            // has to travel with the stick or the player walks their mole off their own screen.
+            return ToPixels(planner.PlannedPosition);
+        }
+
+        if (recording is null)
         {
             return ToPixels(actor.Position);
         }
@@ -212,6 +362,133 @@ public partial class WorldView : Control
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         DrawGauges();
         DrawFrame();
+        DrawBroadcast();
+    }
+
+    /// <summary>
+    /// The broadcast furniture: viewfinder corners, a live tally light, which camera this is, and
+    /// a caption saying whose fight is in shot.
+    /// </summary>
+    /// <remarks>
+    /// Sports television, and not only for the look of it. A replay that cuts to two cameras needs
+    /// to say that it has, or the second pane reads as a rendering fault; and a player watching
+    /// four moles they cannot control needs to find their own in a hurry. The corner marks say
+    /// "this is a frame somebody chose", the tally says "this is happening", and the caption says
+    /// "yours is in this one".
+    ///
+    /// Wordless, because the design is wordless everywhere: no camera names, and the camera number
+    /// is pips rather than a numeral, since the one numeral the design keeps is spent on damage.
+    /// </remarks>
+    private void DrawBroadcast()
+    {
+        if (_watching is null)
+        {
+            return;
+        }
+
+        Color ink = new Color(Palette.Ink, 0.6f);
+        float inset = Mathf.Max(Mathf.Min(Size.X, Size.Y) * 0.028f, 8f);
+        float reach = Mathf.Max(Mathf.Min(Size.X, Size.Y) * 0.06f, 16f);
+
+        DrawRect(new Rect2(Vector2.Zero, Size), ink, false, SplitLayout.Gutter);
+        DrawViewfinder(ink, inset, reach);
+        DrawTally(inset, reach);
+        DrawCaption(inset, reach);
+    }
+
+    /// <summary>Crop marks in the corners, which is what tells the eye a frame was composed.</summary>
+    private void DrawViewfinder(Color ink, float inset, float reach)
+    {
+        for (int corner = 0; corner < 4; corner++)
+        {
+            bool left = (corner & 1) == 0;
+            bool top = corner < 2;
+            float x = left ? inset : Size.X - inset;
+            float y = top ? inset : Size.Y - inset;
+
+            DrawLine(
+                new Vector2(x, y),
+                new Vector2(left ? x + reach : x - reach, y), ink, 3f);
+            DrawLine(
+                new Vector2(x, y),
+                new Vector2(x, top ? y + reach : y - reach), ink, 3f);
+        }
+    }
+
+    /// <summary>The tally light, and which camera this is.</summary>
+    private void DrawTally(float inset, float reach)
+    {
+        float radius = Mathf.Max(Mathf.Min(Size.X, Size.Y) * 0.012f, 4f);
+        Vector2 at = new Vector2(inset + (reach * 0.4f), inset + (reach * 0.4f));
+
+        // Pulsing. A steady red dot is a bullet hole; a pulsing one is a camera that is live.
+        float beat = (Mathf.Sin((float)_stage.Seconds.ToDecimal() * 6.5f) + 1f) / 2f;
+
+        DrawCircle(at, radius, new Color(Palette.Damage, 0.4f + (0.6f * beat)));
+
+        for (int pip = 0; pip <= _camera; pip++)
+        {
+            DrawRect(
+                new Rect2(
+                    at.X + (radius * 2.1f) + (pip * radius * 1.5f),
+                    at.Y - (radius * 0.55f),
+                    radius * 0.6f,
+                    radius * 1.1f),
+                new Color(Palette.Ink, 0.5f));
+        }
+    }
+
+    /// <summary>
+    /// Whose fight this camera is on, in platoon colours. A broadcast caption with no words in it.
+    /// </summary>
+    private void DrawCaption(float inset, float reach)
+    {
+        int seats = _stage.Planners.Length;
+        bool[] present = new bool[seats];
+        int shown = 0;
+
+        foreach (int slot in _watching!)
+        {
+            int seat = _stage.Match.Moles[slot].Seat;
+
+            if (seat >= 0 && seat < seats && !present[seat])
+            {
+                present[seat] = true;
+                shown++;
+            }
+        }
+
+        if (shown == 0)
+        {
+            return;
+        }
+
+        float glyph = Mathf.Max(Mathf.Min(Size.X, Size.Y) * 0.045f, 13f);
+        float pad = glyph * 0.34f;
+        float height = glyph + (pad * 2f);
+
+        // Clear of the bottom-left crop mark, which the caption sat on top of at first.
+        Rect2 bar = new Rect2(
+            inset + reach + pad,
+            Size.Y - inset - height,
+            (shown * (glyph + pad)) + pad,
+            height);
+
+        DrawRect(bar, new Color(Palette.Panel, 0.85f));
+
+        float x = bar.Position.X + pad + (glyph / 2f);
+
+        for (int seat = 0; seat < seats; seat++)
+        {
+            if (!present[seat])
+            {
+                continue;
+            }
+
+            Glyphs.Mole(
+                this, new Vector2(x, bar.Position.Y + (height / 2f)), glyph, Palette.Seat(seat));
+            x += glyph + pad;
+        }
     }
 
     /// <summary>
@@ -235,8 +512,8 @@ public partial class WorldView : Control
             return;
         }
 
-        float pad = Mathf.Max(Size.Y * 0.025f, 5f);
-        float barHeight = Mathf.Max(Size.Y * 0.03f, 7f);
+        float pad = Padding(Size.Y);
+        float barHeight = BarHeight(Size.Y);
         float height = (barHeight * 2f) + (pad * 3f);
 
         // Sized to the strip rather than to the pane, so nothing pokes out of the panel it is
@@ -261,17 +538,14 @@ public partial class WorldView : Control
         float first = pad + pad;
         float second = first + barHeight + pad;
 
-        Bar(left, first, barWidth, barHeight,
-            planner.Preview is null
-                ? 0f
-                : Mathf.Clamp(planner.Preview.TicksUsed / (float)MatchSettings.TicksPerRound, 0f, 1f),
+        Bar(left, first, barWidth, barHeight, (float)planner.TimeSpent,
             new Color(0.306f, 0.510f, 0.651f));
         Glyphs.Time(
             this, new Vector2(left - (pad * 1.6f), first + (barHeight / 2f)),
             barHeight * 1.6f, Palette.OnPanel);
 
-        Bar(left, second, barWidth, barHeight, PuffSpent(planner),
-            planner.Preview?.RanOutOfPuff == true ? Palette.Damage : new Color(0.435f, 0.647f, 0.325f));
+        Bar(left, second, barWidth, barHeight, (float)planner.PuffSpent,
+            planner.RanOutOfPuff ? Palette.Damage : new Color(0.435f, 0.647f, 0.325f));
         Glyphs.Puff(
             this, new Vector2(left - (pad * 1.6f), second + (barHeight / 2f)),
             barHeight * 1.6f, Palette.OnPanel);
@@ -331,19 +605,22 @@ public partial class WorldView : Control
             24, Palette.OnPanel, 3f);
     }
 
-    private static float PuffSpent(SeatPlanner planner)
-    {
-        if (planner.Preview is null || planner.Actor is null)
-        {
-            return 0f;
-        }
+    private static float Padding(float paneHeight) => Mathf.Max(paneHeight * 0.025f, 5f);
 
-        float total = (float)planner.Actor.Stamina.ToDecimal();
+    private static float BarHeight(float paneHeight) => Mathf.Max(paneHeight * 0.03f, 7f);
 
-        return total <= 0
-            ? 0f
-            : Mathf.Clamp((float)planner.Preview.StaminaSpent.ToDecimal() / total, 0f, 1f);
-    }
+    /// <summary>
+    /// How far down a pane its own instruments reach, so anything the whole screen shares can be
+    /// placed clear of them.
+    /// </summary>
+    /// <remarks>
+    /// Exists because the shared tally is centred horizontally, which in a two-by-two split is
+    /// exactly where the vertical seam is, so it lands on top of the right-hand pane's own strip.
+    /// Deriving the clearance from the same two numbers the strip is built from is what stops the
+    /// two drifting apart the next time either is retuned.
+    /// </remarks>
+    public static float InstrumentDepth(float paneHeight) =>
+        (Padding(paneHeight) * 4f) + (BarHeight(paneHeight) * 2f);
 
     /// <summary>Whose instruments this pane shows.</summary>
     private SeatPlanner? Gauged()
@@ -442,7 +719,16 @@ public partial class WorldView : Control
                 continue;
             }
 
-            DrawMole(ToPixels(mole.Position), mole.Seat, mole.Pluck, IsActing(mole));
+            bool acting = IsActing(mole);
+
+            // The acting mole is drawn where its owner has steered it to, and there is only ever
+            // one of it. The version with a ghost drew two, and which of them was about to do
+            // something was anybody's guess.
+            Vector2 at = acting
+                ? ToPixels(_stage.Planners[mole.Seat].PlannedPosition)
+                : ToPixels(mole.Position);
+
+            DrawMole(at, mole.Seat, mole.Pluck, acting);
         }
     }
 
@@ -455,9 +741,15 @@ public partial class WorldView : Control
 
         SeatPlanner planner = _stage.Planners[mole.Seat];
 
-        // Highlighted in its own pane, and in a shared one, but never in somebody else's.
-        return planner.Actor == mole && (_seat < 0 || _seat == mole.Seat);
+        return planner.Actor == mole && ShowsPlanOf(planner);
     }
+
+    /// <summary>
+    /// Whether this pane is the one showing a given platoon's turn: its own, or the one being
+    /// taken right now if everybody is sharing the screen.
+    /// </summary>
+    private bool ShowsPlanOf(SeatPlanner planner) =>
+        _seat >= 0 ? planner.Seat == _seat : planner.Seat == SharedPlanSeat();
 
     private void DrawReplay(RoundRecording recording, RoundResult result)
     {
@@ -618,20 +910,13 @@ public partial class WorldView : Control
     {
         foreach (SeatPlanner planner in _stage.Planners)
         {
-            // A player sees only their own ink. Everybody planning at once only works if
-            // nobody can read anybody else's plan off the screen, which is the same reason
-            // the online version hides which mole is even acting.
-            if (planner.Actor is null || (_seat >= 0 && planner.Seat != _seat))
+            // A player sees only their own plan. Everybody planning at once only works if
+            // nobody can read anybody else's off the screen, which is the same reason the
+            // online version hides which mole is even acting.
+            if (planner.Actor is not null && ShowsPlanOf(planner))
             {
-                continue;
+                DrawPlan(planner);
             }
-
-            if (_seat < 0 && planner.Seat != SharedPlanSeat())
-            {
-                continue;
-            }
-
-            DrawPlan(planner);
         }
     }
 
@@ -652,45 +937,25 @@ public partial class WorldView : Control
         return -1;
     }
 
+    /// <summary>
+    /// What the player has booked so far. Not the route.
+    /// </summary>
+    /// <remarks>
+    /// The walked path is deliberately not drawn. It was, once, as a line with a ghost looping
+    /// along it, and it was the single most confusing thing on the screen: a first-time player
+    /// could not say which mole was theirs, and the line looked like a thing to be edited rather
+    /// than a record of where they had already been. The mole is where it walked to; that is the
+    /// whole story, and the gauges say what it cost. What is left here is only the things that
+    /// happen at a moment, marked where that moment was.
+    /// </remarks>
     private void DrawPlan(SeatPlanner planner)
     {
         Color seat = Palette.Seat(planner.Seat);
-        Color ink = new Color(Palette.Ink, 0.6f);
         float radius = MoleRadius();
-
-        if (planner.Preview is not null && planner.Preview.Path.Count > 1)
-        {
-            IReadOnlyList<Vec2> path = planner.Preview.Path;
-            int walked = (int)(planner.GhostClock * MatchSettings.TicksPerSecond) % path.Count;
-
-            for (int index = 1; index < path.Count; index++)
-            {
-                DrawLine(ToPixels(path[index - 1]), ToPixels(path[index]), ink, radius * 0.2f);
-            }
-
-            for (int index = 1; index <= walked; index++)
-            {
-                DrawLine(ToPixels(path[index - 1]), ToPixels(path[index]), seat, radius * 0.34f);
-            }
-
-            // The ghost: the same mole, translucent, walking what was laid, while the real
-            // one stands where it is.
-            Vector2 ghost = ToPixels(path[walked]);
-            DrawCircle(ghost, radius, new Color(seat, 0.4f));
-            DrawArc(ghost, radius, 0, Mathf.Tau, 24, seat, radius * 0.16f);
-        }
-
-        // The waypoints as laid, so what the pen put down stays distinguishable from what the
-        // solver made of it. When those two disagree, that gap is the whole planning game.
-        foreach (Vec2 point in planner.Route)
-        {
-            DrawCircle(ToPixels(point), radius * 0.28f, ink);
-        }
-
-        // Hops, marked where they will happen. A hop is scheduled at a moment rather than at a
-        // place, so backing the pen up moves the marker, which is honest about what was booked.
         float marker = Mathf.Max(radius * 2.2f, 18f);
 
+        // Hops, marked where they were booked. A hop is scheduled at a moment rather than at a
+        // place, so the marker records where the mole was when the button went down.
         foreach (PlanAction hop in planner.Hops)
         {
             Vector2 at = ToPixels(planner.HopPosition(hop)) + new Vector2(0, -radius * 1.4f);
@@ -699,19 +964,20 @@ public partial class WorldView : Control
             Glyphs.Hop(this, at, marker * 0.9f, seat);
         }
 
-        if (planner.BraceAt is not null)
+        if (planner.Bracing)
         {
-            Vector2 at = ToPixels(planner.Muzzle) + new Vector2(0, -radius * 2.4f);
+            Vector2 at = ToPixels(planner.PlannedPosition) + new Vector2(0, -radius * 2.4f);
 
             DrawCircle(at, marker * 0.5f, new Color(Palette.Paper, 0.75f));
             Glyphs.Brace(this, at, marker * 0.85f, seat);
         }
 
-        // The charge, where the ghost will drop it. Plant, run, regret, and knowing exactly
-        // where you left it is the whole difference between the first two and the third.
+        // The charge, where it was dropped rather than where the mole has since walked to.
+        // Plant, run, regret, and knowing exactly where you left it is the whole difference
+        // between the first two and the third.
         if (planner.Charge is not null)
         {
-            Vector2 planted = ToPixels(planner.Muzzle) + new Vector2(0, radius * 0.6f);
+            Vector2 planted = ToPixels(planner.ChargeAt) + new Vector2(0, radius * 0.6f);
 
             Glyphs.Dynamite(this, planted, radius * 1.6f, Palette.Damage);
             DrawArc(
@@ -729,7 +995,7 @@ public partial class WorldView : Control
     /// </summary>
     private void DrawAim(SeatPlanner planner)
     {
-        Vector2 muzzle = ToPixels(planner.Muzzle);
+        Vector2 muzzle = ToPixels(planner.PlannedPosition);
         float radius = MoleRadius();
 
         if (planner.Aiming)

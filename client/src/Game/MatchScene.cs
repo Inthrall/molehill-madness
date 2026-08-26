@@ -66,7 +66,6 @@ public partial class MatchScene : Node2D
     private SeatPlanner[] _planners = System.Array.Empty<SeatPlanner>();
     private Device[] _devices = System.Array.Empty<Device>();
     private int[] _gamepad = System.Array.Empty<int>();
-    private Vec2[] _penAt = System.Array.Empty<Vec2>();
     private readonly List<WorldView> _views = new List<WorldView>();
 
     private Beat _beat = Beat.Planning;
@@ -76,14 +75,14 @@ public partial class MatchScene : Node2D
     private RoundResult? _result;
     private double _playback;
     private int _appliedChanges;
-    private bool _sharedReplay;
+    private SplitLayout.Pane[] _replayPanes = System.Array.Empty<SplitLayout.Pane>();
+    private Rect2 _replayBand;
 
     private AutoPilot? _autoPilot;
     private double _autoClock;
     private Sfx? _sfx;
     private int _sounded;
     private bool _forceSplit;
-    private TouchTarget _held = TouchTarget.None;
 
     public override void _Ready()
     {
@@ -97,7 +96,6 @@ public partial class MatchScene : Node2D
         _stage = new Stage(_match, _terrain.Texture, MapWidthCells, MapHeightCells);
 
         _planners = new SeatPlanner[PlayerCount];
-        _penAt = new Vec2[PlayerCount];
 
         for (int seat = 0; seat < PlayerCount; seat++)
         {
@@ -123,6 +121,14 @@ public partial class MatchScene : Node2D
         {
             _touch = new TouchControls();
             overlay.AddChild(_touch);
+
+            // One kind of event for one kind of gesture. Godot will happily synthesise mouse
+            // clicks from a finger, which would run every touch through the pointer path as well
+            // and press each button twice; and it will synthesise a finger from the mouse, which
+            // is what lets the phone layout be driven on a desktop with --touch. Wanted one way
+            // round only, in both cases.
+            Input.EmulateMouseFromTouch = false;
+            Input.EmulateTouchFromMouse = true;
         }
 
         _forceSplit = WasAskedFor("--split");
@@ -227,10 +233,23 @@ public partial class MatchScene : Node2D
         foreach (SeatPlanner planner in _planners)
         {
             planner.BeginRound();
-            _penAt[planner.Seat] = planner.Actor?.Position ?? Vec2.Zero;
         }
 
+        System.Array.Clear(_driven, 0, _driven.Length);
         _pointerSeat = NextPointerSeat(from: 0);
+        RecentreViews();
+    }
+
+    /// <summary>
+    /// Hands the cameras back to the game. A player who panned away to look at somebody else
+    /// wants to be shown their own mole again when the next beat starts, not to have to find it.
+    /// </summary>
+    private void RecentreViews()
+    {
+        foreach (WorldView view in _views)
+        {
+            view.Recentre();
+        }
     }
 
     /// <summary>
@@ -290,7 +309,8 @@ public partial class MatchScene : Node2D
         _beat = Beat.Resolving;
 
         NoteWhenThingsHappened();
-        DecideReplayLayout();
+        ComposeReplayCameras();
+        RecentreViews();
         ReportRound();
     }
 
@@ -345,63 +365,87 @@ public partial class MatchScene : Node2D
     }
 
     /// <summary>
-    /// The design's rule for the replay: one screen when the action is close enough to share,
-    /// and one view each when it is not.
+    /// Hands the round to the director, which cuts it into cameras once, before it plays.
     /// </summary>
     /// <remarks>
-    /// Decided once, from the finished recording, rather than every frame. The round has
-    /// already resolved by the time anybody watches it, so the whole extent of it is knowable
-    /// up front, and deciding up front is the only way to stop the screen splitting and merging
-    /// each time somebody is punted sideways.
+    /// Once, from the finished recording, rather than every frame. The round has already resolved
+    /// by the time anybody watches it, so the whole shape of it is knowable up front, and deciding
+    /// up front is the only way to stop the screen splitting and merging each time somebody is
+    /// punted sideways.
     /// </remarks>
-    private void DecideReplayLayout()
+    private void ComposeReplayCameras()
     {
         RoundRecording? recording = _result?.Recording;
+        _replayBand = Band();
 
-        if (recording is null)
+        _replayPanes = recording is null
+            ? SplitLayout.Shared(_replayBand)
+            : ReplayDirector.Compose(
+                recording, _stage.ExitTick, ReplaySubjects(), _replayBand, _forceSplit);
+    }
+
+    /// <summary>
+    /// Everybody worth pointing a camera at: whoever had a plan, and whoever it happened to.
+    /// </summary>
+    /// <remarks>
+    /// Victims and not only actors, because the interesting half of an artillery round is the end
+    /// of the shell rather than the start of it. Framing only the moles who acted would keep the
+    /// thrower in shot and cut away from the landing, which is the bit worth watching.
+    /// </remarks>
+    private List<int> ReplaySubjects()
+    {
+        List<int> subjects = new List<int>();
+        bool[] taken = new bool[_match.Moles.Count];
+
+        for (int slot = 0; slot < _match.Moles.Count; slot++)
         {
-            _sharedReplay = true;
-            return;
-        }
-
-        Fix64 minX = Fix64.MaxValue;
-        Fix64 maxX = Fix64.MinValue;
-        Fix64 minY = Fix64.MaxValue;
-        Fix64 maxY = Fix64.MinValue;
-        bool any = false;
-
-        for (int slot = 0; slot < recording.MoleCount; slot++)
-        {
-            if (!IsActor(slot))
+            if (IsActor(slot))
             {
-                continue;
-            }
-
-            int last = _stage.ExitTick[slot] >= 0 ? _stage.ExitTick[slot] : recording.Ticks - 1;
-
-            for (int tick = 0; tick <= last; tick++)
-            {
-                Vec2 where = recording.PositionOf(tick, slot);
-                minX = Fix64.Min(minX, where.X);
-                maxX = Fix64.Max(maxX, where.X);
-                minY = Fix64.Min(minY, where.Y);
-                maxY = Fix64.Max(maxY, where.Y);
-                any = true;
+                taken[slot] = true;
+                subjects.Add(slot);
             }
         }
 
-        if (!any)
+        if (_result is null)
         {
-            _sharedReplay = true;
+            return subjects;
+        }
+
+        foreach (BlastHit hit in _result.Hits)
+        {
+            Involve(SlotOf(hit.Seat, hit.MoleIndex), taken, subjects);
+        }
+
+        foreach (Knockout knockout in _result.Knockouts)
+        {
+            Involve(SlotOf(knockout.Seat, knockout.MoleIndex), taken, subjects);
+        }
+
+        return subjects;
+    }
+
+    private static void Involve(int slot, bool[] taken, List<int> subjects)
+    {
+        if (slot < 0 || taken[slot])
+        {
             return;
         }
 
-        // Platoons spawn interleaved, so early rounds are nearly always close enough to share
-        // a view and the split path would go unexercised. The flag forces it for inspection.
-        _sharedReplay = !_forceSplit && SplitLayout.ActionFitsOneView(
-            Band(),
-            (float)(maxX - minX).ToDecimal(),
-            (float)(maxY - minY).ToDecimal());
+        taken[slot] = true;
+        subjects.Add(slot);
+    }
+
+    private int SlotOf(int seat, int moleIndex)
+    {
+        for (int slot = 0; slot < _match.Moles.Count; slot++)
+        {
+            if (_match.Moles[slot].Seat == seat && _match.Moles[slot].Index == moleIndex)
+            {
+                return slot;
+            }
+        }
+
+        return -1;
     }
 
     /// <summary>Whether a mole slot belongs to a platoon that acted this round.</summary>
@@ -486,11 +530,6 @@ public partial class MatchScene : Node2D
     {
         _clock -= (float)delta;
 
-        foreach (SeatPlanner planner in _planners)
-        {
-            planner.Tick(delta);
-        }
-
         for (int seat = 0; seat < PlayerCount; seat++)
         {
             if (_devices[seat] == Device.Gamepad)
@@ -499,6 +538,7 @@ public partial class MatchScene : Node2D
             }
         }
 
+        SteerPointerSeat(delta);
         TrackPointerReset(delta);
         DriveIfAsked(delta);
 
@@ -648,7 +688,7 @@ public partial class MatchScene : Node2D
 
             if (used)
             {
-                _views[index].Occupy(panes[index], delta);
+                _views[index].Occupy(panes[index], index, delta);
             }
         }
     }
@@ -662,22 +702,30 @@ public partial class MatchScene : Node2D
     {
         Rect2 band = Band();
 
-        if (_touch is not null)
-        {
-            // A phone is one player, and its screen has no room to be divided anyway.
-            return SplitLayout.Shared(band);
-        }
-
         if (_beat == Beat.Planning)
         {
+            if (_touch is not null)
+            {
+                // A phone is one player at a time, and its screen has no room to be divided.
+                return SplitLayout.Shared(band);
+            }
+
             return _forceSplit || SimultaneousSeats() >= 2
                 ? SplitLayout.PerSeat(PlayerCount, band)
                 : SplitLayout.Shared(band);
         }
 
-        if (_beat == Beat.Resolving && !_sharedReplay)
+        // The replay keeps the director's cut through the aftermath, so the last thing anybody
+        // saw happen stays framed rather than cutting to a wide shot the moment it stops moving.
+        if (_beat is Beat.Resolving or Beat.Aftermath && _replayPanes.Length > 0)
         {
-            return SplitLayout.PerSeat(PlayerCount, band);
+            if (_replayBand != band)
+            {
+                // The window changed shape mid-replay, so the cut has to be re-framed for it.
+                ComposeReplayCameras();
+            }
+
+            return _replayPanes;
         }
 
         return SplitLayout.Shared(band);
@@ -693,6 +741,18 @@ public partial class MatchScene : Node2D
             return;
         }
 
+        // The wheel zooms in either layout. A phone has no wheel, but --touch on a desktop is the
+        // only way the thumb layout gets looked at, and it is worth being able to zoom while doing
+        // so rather than needing two fingers nobody has.
+        if (@event is InputEventMouseButton { Pressed: true } button
+            && button.ButtonIndex is MouseButton.WheelUp or MouseButton.WheelDown)
+        {
+            ZoomAt(
+                button.Position,
+                button.ButtonIndex == MouseButton.WheelUp ? ZoomNotch : 1f / ZoomNotch);
+            return;
+        }
+
         if (_touch is not null)
         {
             HandleTouch(@event);
@@ -702,39 +762,42 @@ public partial class MatchScene : Node2D
         HandleMouse(@event);
     }
 
+    /// <summary>
+    /// The desktop pointer: a drag moves the camera, the wheel zooms it, and the right button
+    /// still aims.
+    /// </summary>
+    /// <remarks>
+    /// The left button used to draw the route, which is why the map could not be dragged. Now that
+    /// the mole is steered with the keys, a drag on the map means what a drag on a map means
+    /// everywhere else, and the one gesture the game had to invent for itself is gone.
+    /// </remarks>
     private void HandleMouse(InputEvent @event)
     {
         SeatPlanner? planner = Pointed();
 
+        switch (@event)
+        {
+            case InputEventMouseButton { ButtonIndex: MouseButton.Left } left:
+                _panning = left.Pressed ? ViewAt(left.Position) : null;
+                return;
+
+            default:
+                break;
+        }
+
         if (_beat != Beat.Planning || planner is null)
         {
+            // Panning and zooming work in every beat; aiming only makes sense in one.
+            if (@event is InputEventMouseMotion drag && _panning is not null)
+            {
+                _panning.Pan(drag.Relative);
+            }
+
             return;
         }
 
         switch (@event)
         {
-            case InputEventMouseButton { ButtonIndex: MouseButton.Left } left:
-                if (!left.Pressed)
-                {
-                    planner.PenUp();
-                    break;
-                }
-
-                // With hop placement armed, a click puts a hop on the route rather than
-                // starting a new stroke, which would wipe the route it is being placed on.
-                if (planner.PlacingHop)
-                {
-                    if (planner.PlaceHopNear(PointerWorld(left.Position, planner.Seat)))
-                    {
-                        Click();
-                    }
-
-                    break;
-                }
-
-                planner.PenDown(PointerWorld(left.Position, planner.Seat));
-                break;
-
             case InputEventMouseButton { ButtonIndex: MouseButton.Right } right:
                 if (right.Pressed)
                 {
@@ -748,17 +811,13 @@ public partial class MatchScene : Node2D
                 break;
 
             case InputEventMouseMotion motion:
-                Vec2 at = PointerWorld(motion.Position, planner.Seat);
-
-                if (planner.PenIsDown)
+                if (_panning is not null)
                 {
-                    planner.Extend(at);
-                }
-                else
-                {
-                    planner.MoveAim(at);
+                    _panning.Pan(motion.Relative);
+                    break;
                 }
 
+                planner.MoveAim(PointerWorld(motion.Position, planner.Seat));
                 break;
 
             default:
@@ -766,35 +825,42 @@ public partial class MatchScene : Node2D
         }
     }
 
+    /// <summary>How much one notch of the wheel zooms.</summary>
+    private const float ZoomNotch = 1.12f;
+
     /// <summary>
-    /// A touch is a stroke on the map unless it landed on a control, which is the only way a
-    /// single finger can do both.
+    /// The phone: a finger on a control operates it, a finger on the map drags it, and two
+    /// fingers on the map pinch.
     /// </summary>
+    /// <remarks>
+    /// Real screen-touch events rather than the synthesised mouse, because a pinch needs to know
+    /// which finger is which and a mouse has only ever had one.
+    /// </remarks>
     private void HandleTouch(InputEvent @event)
     {
         SeatPlanner? planner = Pointed();
 
-        if (_touch is null || _beat != Beat.Planning || planner is null)
+        if (_touch is null)
         {
             return;
         }
 
         switch (@event)
         {
-            case InputEventMouseButton { ButtonIndex: MouseButton.Left } press:
-                if (press.Pressed)
+            case InputEventScreenTouch touch:
+                if (touch.Pressed)
                 {
-                    BeginTouch(planner, press.Position);
+                    BeginTouch(planner, touch.Index, touch.Position);
                 }
                 else
                 {
-                    EndTouch(planner);
+                    EndTouch(planner, touch.Index);
                 }
 
                 break;
 
-            case InputEventMouseMotion motion:
-                ContinueTouch(planner, motion);
+            case InputEventScreenDrag drag:
+                ContinueTouch(planner, drag);
                 break;
 
             default:
@@ -802,43 +868,58 @@ public partial class MatchScene : Node2D
         }
     }
 
-    private void BeginTouch(SeatPlanner planner, Vector2 at)
+    /// <summary>One finger, and what it landed on.</summary>
+    private sealed class Finger
     {
-        _held = _touch!.Hit(at);
-        _touch.Press(_held);
+        public TouchTarget Target { get; set; }
 
-        switch (_held)
+        public Vector2 At { get; set; }
+    }
+
+    private readonly Dictionary<long, Finger> _fingers = new Dictionary<long, Finger>();
+    private WorldView? _panning;
+    private float _pinchSpan;
+    private float _wheelTravel;
+    private Vector2 _thumbPush;
+
+    private void BeginTouch(SeatPlanner? planner, long index, Vector2 at)
+    {
+        TouchTarget target = planner is null || _beat != Beat.Planning
+            ? TouchTarget.None
+            : _touch!.Hit(at);
+
+        _fingers[index] = new Finger { Target = target, At = at };
+
+        if (target == TouchTarget.None)
         {
-            case TouchTarget.None:
-                if (planner.PlacingHop)
-                {
-                    if (planner.PlaceHopNear(PointerWorld(at, planner.Seat)))
-                    {
-                        Click();
-                    }
+            _panning = ViewAt(at);
+            _pinchSpan = 0;
+            return;
+        }
 
-                    break;
-                }
+        _touch!.Press(target);
 
-                planner.PenDown(PointerWorld(at, planner.Seat));
-                break;
-
+        switch (target)
+        {
             case TouchTarget.Fire:
-                planner.BeginAim(planner.Muzzle);
+                planner!.BeginAim(planner.PlannedPosition);
                 break;
 
             case TouchTarget.Commit:
-                planner.Commit();
+                planner!.Commit();
                 Click();
                 break;
 
             case TouchTarget.Hop:
-                planner.ArmHop();
-                Click();
+                if (planner!.BookHop())
+                {
+                    Click();
+                }
+
                 break;
 
             case TouchTarget.Brace:
-                planner.ToggleBrace();
+                planner!.ToggleBrace();
                 Click();
                 break;
 
@@ -847,24 +928,46 @@ public partial class MatchScene : Node2D
         }
     }
 
-    private void ContinueTouch(SeatPlanner planner, InputEventMouseMotion motion)
+    private void ContinueTouch(SeatPlanner? planner, InputEventScreenDrag drag)
     {
-        switch (_held)
+        if (!_fingers.TryGetValue(drag.Index, out Finger? finger))
         {
-            case TouchTarget.None:
-                planner.Extend(PointerWorld(motion.Position, planner.Seat));
+            return;
+        }
+
+        finger.At = drag.Position;
+
+        if (finger.Target == TouchTarget.None)
+        {
+            DragTheMap(drag);
+            return;
+        }
+
+        if (planner is null)
+        {
+            return;
+        }
+
+        switch (finger.Target)
+        {
+            case TouchTarget.Stick:
+                // Direction only. There is one walking speed in every material, so how far the
+                // stick is pushed cannot mean anything, and pretending otherwise would promise a
+                // creep the simulation has no way to deliver.
+                _thumbPush = drag.Position - _touch!.StickAt;
+                _touch.StickPush = _thumbPush;
                 break;
 
             case TouchTarget.Fire:
                 // Direction and power out of one thumb: the further the stick is pulled, the
                 // harder the throw, exactly as a mouse drag works.
-                Vector2 drag = motion.Position - _touch!.FireAt;
-                _touch.AimDrag = drag;
-                planner.MoveAim(AimFromStick(planner, drag));
+                Vector2 pull = drag.Position - _touch!.FireAt;
+                _touch.AimDrag = pull;
+                planner.MoveAim(AimFromStick(planner, pull));
                 break;
 
             case TouchTarget.Wheel:
-                _wheelTravel += motion.Relative.Y;
+                _wheelTravel += drag.Relative.Y;
 
                 while (Mathf.Abs(_wheelTravel) >= _touch!.WheelNotch)
                 {
@@ -880,20 +983,32 @@ public partial class MatchScene : Node2D
         }
     }
 
-    private void EndTouch(SeatPlanner planner)
+    private void EndTouch(SeatPlanner? planner, long index)
     {
-        switch (_held)
+        if (!_fingers.TryGetValue(index, out Finger? finger))
+        {
+            return;
+        }
+
+        _fingers.Remove(index);
+
+        switch (finger.Target)
         {
             case TouchTarget.None:
-                planner.PenUp();
+                _panning = null;
+                _pinchSpan = 0;
+                break;
+
+            case TouchTarget.Stick:
+                _thumbPush = Vector2.Zero;
                 break;
 
             case TouchTarget.Fire:
-                planner.ReleaseAim();
+                planner?.ReleaseAim();
                 break;
 
             case TouchTarget.Dynamite:
-                planner.PlantCharge();
+                planner?.PlantCharge();
                 Click();
                 break;
 
@@ -901,19 +1016,92 @@ public partial class MatchScene : Node2D
                 break;
         }
 
-        _held = TouchTarget.None;
         _wheelTravel = 0;
-        _touch!.Release();
+
+        // Only let go of the controls when nothing is still holding one. Releasing on any lift
+        // would unstick a button another thumb is still pressing.
+        if (!AnyFingerOnAControl())
+        {
+            _touch!.Release();
+            _thumbPush = Vector2.Zero;
+        }
     }
 
-    private float _wheelTravel;
+    private bool AnyFingerOnAControl()
+    {
+        foreach (Finger finger in _fingers.Values)
+        {
+            if (finger.Target != TouchTarget.None)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// A finger on the map: one drags it, two pinch it.
+    /// </summary>
+    private void DragTheMap(InputEventScreenDrag drag)
+    {
+        if (TwoOnTheMap(out Vector2 first, out Vector2 second))
+        {
+            Pinch(first, second);
+            return;
+        }
+
+        _pinchSpan = 0;
+        _panning?.Pan(drag.Relative);
+    }
+
+    private void Pinch(Vector2 first, Vector2 second)
+    {
+        float span = first.DistanceTo(second);
+
+        if (_panning is not null && _pinchSpan > 1f && span > 1f)
+        {
+            Vector2 between = (first + second) / 2f;
+            _panning.ZoomBy(span / _pinchSpan, between - _panning.Position);
+        }
+
+        _pinchSpan = span;
+    }
+
+    private bool TwoOnTheMap(out Vector2 first, out Vector2 second)
+    {
+        first = Vector2.Zero;
+        second = Vector2.Zero;
+        int found = 0;
+
+        foreach (Finger finger in _fingers.Values)
+        {
+            if (finger.Target != TouchTarget.None)
+            {
+                continue;
+            }
+
+            if (found == 0)
+            {
+                first = finger.At;
+            }
+            else if (found == 1)
+            {
+                second = finger.At;
+            }
+
+            found++;
+        }
+
+        return found == 2;
+    }
 
     /// <summary>Turns a thumb stick into an aim point out in the world.</summary>
     private Vec2 AimFromStick(SeatPlanner planner, Vector2 drag)
     {
         if (drag.LengthSquared() < 1f)
         {
-            return planner.Muzzle;
+            return planner.PlannedPosition;
         }
 
         float full = Mathf.Max(_touch!.WheelNotch * 3f, 1f);
@@ -921,10 +1109,68 @@ public partial class MatchScene : Node2D
         Vector2 direction = drag.Normalized();
         Fix64 reach = SeatPlanner.FullPowerDrag * Fix64.Ratio((int)(charge * 256), 256);
 
-        return planner.Muzzle + new Vec2(
+        return planner.PlannedPosition + new Vec2(
             Fix64.Ratio((int)(direction.X * 256), 256) * reach,
             Fix64.Ratio((int)(direction.Y * 256), 256) * reach);
     }
+
+    // ---- Steering --------------------------------------------------------------------
+
+    /// <summary>
+    /// Walks the platoon at the pointer, from whichever of a thumb or the keys is pushing.
+    /// </summary>
+    /// <remarks>
+    /// Both, deliberately, rather than one or the other. The phone layout can then be driven from
+    /// a desktop keyboard under <c>--touch</c>, which is the only way the thumb layout gets looked
+    /// at without a phone in the room.
+    /// </remarks>
+    private void SteerPointerSeat(double delta)
+    {
+        Pointed()?.Steer(PointerPush(), delta);
+    }
+
+    private Vec2 PointerPush()
+    {
+        if (_touch is not null && _thumbPush.Length() >= _touch.StickTravel * ThumbDeadZone)
+        {
+            return Quantised(_thumbPush);
+        }
+
+        return Quantised(KeyboardPush());
+    }
+
+    private static Vector2 KeyboardPush() =>
+        new Vector2(
+            Held(Key.D, Key.Right) - Held(Key.A, Key.Left),
+            Held(Key.S, Key.Down) - Held(Key.W, Key.Up));
+
+    private static float Held(Key first, Key second) =>
+        Input.IsKeyPressed(first) || Input.IsKeyPressed(second) ? 1f : 0f;
+
+    /// <summary>
+    /// Turns a screen direction into one the simulation will accept.
+    /// </summary>
+    /// <remarks>
+    /// Quantised to a two-hundred-and-fifty-sixth on the way in, so that even the preview, which
+    /// runs the real solver, is computing from a number a phone and a desktop would both arrive
+    /// at. Floating point is fine on this side of the line and never crosses it.
+    /// </remarks>
+    private static Vec2 Quantised(Vector2 direction)
+    {
+        if (direction.LengthSquared() < 0.0001f)
+        {
+            return Vec2.Zero;
+        }
+
+        Vector2 unit = direction.Normalized();
+
+        return new Vec2(
+            Fix64.Ratio((int)(unit.X * 256f), 256),
+            Fix64.Ratio((int)(unit.Y * 256f), 256));
+    }
+
+    /// <summary>How far a thumb must push, as a share of the stick's travel, to count.</summary>
+    private const float ThumbDeadZone = 0.25f;
 
     private void TrackPointerReset(double delta)
     {
@@ -935,9 +1181,7 @@ public partial class MatchScene : Node2D
             return;
         }
 
-        bool holding = _held == TouchTarget.Reset || Input.IsKeyPressed(Key.R);
-
-        if (holding)
+        if (Input.IsKeyPressed(Key.R) || FingerOn(TouchTarget.Reset))
         {
             planner.HoldReset(delta);
         }
@@ -945,6 +1189,19 @@ public partial class MatchScene : Node2D
         {
             planner.ReleaseReset();
         }
+    }
+
+    private bool FingerOn(TouchTarget target)
+    {
+        foreach (Finger finger in _fingers.Values)
+        {
+            if (finger.Target == target)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -973,11 +1230,33 @@ public partial class MatchScene : Node2D
             }
         }
 
-        // Outside every pane, so read it against the one the planner belongs to and let the
-        // route run off the edge rather than snapping somewhere arbitrary.
+        // Outside every pane, so read it against the one the planner belongs to and let the aim
+        // run off the edge rather than snapping somewhere arbitrary.
         return owned is null
             ? Vec2.Zero
             : owned.ToWorld(onScreen - owned.Position);
+    }
+
+    /// <summary>Which pane a point on the screen belongs to, for panning and zooming it.</summary>
+    private WorldView? ViewAt(Vector2 onScreen)
+    {
+        foreach (WorldView view in _views)
+        {
+            if (view.Visible && new Rect2(view.Position, view.Size).HasPoint(onScreen))
+            {
+                return view;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Zooms whichever pane a point is over, about that point.</summary>
+    private void ZoomAt(Vector2 onScreen, float factor)
+    {
+        WorldView? over = ViewAt(onScreen);
+
+        over?.ZoomBy(factor, onScreen - over.Position);
     }
 
     private void HandleKey(InputEventKey key)
@@ -1011,13 +1290,20 @@ public partial class MatchScene : Node2D
                 break;
 
             case Key.H:
-                planner?.ArmHop();
-                Click();
+                if (planner?.BookHop() == true)
+                {
+                    Click();
+                }
+
                 break;
 
             case Key.B:
                 planner?.ToggleBrace();
                 Click();
+                break;
+
+            case Key.C:
+                RecentreViews();
                 break;
 
             default:
@@ -1050,13 +1336,16 @@ public partial class MatchScene : Node2D
     // ---- Gamepad input ---------------------------------------------------------------
 
     /// <summary>
-    /// One platoon's controller: left stick steers the pen, the face buttons lay, aim, reset
-    /// and commit, and the shoulders turn the wheel.
+    /// One platoon's controller: left stick walks the mole, right stick aims, and the face
+    /// buttons do the things that happen at a moment.
     /// </summary>
     /// <remarks>
     /// Never yet run against real hardware, and marked as such. The simultaneous planning it
     /// feeds is exercised by the test driver, which plans for several platoons at once, so what
     /// is owed a controller is only the axis and button reads themselves.
+    ///
+    /// Shorter than it was, because steering removed the need for a button to hold down while
+    /// laying and a cursor to walk about the map independently of the mole.
     /// </remarks>
     private void DriveWithGamepad(int seat, double delta)
     {
@@ -1071,44 +1360,23 @@ public partial class MatchScene : Node2D
         Vector2 stick = new Vector2(
             Input.GetJoyAxis(pad, JoyAxis.LeftX), Input.GetJoyAxis(pad, JoyAxis.LeftY));
 
-        if (stick.Length() > StickDeadZone)
-        {
-            Fix64 step = Fix64.Ratio((int)((float)delta * PenMetresPerSecond * 256), 256);
-            _penAt[seat] += new Vec2(
-                Fix64.Ratio((int)(stick.X * 256), 256) * step,
-                Fix64.Ratio((int)(stick.Y * 256), 256) * step);
-        }
-
-        bool laying = Input.IsJoyButtonPressed(pad, JoyButton.A);
-
-        if (laying && !planner.PenIsDown)
-        {
-            planner.PenDown(_penAt[seat]);
-        }
-        else if (laying)
-        {
-            planner.Extend(_penAt[seat]);
-        }
-        else if (planner.PenIsDown)
-        {
-            planner.PenUp();
-        }
+        planner.Steer(stick.Length() > PadDeadZone ? Quantised(stick) : Vec2.Zero, delta);
 
         Vector2 aim = new Vector2(
             Input.GetJoyAxis(pad, JoyAxis.RightX), Input.GetJoyAxis(pad, JoyAxis.RightY));
 
-        if (aim.Length() > StickDeadZone)
+        if (aim.Length() > PadDeadZone)
         {
             Fix64 reach = SeatPlanner.FullPowerDrag
                 * Fix64.Ratio((int)(Mathf.Min(aim.Length(), 1f) * 256), 256);
 
             if (!planner.Aiming)
             {
-                planner.BeginAim(planner.Muzzle);
+                planner.BeginAim(planner.PlannedPosition);
             }
 
             Vector2 direction = aim.Normalized();
-            planner.MoveAim(planner.Muzzle + new Vec2(
+            planner.MoveAim(planner.PlannedPosition + new Vec2(
                 Fix64.Ratio((int)(direction.X * 256), 256) * reach,
                 Fix64.Ratio((int)(direction.Y * 256), 256) * reach));
         }
@@ -1144,17 +1412,11 @@ public partial class MatchScene : Node2D
 
         if (hopping && !_hopHeld[seat])
         {
-            // Armed rather than placed. The next press of the lay button drops it wherever the
-            // pen is, which is the same two-step gesture a thumb uses.
-            planner.ArmHop();
+            // Booked for this moment of the walk, which is the same one press a thumb makes.
+            planner.BookHop();
         }
 
         _hopHeld[seat] = hopping;
-
-        if (planner.PlacingHop && laying)
-        {
-            planner.PlaceHopNear(_penAt[seat]);
-        }
 
         bool bracing = Input.IsJoyButtonPressed(pad, JoyButton.DpadDown);
 
@@ -1196,10 +1458,8 @@ public partial class MatchScene : Node2D
     private readonly bool[] _hopHeld = new bool[PlayerCount];
     private readonly bool[] _braceHeld = new bool[PlayerCount];
 
-    private const float StickDeadZone = 0.2f;
-
-    /// <summary>How fast a stick walks the pen across the map.</summary>
-    private const float PenMetresPerSecond = 14f;
+    /// <summary>How far a gamepad axis must move before it counts as pushed.</summary>
+    private const float PadDeadZone = 0.2f;
 
     // ---- The test driver -------------------------------------------------------------
 
@@ -1233,13 +1493,13 @@ public partial class MatchScene : Node2D
             return;
         }
 
-        // Laying and committing are separate beats a moment apart, so a recorded frame can
+        // Walking and committing are separate beats a moment apart, so a recorded frame can
         // catch the planning screen mid-thought.
-        bool laid = false;
+        bool walked = false;
 
         foreach (SeatPlanner planner in _planners)
         {
-            if (!planner.IsPlanning || planner.Actor is null || planner.Preview is not null)
+            if (!planner.IsPlanning || planner.Actor is null || _driven[planner.Seat])
             {
                 continue;
             }
@@ -1250,14 +1510,8 @@ public partial class MatchScene : Node2D
 
             AutoPilot.Intent intent = _autoPilot.Decide(planner.Actor, planner.Weapon);
 
-            planner.PenDown(planner.Actor.Position);
+            WalkThrough(planner, intent);
 
-            foreach (Vec2 point in intent.Route)
-            {
-                planner.Extend(point);
-            }
-
-            planner.PenUp();
             planner.BeginAim(intent.AimAt);
             planner.ReleaseAim();
 
@@ -1266,23 +1520,18 @@ public partial class MatchScene : Node2D
                 planner.PlantCharge();
             }
 
-            if (intent.Hop && intent.Route.Count > 1)
-            {
-                planner.ArmHop();
-                planner.PlaceHopNear(intent.Route[intent.Route.Count / 2]);
-            }
-
             if (intent.Brace)
             {
                 planner.ToggleBrace();
             }
 
-            laid = true;
+            _driven[planner.Seat] = true;
+            walked = true;
         }
 
         _autoClock = 0;
 
-        if (laid)
+        if (walked)
         {
             return;
         }
@@ -1293,6 +1542,48 @@ public partial class MatchScene : Node2D
         }
     }
 
+    /// <summary>
+    /// Steers a platoon along the route the driver wants, one tick at a time.
+    /// </summary>
+    /// <remarks>
+    /// Through the same door a thumb uses. The driver could assemble a list of waypoints and hand
+    /// it over directly, and it would be shorter, but then a round it drove would be a round no
+    /// player could have played, which is the one thing this thing is not allowed to be.
+    /// </remarks>
+    private static void WalkThrough(SeatPlanner planner, AutoPilot.Intent intent)
+    {
+        for (int leg = 0; leg < intent.Route.Count; leg++)
+        {
+            // A hop partway along, booked while walking, because that is when a hop is booked
+            // now. On a rota rather than at random, so it turns up in a recorded capture.
+            if (intent.Hop && leg == intent.Route.Count / 2)
+            {
+                planner.BookHop();
+            }
+
+            for (int tick = 0; tick < TicksPerLeg && planner.HasTimeLeft; tick++)
+            {
+                Vec2 toward = intent.Route[leg] - planner.PlannedPosition;
+
+                if (toward.Length() <= MatchSettings.Radius)
+                {
+                    break;
+                }
+
+                planner.StepToward(toward);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Ticks the driver will spend trying to reach one waypoint before giving up on it. Its legs
+    /// are a couple of metres, which is about a dozen ticks, so this is generous on purpose:
+    /// walking into a hillside should cost it the digging rather than stop it dead.
+    /// </summary>
+    private const int TicksPerLeg = 60;
+
+    private readonly bool[] _driven = new bool[PlayerCount];
+
     /// <summary>Long enough that a recorded frame catches the planning screen mid-thought.</summary>
     private const double AutoPause = 0.35;
 
@@ -1301,10 +1592,16 @@ public partial class MatchScene : Node2D
     private MatchHud.State BuildHudState()
     {
         SplitLayout.TrySpareCell(PlayerCount, Band(), out Rect2 spare);
-        bool splitting = Panes().Length > 1;
+        SplitLayout.Pane[] panes = Panes();
+        bool splitting = panes.Length > 1;
 
         return new MatchHud.State
         {
+            // Cleared past the top row of panes' own instruments, which the shared strip used to
+            // sit on top of whenever a vertical seam ran down the middle of the screen.
+            TopClearance = splitting
+                ? WorldView.InstrumentDepth(panes[0].Rect.Size.Y) + 6f
+                : 6f,
             ClockLeft = _beat == Beat.Planning ? Mathf.Max(_clock, 0f) : -1f,
             ClockLength = PlanningSeconds,
             Standing = StandingPerSeat(),

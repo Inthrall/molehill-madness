@@ -18,14 +18,15 @@ using Godot;
 /// </remarks>
 public static class SplitLayout
 {
-    /// <summary>One player's window, or the shared one.</summary>
+    /// <summary>One player's window, the shared one, or one of the replay's cameras.</summary>
     public readonly struct Pane
     {
-        public Pane(Rect2 rect, int seat, float pixelsPerMetre)
+        public Pane(Rect2 rect, int seat, float pixelsPerMetre, int[]? watching = null)
         {
             Rect = rect;
             Seat = seat;
             PixelsPerMetre = pixelsPerMetre;
+            Watching = watching;
         }
 
         public Rect2 Rect { get; }
@@ -34,10 +35,21 @@ public static class SplitLayout
         public int Seat { get; }
 
         /// <summary>
-        /// Zoom for this pane, derived from its height so that every pane shows the same
-        /// slice of world vertically however the screen was carved up.
+        /// Zoom for this pane. Derived from its height for a planning pane, so every pane shows
+        /// the same slice of world vertically however the screen was carved up, and chosen by
+        /// <see cref="ReplayDirector"/> for a replay camera, to frame what it is pointed at.
         /// </summary>
         public float PixelsPerMetre { get; }
+
+        /// <summary>
+        /// Which mole slots this camera is following, or null when it follows a seat.
+        /// </summary>
+        /// <remarks>
+        /// Only the replay sets this. A planning pane belongs to a platoon and looks at whatever
+        /// that platoon is steering; a replay camera belongs to a piece of the action and looks at
+        /// whoever is in it, which after the round has resolved is a knowable list of moles.
+        /// </remarks>
+        public int[]? Watching { get; }
     }
 
     /// <summary>
@@ -105,41 +117,107 @@ public static class SplitLayout
         return true;
     }
 
+    /// <summary>
+    /// The same carve-up as <see cref="PerSeat"/>, but as bare rectangles for cameras that
+    /// belong to a piece of the action rather than to a platoon.
+    /// </summary>
+    public static Rect2[] Grid(int count, Rect2 band)
+    {
+        if (count <= 1)
+        {
+            return new[] { band };
+        }
+
+        if (count == 2)
+        {
+            return new[]
+            {
+                CellRect(band, 0, 0, 1, 2),
+                CellRect(band, 0, 1, 1, 2),
+            };
+        }
+
+        Rect2[] cells = new Rect2[count];
+
+        for (int index = 0; index < count; index++)
+        {
+            cells[index] = CellRect(band, index % 2, index / 2, 2, 2);
+        }
+
+        return cells;
+    }
+
     private static Pane Cell(Rect2 band, int column, int row, int columns, int rows, int seat)
     {
-        float width = ((band.Size.X - (Gutter * (columns - 1))) / columns);
-        float height = ((band.Size.Y - (Gutter * (rows - 1))) / rows);
+        Rect2 rect = CellRect(band, column, row, columns, rows);
 
-        Rect2 rect = new Rect2(
+        return new Pane(rect, seat, ZoomFor(rect.Size.Y));
+    }
+
+    private static Rect2 CellRect(Rect2 band, int column, int row, int columns, int rows)
+    {
+        float width = (band.Size.X - (Gutter * (columns - 1))) / columns;
+        float height = (band.Size.Y - (Gutter * (rows - 1))) / rows;
+
+        return new Rect2(
             band.Position.X + (column * (width + Gutter)),
             band.Position.Y + (row * (height + Gutter)),
             width,
             height);
-
-        return new Pane(rect, seat, ZoomFor(height));
     }
 
     private static float ZoomFor(float paneHeight) =>
         Mathf.Clamp(paneHeight / MetresTall, FurthestZoom, ClosestZoom);
 
+    /// <summary>How much world a pane shows across, at the zoom its shape makes natural.</summary>
+    /// <remarks>
+    /// Sixteen to nine of <see cref="MetresTall"/>, so a pane the shape of the project's own
+    /// window frames exactly what it always did and nothing about a quiet round looks different
+    /// from before there was a director.
+    /// </remarks>
+    private const float MetresWide = 32f;
+
     /// <summary>
-    /// Whether the whole round fits in one shared view, which is the design's rule for
-    /// showing one screen rather than four.
+    /// The zoom that frames a given spread of action in a given cell, and whether that spread is
+    /// compact enough to be one shot at all.
     /// </summary>
     /// <remarks>
-    /// Decided once, from the finished recording, rather than per frame. The round has
-    /// already resolved by the time anybody watches it, so the answer is knowable up front,
-    /// and deciding it up front is the only way to avoid the screen splitting and merging
-    /// every time somebody gets punted sideways.
+    /// The two answers are deliberately independent. How far back to stand depends on the pane;
+    /// whether a piece of the action is one piece does not, because "these moles are in the same
+    /// fight" is a fact about the map rather than about how the screen happens to be carved. Tying
+    /// them together made the director's decisions change when a pane changed shape, which is how
+    /// you get a two-camera cut of one scrum.
+    ///
+    /// The natural-zoom cap is what stops a shot being tighter than it needs to be, and it takes
+    /// the pane's shape seriously: a shot shows eighteen metres of height or thirty-two of width,
+    /// whichever that pane's proportions can manage, rather than both. Demanding both made a wide
+    /// short band show sixty-four metres across in order to satisfy the height, which is more than
+    /// the whole map is wide and left two thirds of the frame empty.
     /// </remarks>
-    public static bool ActionFitsOneView(Rect2 band, float widthMetres, float heightMetres)
+    public static float ZoomToFit(Rect2 cell, float widthMetres, float heightMetres, out bool compact)
     {
-        Pane shared = Shared(band)[0];
-        float visibleWidth = shared.Rect.Size.X / shared.PixelsPerMetre;
-        float visibleHeight = shared.Rect.Size.Y / shared.PixelsPerMetre;
+        float wanted = Mathf.Min(
+            cell.Size.X / (widthMetres + Breathing),
+            cell.Size.Y / (heightMetres + Breathing));
 
-        // A fifth of the view kept as breathing room, so the action is not pressed against
-        // the edges of a view that technically contains it.
-        return widthMetres <= visibleWidth * 0.8f && heightMetres <= visibleHeight * 0.8f;
+        compact = widthMetres <= ShareableWidth && heightMetres <= ShareableHeight;
+
+        return Mathf.Clamp(
+            Mathf.Min(wanted, NaturalZoom(cell)), FurthestZoom, ClosestZoom);
     }
+
+    private static float NaturalZoom(Rect2 cell) =>
+        Mathf.Max(cell.Size.Y / MetresTall, cell.Size.X / MetresWide);
+
+    /// <summary>Metres of air kept around the action, so nothing is pressed against a frame edge.</summary>
+    private const float Breathing = 6f;
+
+    /// <summary>
+    /// How far apart moles can be and still count as one fight. Past this the design's rule is to
+    /// split, and forty metres is deliberately well short of the map's sixty-odd: two platoons at
+    /// opposite ends of it are two fights, whatever a wide enough lens could technically contain.
+    /// </summary>
+    private const float ShareableWidth = 40f;
+
+    private const float ShareableHeight = 24f;
 }

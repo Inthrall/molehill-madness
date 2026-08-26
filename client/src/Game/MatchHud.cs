@@ -52,6 +52,12 @@ public partial class MatchHud : Control
         /// because the middle of a shared view is where the game is.
         /// </summary>
         public bool Split;
+
+        /// <summary>
+        /// How far down the screen the panes' own instruments reach, so the shared tally can sit
+        /// below them rather than across the top-right pane's strip.
+        /// </summary>
+        public float TopClearance;
     }
 
     private State _state;
@@ -163,7 +169,8 @@ public partial class MatchHud : Control
         float group = (glyph * 1.05f * MatchSettings.MolesPerPlatoon) + (glyph * 1.4f);
         float width = group * seats;
         float height = glyph * 1.9f;
-        Vector2 origin = new Vector2((viewport.X - width) / 2f, 6f);
+        Vector2 origin = new Vector2(
+            (viewport.X - width) / 2f, Mathf.Max(_state.TopClearance, 6f));
 
         DrawRect(
             new Rect2(origin - new Vector2(glyph * 0.4f, 0), new Vector2(width + (glyph * 0.8f), height)),
