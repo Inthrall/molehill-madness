@@ -1,10 +1,6 @@
 using Godot;
 using MoleSim.Terrain;
 
-// Godot has a Material of its own, meaning a shader. This file is only ever talking about
-// what a cell is made of.
-using Material = MoleSim.Terrain.Material;
-
 /// <summary>
 /// Draws the terrain, and keeps up with it being chewed apart.
 /// </summary>
@@ -36,7 +32,7 @@ public sealed class TerrainView
         {
             for (int x = 0; x < grid.Width; x++)
             {
-                _image.SetPixel(x, y, ColourOf(grid[x, y]));
+                _image.SetPixel(x, y, Palette.Of(grid[x, y]));
             }
         }
 
@@ -58,22 +54,10 @@ public sealed class TerrainView
         {
             for (int x = minX; x <= maxX; x++)
             {
-                _image.SetPixel(x, y, ColourOf(_grid[x, y]));
+                _image.SetPixel(x, y, Palette.Of(_grid[x, y]));
             }
         }
 
         _texture.Update(_image);
     }
-
-    /// <summary>The document's palette, so the prototype already looks like the game.</summary>
-    private static Color ColourOf(Material material) => material switch
-    {
-        Material.Air => new Color(0.949f, 0.945f, 0.894f),
-        Material.Turf => new Color(0.435f, 0.647f, 0.325f),
-        Material.LooseSoil => new Color(0.847f, 0.749f, 0.596f),
-        Material.PackedSoil => new Color(0.769f, 0.659f, 0.494f),
-        Material.RootMat => new Color(0.545f, 0.451f, 0.333f),
-        Material.Bedrock => new Color(0.290f, 0.290f, 0.290f),
-        _ => new Color(1f, 0f, 1f),
-    };
 }

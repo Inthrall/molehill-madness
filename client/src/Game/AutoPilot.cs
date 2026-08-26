@@ -39,15 +39,19 @@ public sealed class AutoPilot
     /// </remarks>
     public sealed class Intent
     {
-        public Intent(List<Vec2> route, Vec2 aimAt)
+        public Intent(List<Vec2> route, Vec2 aimAt, bool plantCharge)
         {
             Route = route;
             AimAt = aimAt;
+            PlantCharge = plantCharge;
         }
 
         public List<Vec2> Route { get; }
 
         public Vec2 AimAt { get; }
+
+        /// <summary>Whether to leave a beet behind, which it does when the quarry is close.</summary>
+        public bool PlantCharge { get; }
     }
 
     /// <summary>
@@ -76,7 +80,8 @@ public sealed class AutoPilot
 
         if (quarry is null)
         {
-            return new Intent(route, actor.Position + new Vec2(Fix64.One, -Fix64.One));
+            return new Intent(
+                route, actor.Position + new Vec2(Fix64.One, -Fix64.One), plantCharge: false);
         }
 
         bool rightward = quarry.Position.X > actor.Position.X;
@@ -102,7 +107,12 @@ public sealed class AutoPilot
         double drag = power * FullPowerDrag;
         Fix64 reach = Fix64.Ratio((int)(drag * Diagonal * 256), 256);
 
-        return new Intent(route, new Vec2(from.X + (sign * reach), from.Y - reach));
+        // Leave a beet behind when the quarry is close enough for it to matter. Crude, and
+        // frequently suicidal, which is a fair imitation of how it gets used.
+        bool plant = Vec2.Distance(quarry.Position, from) < Fix64.FromInt(6);
+
+        return new Intent(
+            route, new Vec2(from.X + (sign * reach), from.Y - reach), plant);
     }
 
     /// <summary>Must match the drag distance the planning screen treats as full power.</summary>

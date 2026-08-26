@@ -48,17 +48,23 @@ dotnet test
 
 **Phase 1 complete.** MoleSim plays a whole match headlessly: seamless movement priced in stamina, the full fifteen-weapon arsenal, projectiles and blasts with line of sight, crates, lava, pacing and the knockout reel. `dotnet run --project tools/Molehill.Cli -- match` plays one to a winner and prints it round by round. A golden corpus of pinned match hashes is verified on every platform in CI.
 
-**Phase 2 in progress.** The game is playable. `client/scenes/Match.tscn` is a four-player hotseat build with programmer art: plan a route by dragging ink, watch a ghost of your mole walk it while the gauges drain, right-drag to stamp the shot, then watch all four plans resolve at once over eight seconds. Craters appear when the shells land, damage numbers rise and fade where they hit, and moles leave on one of two rough exits. 225 tests.
+**Phase 2 in progress.** The game is playable. `client/scenes/Match.tscn` plays a whole match: plan a route by dragging ink, watch a ghost of your mole walk it while the gauges drain, aim and stamp the turn's shot, plant a charge if you fancy it, then watch every plan resolve at once over eight seconds. Craters appear when the shells land, damage numbers rise and fade where they hit, and moles leave on one of two rough exits. 225 tests.
 
-Two things fell out of watching whole rounds render for the first time, neither of which a test would have found. Craters used to be as wide as the blast that made them, which left the map unrecognisable by round five and contradicted pacing the design had already fixed, so a crater is now its own number and `ArsenalTests` defends the map surviving a dozen rounds. And a round resolves before its first frame is drawn, so anything read from live state during playback gives the ending away: the map and the score are both replayed from the recording instead.
+Planning is simultaneous, which is what split screen is for. Every platoon with its own controller plans at the same moment on one shared clock; platoons without one share the pointer and take turns, and the clock resets as it changes hands. The same code covers a couch full of gamepads and a prototype on one mouse, so the testable configuration is not a separate build. The screen carves into a pane per platoon while they plan, and for the replay it follows the design's rule: one shared view when the action is close enough to share, a pane each when it is not, decided once from the finished recording so the screen never splits and merges mid-round.
 
-`--demo` drives the game through its own interface without a player, and `--frail` starts everybody nearly out so the knockouts can be watched. Together with Godot's `--write-movie` they make the render layer inspectable frame by frame:
+The HUD is wordless. Every weapon and gauge is drawn from primitives in `Glyphs.cs` rather than imported, which scales to any screen without a sprite sheet per density, recolours per platoon for free, and leaves the prototype with no art dependency at all. Digits survive only for damage, which is the exception the design carves out on the grounds that a numeral reads the same in every language a seven-year-old might have. The planning clock is a ring for the same reason.
+
+On a phone it collapses to one view with the controls the design specifies: a weapon wheel you flick, a button to fire that doubles as the aim stick, one to plant, one to reset and one to commit. Touch reaches the same handful of verbs a mouse does, so the rules cannot tell a thumb from a cursor.
+
+Three findings so far, all from watching rounds render rather than from a test. Craters used to be as wide as the blast that made them, which left the map unrecognisable by round five and contradicted pacing the design had already fixed, so a crater is now its own number and `ArsenalTests` defends the map surviving a dozen rounds. A round resolves before its first frame is drawn, so anything read from live state during playback gives the ending away: the map and the score are both replayed from the recording instead. And a gauge scaled by its own value is unreadable at low values, which is why the wind arrow keeps its length and puts the strength in the streaks behind it.
+
+`--demo` drives the game through its own interface without a player, `--frail` starts everybody nearly out so the knockouts can be watched, `--split` forces the panes apart, and `--touch` brings up the phone controls on a desktop. With Godot's `--write-movie` they make the render layer inspectable frame by frame, which is how all three findings turned up:
 
 ```bash
-godot --path client --write-movie frames/f.png --fixed-fps 30 --quit-after 300 -- --demo --frail
+godot --path client --write-movie frames/f.png --fixed-fps 30 --quit-after 300 -- --demo --split
 ```
 
-Still to come in Phase 2: the split-screen layouts, phone controls, and the structured playtests that are the actual gate. No amount of this code can answer whether it is funny.
+Still owed: the gamepad axis reads have never met real hardware, though the simultaneous planning they feed is exercised by the driver. And the structured playtests, which are the actual gate. No amount of this code can answer whether it is funny.
 
 ## Licence
 

@@ -2,66 +2,57 @@ using Godot;
 using MoleSim.Match;
 
 /// <summary>
-/// Programmer-art instrumentation for the playtest build.
+/// What everybody at the table shares: the clock, the tally, the wind and where the round is
+/// up to.
 /// </summary>
 /// <remarks>
-/// The shipping HUD is wordless, and that is a Phase 3 job with an icon set behind it. This
-/// is its opposite on purpose: it names everything, because the thing under test is whether
-/// the loop is fun, and a tester squinting at an unlabelled glyph gives feedback about the
-/// glyph instead.
+/// Wordless, as the design requires. The game is all-ages, ships without text chat and
+/// generates its own names precisely so that nothing on screen has to be read, and a HUD full
+/// of English would quietly undo all of that.
 ///
-/// The two gauges are the exception. Stamina and time are the whole planning decision, and
-/// they are bars here because they will be bars in the finished game, so what testers react
-/// to is the real thing rather than a stand-in for it.
+/// Digits survive, and only digits: damage numbers, and the seconds left on the clock. The
+/// design keeps them because a numeral reads the same in every language a seven-year-old might
+/// have, which is not true of a single word on this screen.
 ///
-/// Panels are ink on purpose. The sky is the document's paper cream, so a cream panel over
-/// it is invisible, which is exactly the bug the first render of this screen had.
+/// The clock sits dead centre because the design asks for it there. It belongs to the table
+/// rather than to any one player, and the centre is the one place four people around one
+/// screen can all see without it being in anybody's pane.
 /// </remarks>
 public partial class MatchHud : Control
 {
     public struct State
     {
-        public string Beat;
-        public int Round;
-        public int Seat;
-        public Color SeatColour;
-        public WeaponId Weapon;
-        public int MoleIndex;
-        public float StaminaSpent;
-        public float StaminaTotal;
-        public int TicksUsed;
-        public bool OverBudget;
-        public int ResetsLeft;
+        /// <summary>Seconds left to plan, or negative when nobody is planning.</summary>
+        public float ClockLeft;
 
-        /// <summary>How far through the hold-to-reset gesture, from zero to one.</summary>
-        public float ResetHeld;
+        public float ClockLength;
 
-        public bool HasShot;
-        public float Wind;
+        /// <summary>How many of each platoon are still up, as the viewer has seen it.</summary>
         public int[] Standing;
-        public int LastRoundDamage;
+
+        /// <summary>Which platoons have locked their plan in.</summary>
+        public bool[] Committed;
+
+        public float Wind;
+
+        /// <summary>Rounds resolved plus the one being planned.</summary>
+        public int Round;
+
+        /// <summary>-2 while playing, -1 for a draw, otherwise the winning seat.</summary>
         public int Winner;
+
+        /// <summary>Where the spare grid cell is in a three-player split, if there is one.</summary>
+        public Rect2 SpareCell;
+
+        public bool HasSpareCell;
+
+        /// <summary>
+        /// Whether the screen is carved into panes. The clock belongs dead centre when it is,
+        /// because that is the seam and belongs to nobody, and at the top when it is not,
+        /// because the middle of a shared view is where the game is.
+        /// </summary>
+        public bool Split;
     }
-
-    /// <summary>
-    /// How much of the screen the panels take. Public because the world has to be framed
-    /// between them: anything the camera puts behind a panel might as well not be drawn.
-    /// </summary>
-    public const float StripHeight = 74f;
-
-    public const float PromptHeight = 42f;
-
-    private static readonly Color Panel = new Color(0.18f, 0.14f, 0.10f, 0.90f);
-    private static readonly Color Text = new Color(0.949f, 0.945f, 0.894f);
-    private static readonly Color Dim = new Color(0.949f, 0.945f, 0.894f, 0.55f);
-
-    private static readonly Color[] SeatColours =
-    {
-        new Color(0.294f, 0.545f, 0.231f),
-        new Color(0.780f, 0.353f, 0.157f),
-        new Color(0.306f, 0.510f, 0.651f),
-        new Color(0.769f, 0.165f, 0.047f),
-    };
 
     private State _state;
 
@@ -83,139 +74,210 @@ public partial class MatchHud : Control
     {
         Vector2 viewport = GetViewportRect().Size;
 
-        DrawTopStrip(viewport.X);
-        DrawPlatoons();
-        DrawPrompt(viewport);
+        DrawTally(viewport);
+        DrawWind(viewport);
+        DrawClock(viewport);
+        DrawOutcome(viewport);
     }
 
-    private void DrawTopStrip(float width)
-    {
-        Font font = ThemeDB.FallbackFont;
-
-        DrawRect(new Rect2(0, 0, width, StripHeight), Panel);
-
-        DrawRect(new Rect2(14, 12, 20, 20), _state.SeatColour);
-        DrawString(
-            font, new Vector2(44, 30),
-            $"Round {_state.Round}   Seat {_state.Seat + 1}   Mole {_state.MoleIndex + 1}",
-            HorizontalAlignment.Left, -1, 19, Text);
-        DrawString(
-            font, new Vector2(44, 56), $"{_state.Weapon}   Q/E changes it",
-            HorizontalAlignment.Left, -1, 14, Dim);
-
-        // The two numbers the whole planning decision hangs on. Time is how much of the
-        // eight seconds the route eats; puff is whether the digging in it is affordable.
-        float gaugeX = width - 350;
-
-        DrawGauge(
-            font, gaugeX, 12, "Time",
-            Mathf.Clamp(_state.TicksUsed / (float)MatchSettings.TicksPerRound, 0f, 1f),
-            new Color(0.306f, 0.510f, 0.651f));
-
-        DrawGauge(
-            font, gaugeX, 40, "Puff",
-            _state.StaminaTotal <= 0
-                ? 0f
-                : Mathf.Clamp(_state.StaminaSpent / _state.StaminaTotal, 0f, 1f),
-            _state.OverBudget
-                ? new Color(0.769f, 0.165f, 0.047f)
-                : new Color(0.435f, 0.647f, 0.325f));
-
-        // Wind, as an arrow whose length is its strength. Nothing else about a launcher's
-        // arc matters as much, and nothing else is as easy to forget.
-        Vector2 windAt = new Vector2(width - 70, 37);
-        DrawString(font, windAt + new Vector2(-4, -14), "Wind", HorizontalAlignment.Center, -1, 12, Dim);
-        DrawLine(windAt, windAt + new Vector2(_state.Wind * 6f, 0), Text, 3f);
-        DrawCircle(windAt, 3.5f, Text);
-    }
-
-    private void DrawGauge(Font font, float x, float y, string label, float fraction, Color fill)
-    {
-        DrawString(font, new Vector2(x, y + 15), label, HorizontalAlignment.Left, -1, 14, Dim);
-        DrawRect(new Rect2(x + 42, y, 180, 18), new Color(1, 1, 1, 0.12f));
-        DrawRect(new Rect2(x + 42, y, 180 * fraction, 18), fill);
-    }
-
-    /// <summary>Who is still standing, as one dot per mole. The score, and the whole of it.</summary>
-    private void DrawPlatoons()
+    /// <summary>
+    /// The score, and the whole of it: one mole per mole still standing.
+    /// </summary>
+    /// <remarks>
+    /// Goes in the spare cell of a three-player split where there is one, along the top seam
+    /// when the screen is split, and along the bottom of a shared view, which is the one edge
+    /// nothing else wants.
+    /// </remarks>
+    private void DrawTally(Vector2 viewport)
     {
         if (_state.Standing is null)
         {
             return;
         }
 
-        float top = StripHeight + 10;
-        DrawRect(new Rect2(0, top, 118, _state.Standing.Length * 24), Panel);
-
-        for (int seat = 0; seat < _state.Standing.Length; seat++)
+        if (_state.Split && !_state.HasSpareCell)
         {
-            float y = top + 8 + (seat * 24);
-            DrawRect(new Rect2(12, y, 12, 12), SeatColours[seat]);
+            // Four panes leave no spare cell and no room for a four-row block, so the tally
+            // lies along the top seam as a single strip instead.
+            DrawTallyStrip(viewport);
+            return;
+        }
+
+        int seats = _state.Standing.Length;
+        float glyph = _state.HasSpareCell ? 26f : 17f;
+        float rowHeight = glyph * 1.5f;
+        float width = (glyph * 1.1f * MatchSettings.MolesPerPlatoon) + (glyph * 2.2f);
+        float height = rowHeight * seats;
+
+        Vector2 origin = _state.HasSpareCell
+            ? _state.SpareCell.Position
+                + ((_state.SpareCell.Size - new Vector2(width, height)) / 2f)
+            : new Vector2((viewport.X - width) / 2f, viewport.Y - height - 14f);
+
+        DrawRect(
+            new Rect2(origin - new Vector2(glyph * 0.5f, glyph * 0.4f),
+                new Vector2(width + glyph, height + (glyph * 0.8f))),
+            Palette.Panel);
+
+        for (int seat = 0; seat < seats; seat++)
+        {
+            float y = origin.Y + (seat * rowHeight) + (rowHeight / 2f);
+            Color colour = Palette.Seat(seat);
+
+            // A tick beside a platoon that has already committed, so the table can see at a
+            // glance who everybody is waiting for.
+            if (_state.Committed is not null && seat < _state.Committed.Length && _state.Committed[seat])
+            {
+                Glyphs.Committed(this, new Vector2(origin.X + (glyph * 0.6f), y), glyph * 0.8f, colour);
+            }
+            else
+            {
+                DrawCircle(new Vector2(origin.X + (glyph * 0.6f), y), glyph * 0.22f, new Color(colour, 0.5f));
+            }
 
             for (int mole = 0; mole < MatchSettings.MolesPerPlatoon; mole++)
             {
-                Vector2 at = new Vector2(38 + (mole * 18), y + 6);
+                Vector2 at = new Vector2(
+                    origin.X + (glyph * 1.7f) + (mole * glyph * 1.1f), y);
 
                 if (mole < _state.Standing[seat])
                 {
-                    DrawCircle(at, 5f, SeatColours[seat]);
+                    Glyphs.Mole(this, at, glyph, colour);
                 }
                 else
                 {
-                    DrawArc(at, 5f, 0, Mathf.Tau, 12, new Color(SeatColours[seat], 0.35f), 1.5f);
+                    DrawArc(at, glyph * 0.36f, 0, Mathf.Tau, 14, new Color(colour, 0.3f), 1.5f);
                 }
             }
         }
     }
 
-    private void DrawPrompt(Vector2 viewport)
+    /// <summary>
+    /// The tally as one strip along the top seam: four platoons in a row, each with a tick if
+    /// it has already committed. Compact enough to sit between two panes' instruments.
+    /// </summary>
+    private void DrawTallyStrip(Vector2 viewport)
     {
-        Font font = ThemeDB.FallbackFont;
+        int seats = _state.Standing.Length;
+        float glyph = 15f;
+        float group = (glyph * 1.05f * MatchSettings.MolesPerPlatoon) + (glyph * 1.4f);
+        float width = group * seats;
+        float height = glyph * 1.9f;
+        Vector2 origin = new Vector2((viewport.X - width) / 2f, 6f);
 
-        string prompt = _state.Beat switch
+        DrawRect(
+            new Rect2(origin - new Vector2(glyph * 0.4f, 0), new Vector2(width + (glyph * 0.8f), height)),
+            Palette.Panel);
+
+        for (int seat = 0; seat < seats; seat++)
         {
-            "Planning" => _state.HasShot
-                ? "Drag a route  |  right-drag to re-aim  |  hold R to reset  |  SPACE commits"
-                : "Drag a route  |  right-drag and release to stamp the shot  |  SPACE commits",
-            "Resolving" => "Everything happens at once. SPACE skips.",
-            "Aftermath" => $"That round dealt {_state.LastRoundDamage}. SPACE for the next one.",
-            _ => _state.Winner >= 0
-                ? $"Seat {_state.Winner + 1} takes the flowerbed."
-                : "Everybody went out together.",
-        };
+            float left = origin.X + (seat * group);
+            float y = origin.Y + (height / 2f);
+            Color colour = Palette.Seat(seat);
 
-        float top = viewport.Y - PromptHeight;
-        DrawRect(new Rect2(0, top, viewport.X, PromptHeight), Panel);
-        DrawString(
-            font, new Vector2(14, top + 27), prompt, HorizontalAlignment.Left, -1, 15, Text);
+            if (_state.Committed is not null && seat < _state.Committed.Length && _state.Committed[seat])
+            {
+                Glyphs.Committed(this, new Vector2(left + (glyph * 0.5f), y), glyph * 0.8f, colour);
+            }
+            else
+            {
+                DrawCircle(new Vector2(left + (glyph * 0.5f), y), glyph * 0.2f, new Color(colour, 0.55f));
+            }
 
-        if (_state.Beat != "Planning")
+            for (int mole = 0; mole < MatchSettings.MolesPerPlatoon; mole++)
+            {
+                Vector2 at = new Vector2(left + (glyph * 1.3f) + (mole * glyph * 1.05f), y);
+
+                if (mole < _state.Standing[seat])
+                {
+                    Glyphs.Mole(this, at, glyph, colour);
+                }
+                else
+                {
+                    DrawArc(at, glyph * 0.34f, 0, Mathf.Tau, 14, new Color(colour, 0.3f), 1.5f);
+                }
+            }
+        }
+    }
+
+    private void DrawWind(Vector2 viewport)
+    {
+        Vector2 at = new Vector2(viewport.X - 60f, 32f);
+
+        DrawRect(new Rect2(at.X - 50f, at.Y - 22f, 100f, 44f), Palette.Panel);
+        Glyphs.Wind(
+            this, at, 40f, _state.Wind / (float)MatchSettings.MaxWindSpeed.ToDecimal(),
+            Palette.OnPanel);
+    }
+
+    /// <summary>
+    /// The shared clock, counting the planning phase down for everybody at once.
+    /// </summary>
+    /// <remarks>
+    /// A ring, and no digits. The design reserves numerals for damage, on the grounds that a
+    /// numeral is the one mark that reads the same in every language a seven-year-old might
+    /// have, and spending that on a countdown would be a waste of the exception. An emptying
+    /// ring says the same thing and says it faster.
+    ///
+    /// It goes dead centre when the screen is split, which is the seam and belongs to the table
+    /// rather than to any pane, and at the top of a shared view, where the middle is the game.
+    /// </remarks>
+    private void DrawClock(Vector2 viewport)
+    {
+        if (_state.ClockLeft < 0 || _state.ClockLength <= 0)
         {
             return;
         }
 
-        // The reset tokens: one a turn, more out of the crates. The design calls this the
-        // most watched pixel on the screen, so it gets to be obvious, and the ring filling
-        // up shows the hold registering.
-        int shown = Mathf.Max(_state.ResetsLeft, 1);
+        float radius = Mathf.Clamp(Mathf.Min(viewport.X, viewport.Y) * 0.05f, 20f, 46f);
+        Vector2 at = _state.Split
+            ? viewport / 2f
+            : new Vector2(viewport.X / 2f, radius + 14f);
 
-        for (int token = 0; token < shown; token++)
+        float left = Mathf.Clamp(_state.ClockLeft / _state.ClockLength, 0f, 1f);
+        bool pressing = _state.ClockLeft <= 5f;
+
+        DrawCircle(at, radius * 1.12f, Palette.Panel);
+        DrawArc(at, radius * 0.78f, 0, Mathf.Tau, 40, new Color(1, 1, 1, 0.15f), radius * 0.22f);
+        DrawArc(
+            at, radius * 0.78f, -Mathf.Pi / 2f, (-Mathf.Pi / 2f) + (Mathf.Tau * left), 40,
+            pressing ? Palette.Damage : Palette.OnPanel, radius * 0.22f);
+
+        // An hourglass in the middle of the ring, so what it is counting is never in doubt.
+        Glyphs.Time(
+            this, at, radius * 0.8f,
+            pressing ? Palette.Damage : new Color(Palette.OnPanel, 0.75f));
+    }
+
+    /// <summary>Who took the flowerbed, as their colour filling the centre.</summary>
+    private void DrawOutcome(Vector2 viewport)
+    {
+        if (_state.Winner == -2)
         {
-            Vector2 at = new Vector2(viewport.X - 30 - (token * 32), top + (PromptHeight / 2f));
-
-            DrawCircle(
-                at, 11f,
-                token < _state.ResetsLeft
-                    ? new Color(0.769f, 0.165f, 0.047f)
-                    : new Color(1, 1, 1, 0.18f));
-
-            if (token == 0 && _state.ResetHeld > 0 && _state.ResetsLeft > 0)
-            {
-                DrawArc(
-                    at, 15f, -Mathf.Pi / 2f,
-                    (-Mathf.Pi / 2f) + (Mathf.Tau * Mathf.Min(_state.ResetHeld, 1f)),
-                    24, Text, 3f);
-            }
+            return;
         }
+
+        Vector2 at = viewport / 2f;
+        float radius = Mathf.Min(viewport.X, viewport.Y) * 0.12f;
+
+        DrawCircle(at, radius, Palette.Panel);
+
+        if (_state.Winner < 0)
+        {
+            // Everybody went out together, which with simultaneous turns is a real result and
+            // not an error. Four snouts, no winner.
+            for (int seat = 0; seat < 4; seat++)
+            {
+                float angle = seat * Mathf.Tau / 4f;
+                Glyphs.Mole(
+                    this,
+                    at + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * radius * 0.5f,
+                    radius * 0.45f, new Color(Palette.Seat(seat), 0.5f));
+            }
+
+            return;
+        }
+
+        Glyphs.Mole(this, at, radius * 1.2f, Palette.Seat(_state.Winner));
     }
 }
