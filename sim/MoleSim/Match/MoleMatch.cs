@@ -220,10 +220,23 @@ namespace MoleSim.Match
         /// <summary>
         /// Runs the round: every plan replays together on one clock, with no initiative.
         /// </summary>
-        public RoundResult ResolveRound()
+        /// <param name="record">
+        /// Whether to keep every tick so the round can be watched, replayed or turned into
+        /// a clip. Off by default, because the headless runners and the corpus resolve
+        /// thousands of rounds and have no use for it.
+        /// </param>
+        public RoundResult ResolveRound(bool record = false)
         {
             Round++;
             RoundResult result = new RoundResult(Round);
+
+            if (record)
+            {
+                result.Recording = new RoundRecording(
+                    Round, _moles.Length, MatchSettings.TicksPerRound);
+
+                Terrain.StartJournal(result.Recording.Journal);
+            }
 
             Mole?[] actors = new Mole?[PlayerCount];
             Vec2[]?[] routes = new Vec2[]?[PlayerCount];
@@ -262,8 +275,12 @@ namespace MoleSim.Match
                 CheckPlacements(result);
                 LandAndClaimCrates(tick, result);
                 CheckLava(result);
+
+                result.Recording?.Capture(
+                    tick, _moles, _shots, result.Hits.Count, result.Knockouts.Count);
             }
 
+            Terrain.StopJournal();
             Aftermath(actors, result);
             return result;
         }

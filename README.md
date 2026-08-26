@@ -46,9 +46,19 @@ dotnet test
 
 **Phase 0 gate: passed.** The simulation computes identical results on Windows, Linux and Android, across two CPU architectures and two .NET runtime versions, and the probe runs in 22 ms at 60 fps on a phone. Full evidence and the deferred risks are in [`docs/phase-0-gate.md`](docs/phase-0-gate.md).
 
-**Phase 1 complete.** MoleSim plays a whole match headlessly: seamless movement priced in stamina, the full fifteen-weapon arsenal, projectiles and blasts with line of sight, crates, lava, pacing and the knockout reel. `dotnet run --project tools/Molehill.Cli -- match` plays one to a winner and prints it round by round. 217 tests, with a golden corpus of pinned match hashes verified on every platform in CI.
+**Phase 1 complete.** MoleSim plays a whole match headlessly: seamless movement priced in stamina, the full fifteen-weapon arsenal, projectiles and blasts with line of sight, crates, lava, pacing and the knockout reel. `dotnet run --project tools/Molehill.Cli -- match` plays one to a winner and prints it round by round. A golden corpus of pinned match hashes is verified on every platform in CI.
 
-Next: Phase 2, the fun proof. The first build that can answer whether any of this is actually funny with four people in a room.
+**Phase 2 in progress.** The game is playable. `client/scenes/Match.tscn` is a four-player hotseat build with programmer art: plan a route by dragging ink, watch a ghost of your mole walk it while the gauges drain, right-drag to stamp the shot, then watch all four plans resolve at once over eight seconds. Craters appear when the shells land, damage numbers rise and fade where they hit, and moles leave on one of two rough exits. 225 tests.
+
+Two things fell out of watching whole rounds render for the first time, neither of which a test would have found. Craters used to be as wide as the blast that made them, which left the map unrecognisable by round five and contradicted pacing the design had already fixed, so a crater is now its own number and `ArsenalTests` defends the map surviving a dozen rounds. And a round resolves before its first frame is drawn, so anything read from live state during playback gives the ending away: the map and the score are both replayed from the recording instead.
+
+`--demo` drives the game through its own interface without a player, and `--frail` starts everybody nearly out so the knockouts can be watched. Together with Godot's `--write-movie` they make the render layer inspectable frame by frame:
+
+```bash
+godot --path client --write-movie frames/f.png --fixed-fps 30 --quit-after 300 -- --demo --frail
+```
+
+Still to come in Phase 2: the split-screen layouts, phone controls, and the structured playtests that are the actual gate. No amount of this code can answer whether it is funny.
 
 ## Licence
 

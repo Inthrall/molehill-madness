@@ -58,7 +58,7 @@ namespace MoleSim.Match
 
             if (crater)
             {
-                int cellRadius = Fix64.FloorToInt(spec.BlastRadius / WorldScale.CellSize);
+                int cellRadius = Fix64.FloorToInt(spec.CraterRadius / WorldScale.CellSize);
                 terrain.CarveCircle(
                     WorldScale.ToCell(centre.X), WorldScale.ToCell(centre.Y), cellRadius);
             }

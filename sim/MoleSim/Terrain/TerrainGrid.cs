@@ -1,7 +1,23 @@
 using System;
+using System.Collections.Generic;
 
 namespace MoleSim.Terrain
 {
+    /// <summary>One cell changing, so a watcher can be shown it changing at the right moment.</summary>
+    public readonly struct TerrainChange
+    {
+        public TerrainChange(int index, Material material)
+        {
+            Index = index;
+            Material = material;
+        }
+
+        /// <summary>Cell index into the grid: <c>(y * Width) + x</c>.</summary>
+        public int Index { get; }
+
+        public Material Material { get; }
+    }
+
     /// <summary>
     /// The destructible world: one material per cell, plus a hash that stays current as
     /// the map is chewed apart.
@@ -18,7 +34,12 @@ namespace MoleSim.Terrain
     public sealed class TerrainGrid
     {
         private readonly byte[] _cells;
+        private List<TerrainChange>? _journal;
         private ulong _hash;
+        private int _dirtyMinX;
+        private int _dirtyMinY;
+        private int _dirtyMaxX;
+        private int _dirtyMaxY;
 
         public TerrainGrid(int width, int height)
         {
@@ -39,6 +60,96 @@ namespace MoleSim.Terrain
             // Every cell starts as Air, whose contribution to the hash is defined to be
             // zero, so an empty map hashes to zero and a fresh grid needs no walk.
             _hash = 0;
+            ClearDirtyRegion();
+        }
+
+        /// <summary>
+        /// Whether anything has changed since the last time a renderer asked.
+        /// </summary>
+        /// <remarks>
+        /// Bookkeeping for whoever is drawing this, and nothing more. It is not part of the
+        /// state hash and never affects a simulation result, so two machines that disagree
+        /// about what is dirty still agree about the match. Without it a client has to
+        /// re-upload the whole map on every carve, which at three million cells is not
+        /// something to do sixty times a second.
+        /// </remarks>
+        public bool HasDirtyRegion => _dirtyMaxX >= _dirtyMinX;
+
+        /// <summary>
+        /// Reports the smallest rectangle covering everything that has changed, and clears
+        /// it. Bounds are inclusive.
+        /// </summary>
+        public bool TakeDirtyRegion(out int minX, out int minY, out int maxX, out int maxY)
+        {
+            minX = _dirtyMinX;
+            minY = _dirtyMinY;
+            maxX = _dirtyMaxX;
+            maxY = _dirtyMaxY;
+
+            bool anything = HasDirtyRegion;
+            ClearDirtyRegion();
+            return anything;
+        }
+
+        /// <summary>
+        /// Starts appending every cell change to a list, so a round can be watched in the
+        /// order it happened.
+        /// </summary>
+        /// <remarks>
+        /// A round resolves in a few milliseconds and is then watched over eight seconds.
+        /// Without this the map would already be full of craters before the shells that made
+        /// them had left the barrel, which ruins the one beat the whole game is built around.
+        ///
+        /// So a client renders a copy of the map from the start of the round and replays these
+        /// changes against it as its clock passes them. It is off unless somebody asks for it:
+        /// the headless runners and the golden corpus resolve thousands of rounds and would
+        /// only be paying for a list nobody reads. It records what happened and never
+        /// influences it, so a journalled round and an unjournalled one resolve identically.
+        /// </remarks>
+        public void StartJournal(List<TerrainChange> journal)
+        {
+            _journal = journal ?? throw new ArgumentNullException(nameof(journal));
+        }
+
+        public void StopJournal()
+        {
+            _journal = null;
+        }
+
+        /// <summary>Applies a change recorded from another grid of the same size.</summary>
+        public void Apply(TerrainChange change)
+        {
+            Set(change.Index % Width, change.Index / Width, change.Material);
+        }
+
+        /// <summary>Marks the whole grid as needing a redraw.</summary>
+        public void MarkAllDirty()
+        {
+            _dirtyMinX = 0;
+            _dirtyMinY = 0;
+            _dirtyMaxX = Width - 1;
+            _dirtyMaxY = Height - 1;
+        }
+
+        /// <summary>
+        /// An independent copy, for asking what a route would cost without digging up the
+        /// real world to find out. This is how the planning ghost knows what it knows.
+        /// </summary>
+        public TerrainGrid Clone()
+        {
+            TerrainGrid copy = new TerrainGrid(Width, Height);
+            _cells.AsSpan().CopyTo(copy._cells);
+            copy._hash = _hash;
+            copy.MarkAllDirty();
+            return copy;
+        }
+
+        private void ClearDirtyRegion()
+        {
+            _dirtyMinX = int.MaxValue;
+            _dirtyMinY = int.MaxValue;
+            _dirtyMaxX = int.MinValue;
+            _dirtyMaxY = int.MinValue;
         }
 
         public int Width { get; }
@@ -99,6 +210,27 @@ namespace MoleSim.Terrain
             // costs two mixes rather than a walk of three million cells.
             _hash ^= Contribution(index, existing) ^ Contribution(index, replacement);
             _cells[index] = replacement;
+            _journal?.Add(new TerrainChange(index, material));
+
+            if (x < _dirtyMinX)
+            {
+                _dirtyMinX = x;
+            }
+
+            if (x > _dirtyMaxX)
+            {
+                _dirtyMaxX = x;
+            }
+
+            if (y < _dirtyMinY)
+            {
+                _dirtyMinY = y;
+            }
+
+            if (y > _dirtyMaxY)
+            {
+                _dirtyMaxY = y;
+            }
         }
 
         /// <summary>

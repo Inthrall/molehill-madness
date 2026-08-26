@@ -528,4 +528,75 @@ public sealed class ArsenalTests
         Assert.That(match.Placements.Any(p => p.Weapon == WeaponId.RootSnare), Is.False,
             "a snare costs its victim one turn, not the match");
     }
+
+    // ---- The map has to survive long enough to be played on -------------------------
+
+    [Test]
+    public void NothingDigsFurtherThanItHurts()
+    {
+        foreach (WeaponId weapon in Enum.GetValues<WeaponId>())
+        {
+            WeaponSpec spec = WeaponTable.Of(weapon);
+
+            Assert.That(
+                spec.CraterRadius, Is.LessThanOrEqualTo(spec.BlastRadius),
+                $"{weapon} leaves a hole bigger than its blast, which cannot be right");
+        }
+    }
+
+    [Test]
+    public void ADozenRoundsOfShellingLeavesTheMapStanding()
+    {
+        // The design fixes the pacing this defends: lava arrives at round eight and then
+        // climbs for several more, so a match is meant to still have ground under it well
+        // past round ten. The first render of a whole match showed the field unrecognisable
+        // by round five, which is what separated a crater from the blast that makes it.
+        MoleMatch match = MoleMatch.Create(FlatField(), 4, 20260826UL);
+        int solidAtTheStart = SolidCells(match.Terrain);
+
+        for (int round = 0; round < 12; round++)
+        {
+            for (int seat = 0; seat < match.PlayerCount; seat++)
+            {
+                Mole? actor = match.Eligible(seat).FirstOrDefault();
+
+                if (actor is null)
+                {
+                    continue;
+                }
+
+                // Straight into the dirt at its feet, which is the worst case for the map.
+                match.SubmitPlan(Wield(
+                    seat, actor.Index, WeaponId.ClodLobber, Vec2.UnitY, power: 60));
+            }
+
+            match.ResolveRound();
+        }
+
+        int remaining = SolidCells(match.Terrain) * 100 / solidAtTheStart;
+
+        // Four fifths, against about two fifths when a crater was as wide as its blast, so
+        // the threshold has teeth rather than merely recording what happens today.
+        Assert.That(
+            remaining, Is.GreaterThan(80),
+            $"only {remaining}% of the ground is left after twelve rounds");
+    }
+
+    private static int SolidCells(TerrainGrid grid)
+    {
+        int solid = 0;
+
+        for (int y = 0; y < grid.Height; y++)
+        {
+            for (int x = 0; x < grid.Width; x++)
+            {
+                if (MaterialTable.IsSolid(grid[x, y]))
+                {
+                    solid++;
+                }
+            }
+        }
+
+        return solid;
+    }
 }

@@ -95,12 +95,14 @@ namespace MoleSim.Match
             Fix64 knockback,
             bool reachesBuried = false,
             int clusterCount = 0,
-            int bounceBlasts = 0)
+            int bounceBlasts = 0,
+            Fix64 craterRadius = default)
         {
             Kind = kind;
             LaunchSpeed = launchSpeed;
             Damage = damage;
             BlastRadius = blastRadius;
+            CraterRadius = craterRadius == Fix64.Zero ? blastRadius : craterRadius;
             FuseTicks = fuseTicks;
             DetonatesOnContact = detonatesOnContact;
             RidesTheWind = ridesTheWind;
@@ -118,8 +120,24 @@ namespace MoleSim.Match
         /// <summary>Damage at the centre of the blast, falling off to nothing at the edge.</summary>
         public int Damage { get; }
 
-        /// <summary>Radius of the crater, and of the damage.</summary>
+        /// <summary>How far the damage and the shove reach.</summary>
         public Fix64 BlastRadius { get; }
+
+        /// <summary>
+        /// How big a hole it leaves, which is not the same as how far it hurts.
+        /// </summary>
+        /// <remarks>
+        /// These started out as one number and the map paid for it: with craters as wide as
+        /// the damage, five rounds of ordinary shelling left the field unrecognisable, which
+        /// contradicts pacing the design has already fixed. Lava arrives at round eight and
+        /// then climbs for several more, so a match is meant to still have ground under it
+        /// well past round ten.
+        ///
+        /// Separating them costs one field and buys the obvious truth that a concussive
+        /// blast hurts further than it digs. Damage and knockback are untouched, so how
+        /// lethal a weapon is has not changed at all; only how much of the map it eats.
+        /// </remarks>
+        public Fix64 CraterRadius { get; }
 
         /// <summary>Ticks before it goes off on its own. Zero means it never does.</summary>
         public int FuseTicks { get; }
@@ -176,7 +194,8 @@ namespace MoleSim.Match
                 fuseTicks: MatchSettings.TicksPerSecond * 3,
                 detonatesOnContact: false,
                 ridesTheWind: false,
-                knockback: Fix64.FromInt(15));
+                knockback: Fix64.FromInt(15),
+                craterRadius: Fix64.Ratio(5, 4));
 
             // Faster, harder, and goes off the moment it arrives.
             specs[(int)WeaponId.BeetleLauncher] = new WeaponSpec(
@@ -187,7 +206,8 @@ namespace MoleSim.Match
                 fuseTicks: 0,
                 detonatesOnContact: true,
                 ridesTheWind: true,
-                knockback: Fix64.FromInt(18));
+                knockback: Fix64.FromInt(18),
+                craterRadius: Fix64.One);
 
             // Splits into three on the way down, so it covers ground rather than a point.
             specs[(int)WeaponId.AcornMortar] = new WeaponSpec(
@@ -199,7 +219,8 @@ namespace MoleSim.Match
                 detonatesOnContact: false,
                 ridesTheWind: false,
                 knockback: Fix64.FromInt(9),
-                clusterCount: 3);
+                clusterCount: 3,
+                craterRadius: Fix64.Ratio(3, 4));
 
             // The only thing in the game that reaches a mole through dirt.
             specs[(int)WeaponId.Fracking] = new WeaponSpec(
@@ -253,7 +274,8 @@ namespace MoleSim.Match
                 fuseTicks: 0,
                 detonatesOnContact: false,
                 ridesTheWind: false,
-                knockback: Fix64.FromInt(22));
+                knockback: Fix64.FromInt(22),
+                craterRadius: Fix64.One);
 
             specs[(int)WeaponId.PowerClaws] = new WeaponSpec(
                 WeaponKind.Tool, Fix64.Zero, 0, Fix64.Zero, 0, false, false, Fix64.Zero);
@@ -274,7 +296,8 @@ namespace MoleSim.Match
                 fuseTicks: MatchSettings.TicksPerSecond * 3,
                 detonatesOnContact: false,
                 ridesTheWind: false,
-                knockback: Fix64.FromInt(24));
+                knockback: Fix64.FromInt(24),
+                craterRadius: Fix64.Ratio(3, 2));
 
             // Three sacks along a strip, falling from above, so anybody underground is
             // simply out of reach. The counterplay is the game's own verb.
@@ -287,7 +310,8 @@ namespace MoleSim.Match
                 detonatesOnContact: true,
                 ridesTheWind: false,
                 knockback: Fix64.FromInt(14),
-                clusterCount: 3);
+                clusterCount: 3,
+                craterRadius: Fix64.One);
 
             // The crate rarity. One per crate, one use, and it ends two platoons' plans.
             specs[(int)WeaponId.MolyHandGrenade] = new WeaponSpec(
@@ -298,7 +322,8 @@ namespace MoleSim.Match
                 fuseTicks: MatchSettings.TicksPerSecond * 3,
                 detonatesOnContact: false,
                 ridesTheWind: false,
-                knockback: Fix64.FromInt(30));
+                knockback: Fix64.FromInt(30),
+                craterRadius: Fix64.Ratio(5, 2));
 
             // Punches through the surface and bounces three times with total indifference
             // to terrain, going off at every landing.
@@ -311,7 +336,8 @@ namespace MoleSim.Match
                 detonatesOnContact: false,
                 ridesTheWind: false,
                 knockback: Fix64.FromInt(26),
-                bounceBlasts: 3);
+                bounceBlasts: 3,
+                craterRadius: Fix64.Ratio(7, 4));
 
             return specs;
         }

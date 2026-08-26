@@ -1,15 +1,16 @@
 ; Molehill Mayhem client.
 ;
-; At Phase 0 this project exists for one reason: to run MoleSim on a phone and
-; show whether the answers match the desktop. The real client starts at Phase 2.
+; The Phase 0 probe is still here and still runnable: it is the thing that proved
+; the simulation agrees across two CPU architectures, and it stays as a check that
+; can be re-run on any new device. The game itself is scenes/Match.tscn.
 
 config_version=5
 
 [application]
 
 config/name="Molehill Mayhem"
-config/description="Phase 0 probe: does the simulation agree with the desktop?"
-run/main_scene="res://scenes/Phase0.tscn"
+config/description="Four platoons, one screen, everything happening at once."
+run/main_scene="res://scenes/Match.tscn"
 config/features=PackedStringArray("4.7", "C#", "Mobile")
 config/icon="res://icon.svg"
 

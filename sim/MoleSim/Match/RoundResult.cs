@@ -103,6 +103,12 @@ namespace MoleSim.Match
         /// </summary>
         public bool StalemateNudged { get; internal set; }
 
+        /// <summary>
+        /// Every tick of the round, when it was asked for. Null otherwise, which is the
+        /// usual case: headless runs and the corpus have no use for it.
+        /// </summary>
+        public RoundRecording? Recording { get; internal set; }
+
         /// <summary>Whether the match is finished.</summary>
         public bool MatchOver { get; internal set; }
 

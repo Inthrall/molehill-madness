@@ -34,6 +34,13 @@ namespace MoleSim.Tests;
 /// rule, but both draw from the match generator, and a draw inserted anywhere shifts every
 /// draw after it. Worth knowing that this is a whole class of legitimate pin movement:
 /// adding a draw is enough on its own, without a single rule having changed.
+///
+/// Updated a third time when a crater stopped being as wide as the blast that made it.
+/// Watching whole rounds render for the first time showed the map unrecognisable by round
+/// five, which contradicts pacing already fixed in the design: lava arrives at round eight
+/// and climbs for several more. Craters were roughly halved and damage left alone, so every
+/// shot hurts exactly as much as before and eats about a quarter as much ground. Different
+/// terrain from round one onwards means different everything after it.
 /// </remarks>
 [TestFixture]
 public sealed class CorpusTests
@@ -103,19 +110,19 @@ public sealed class CorpusTests
     [Test]
     public void TwoPlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 2, seed: 1UL, rounds: 12), Is.EqualTo(0xF8A9B94B539FD4E9UL));
+        Assert.That(Play(playerCount: 2, seed: 1UL, rounds: 12), Is.EqualTo(0x17BA7EB3A9BA877AUL));
     }
 
     [Test]
     public void ThreePlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 3, seed: 20260826UL, rounds: 14), Is.EqualTo(0x97FBF45633415553UL));
+        Assert.That(Play(playerCount: 3, seed: 20260826UL, rounds: 14), Is.EqualTo(0xC835473235272FDBUL));
     }
 
     [Test]
     public void FourPlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 4, seed: 4242UL, rounds: 16), Is.EqualTo(0x18403F27C0C864C7UL));
+        Assert.That(Play(playerCount: 4, seed: 4242UL, rounds: 16), Is.EqualTo(0x902E4735F4E7E91CUL));
     }
 
     [Test]
@@ -123,7 +130,7 @@ public sealed class CorpusTests
     {
         // Past Boiling Point, so the rise, the closing sides and the three-strike rule are
         // all in the hash rather than only the early game.
-        Assert.That(Play(playerCount: 4, seed: 777UL, rounds: 26), Is.EqualTo(0xB386A2B208DAF116UL));
+        Assert.That(Play(playerCount: 4, seed: 777UL, rounds: 26), Is.EqualTo(0x9E8D72B126FAF050UL));
     }
 
     [Test]
@@ -131,7 +138,7 @@ public sealed class CorpusTests
     {
         Assert.That(
             Play(playerCount: 2, seed: 31337UL, rounds: 24, widthCells: 600, heightCells: 320),
-            Is.EqualTo(0x585BD4C761D88913UL));
+            Is.EqualTo(0xF49F7448181E9AE3UL));
     }
 
     [Test]
