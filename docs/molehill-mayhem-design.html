@@ -236,11 +236,11 @@
 </style>
 
 <header class="col">
-  <p class="eyebrow">Game design document · v0.8 · 26 August 2026</p>
+  <p class="eyebrow">Game design document · v0.9 · 26 August 2026</p>
   <h1 class="masthead-title">MOLE<span class="hill">HILL</span> MAYHEM</h1>
   <p class="tagline">Making mountains out of molehills.</p>
   <div class="chips">
-    <span class="chip">Steam + iOS + Android</span>
+    <span class="chip">Steam + Android</span>
     <span class="chip">4 players, free-for-all</span>
     <span class="chip">Multiplayer only</span>
     <span class="chip">Simultaneous turns</span>
@@ -322,7 +322,7 @@
         <tr><td class="k">Genre</td><td>Simultaneous-turn artillery tactics ("Worms meets Frozen Synapse")</td></tr>
         <tr><td class="k">Players</td><td>4 by default, free-for-all; 2 or 3 by agreement in the lobby; 4 is a hard ceiling, not a first step. Multiplayer only: no solo mode, no AI, anywhere</td></tr>
         <tr><td class="k">Platoon</td><td>4 moles per player at every player count. 16 moles in a full match</td></tr>
-        <tr><td class="k">Platforms</td><td>Steam (Windows, Steam Deck), iOS, Android; full cross-play</td></tr>
+        <tr><td class="k">Platforms</td><td>Steam (Windows, Steam Deck) and Android, with full cross-play. iOS is out of scope until after the MVP <span class="pill open">Open</span></td></tr>
         <tr><td class="k">Engine</td><td>Godot 4 with C#; deterministic game sim in a plain C# library</td></tr>
         <tr><td class="k">Camera</td><td>2D side-on cross-section (the ant-farm view)</td></tr>
         <tr><td class="k">Business model</td><td>Free; cosmetics only (outfits and weapon reskins)</td></tr>
@@ -1276,7 +1276,7 @@
   </ul>
   <div class="fieldnote warn">
     <span class="tag">The real cost</span>
-    <p>Everything above is cheap except the last step. Getting rendered frames out of Godot and into the platform hardware encoder (VideoToolbox on iOS, MediaCodec on Android) is the one genuinely uncertain piece of engineering in this document, and the five-second target on a mid-range phone needs proving rather than assuming. It gets its own spike at M2, and a graceful fallback: if encoding cannot hit the target, the button shares an animated image plus the replay link while the video pipeline catches up.</p>
+    <p>Everything above is cheap except the last step. Getting rendered frames out of Godot and into the platform hardware encoder (MediaCodec on Android) is the one genuinely uncertain piece of engineering in this document, and the five-second target on a mid-range phone needs proving rather than assuming. It gets its own spike at M2, and a graceful fallback: if encoding cannot hit the target, the button shares an animated image plus the replay link while the video pipeline catches up.</p>
   </div>
 </section>
 
@@ -1285,7 +1285,7 @@
   <p>The architecture has one load-bearing rule: <strong>the game is a deterministic C# library, and Godot is a lens pointed at it.</strong></p>
   <figure class="wide">
     <div class="figwrap">
-      <svg viewBox="0 0 880 250" role="img" aria-label="MoleSim, a pure C# deterministic library, is consumed unchanged by the Godot client on Windows, iOS and Android, by the offscreen clip renderer, by a headless test runner in CI, and later by a server-side replay verifier.">
+      <svg viewBox="0 0 880 250" role="img" aria-label="MoleSim, a pure C# deterministic library, is consumed unchanged by the Godot client on Windows and Android, by the offscreen clip renderer, by a headless test runner in CI, and later by a server-side replay verifier.">
         <defs>
           <marker id="arr4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0 0 L10 5 L0 10 Z" fill="currentColor"/>
@@ -1303,7 +1303,7 @@
           <line x1="558" y1="116" x2="700" y2="164" stroke="currentColor" stroke-width="1.6" marker-end="url(#arr4)"/>
           <rect x="20" y="168" width="196" height="62" rx="10" fill="none" stroke="currentColor" stroke-width="1.6"/>
           <text x="118" y="192" text-anchor="middle" font-weight="700">Godot 4 client</text>
-          <text x="118" y="210" text-anchor="middle" font-size="10.5" opacity="0.75">Win / iOS / Android</text>
+          <text x="118" y="210" text-anchor="middle" font-size="10.5" opacity="0.75">Windows / Android</text>
           <rect x="232" y="168" width="196" height="62" rx="10" fill="none" stroke="currentColor" stroke-width="1.6"/>
           <text x="330" y="192" text-anchor="middle" font-weight="700">Clip renderer</text>
           <text x="330" y="210" text-anchor="middle" font-size="10.5" opacity="0.75">offscreen, portrait, no HUD</text>
@@ -1326,12 +1326,12 @@
     <li><strong>Lava is a number, not a fluid.</strong> It is a height value that increments each aftermath, plus two inset values once it passes halfway. Every cell below the line is simply out of play, and a mole touching the line takes a bounce impulse, 10 damage and a per-mole strike count; the third strike is the knockout (<a href="#s9">§9</a>). There is no simulation of flow, no cooling state and nothing to tune beyond the step size and the bounce, which is the entire reason it was designed this way.</li>
     <li><strong>Knockout animations are presentation, but their selection is simulation.</strong> Which of the eight exits plays is decided in the sim from the damage type and the seeded stream, so every client and every clip shows the same pratfall.</li>
     <li><strong>Godot's job</strong> is rendering, UI, audio, juice, split-screen viewports, the offscreen clip viewport and platform plumbing. Nothing in Godot may mutate sim state except by submitting inputs.</li>
-    <li><strong>Determinism CI:</strong> a corpus of recorded matches, including four-player ones, replays on every commit on Windows, Linux, Android and iOS builds; final-state hashes must match exactly. Grows with every bug found, forever.</li>
-    <li><strong>Relay service:</strong> deliberately boring. REST plus a socket hub, match logs in a small database, FCM/APNs push, one small VM's worth of load. It stores and forwards; it does not think.</li>
+    <li><strong>Determinism CI:</strong> a corpus of recorded matches, including four-player ones, replays on every commit on Windows, Linux and Android builds; final-state hashes must match exactly. Grows with every bug found, forever.</li>
+    <li><strong>Relay service:</strong> deliberately boring. REST plus a socket hub, match logs in a small database, FCM push, one small VM's worth of load. It stores and forwards; it does not think.</li>
   </ul>
   <div class="fieldnote warn">
     <span class="tag">Known risk, hedged by design</span>
-    <p>Godot 4's C# export to iOS and Android is the youngest part of this stack; four-viewport split-screen and the video encoder bridge are the next two. Week-one spike is a walking mole on real iPhone and Android hardware; M1 spikes four live viewports at 60 fps; M2 spikes the encoder (<a href="#s15">§15</a>). Because MoleSim has zero engine dependencies and the Godot layer is deliberately thin, the worst realistic outcome is swapping the lens, not reshooting the film.</p>
+    <p>Godot 4's C# export to Android is the youngest part of this stack; four-viewport split-screen and the video encoder bridge are the next two. The week-one spike settled the first one: the simulation computes byte-identical results on Windows, Linux and Android, across two processor architectures, at 60 fps on a real phone. Godot still labels .NET mobile export experimental, which is worth watching as the client grows; M1 spikes four live viewports at 60 fps; M2 spikes the encoder (<a href="#s15">§15</a>). Because MoleSim has zero engine dependencies and the Godot layer is deliberately thin, the worst realistic outcome is swapping the lens, not reshooting the film.</p>
   </div>
 </section>
 
@@ -1395,7 +1395,7 @@
 
 <section class="col" id="s19">
   <h2><span class="secnum">19</span>Business model</h2>
-  <p>The game is a <strong>free download on all stores</strong> and monetises through cosmetics only: mole outfits and weapon reskins to start. No gameplay power, no ads, no loot boxes, no energy timers. A skill game about reading your opponents dies the moment anyone can buy an edge, so the wall between cosmetics and mechanics is absolute, and the no-classes rule (<a href="#s4">§4</a>) means there is not even a hypothetical stat to sell.</p>
+  <p>The game is a <strong>free download on Steam and Google Play</strong> and monetises through cosmetics only: mole outfits and weapon reskins to start. No gameplay power, no ads, no loot boxes, no energy timers. A skill game about reading your opponents dies the moment anyone can buy an edge, so the wall between cosmetics and mechanics is absolute, and the no-classes rule (<a href="#s4">§4</a>) means there is not even a hypothetical stat to sell.</p>
   <ul>
     <li><strong>Outfits:</strong> per-mole hats, uniforms, glasses, victory dances. Whole-platoon themed sets (Highland Regiment, Space Program, Office Workers) are the hero SKUs.</li>
     <li><strong>Weapon reskins:</strong> the Beetle Launcher as a party popper, the Big Whack as an inflatable hammer, confetti Clod Lobber. Reskins never change timing, arc, radius or any sound cue that carries gameplay information; a reskinned weapon must telegraph identically.</li>
@@ -1414,11 +1414,11 @@
     <table>
       <thead><tr><th>Gate</th><th>Builds</th><th>Question it answers</th></tr></thead>
       <tbody>
-        <tr><td class="k">M0 · Fun proof</td><td>MoleSim core with N-player plans, carveable terrain, the seamless move and its per-material stamina table, two weapons, ghost planning with the solid-mole rule, two knockout exits, four-player hotseat on one screen, programmer art. Week-one spike: Godot C# on real iOS and Android hardware.</td><td>Is simultaneous resolution actually funny and tense with four real people in a room, and does the stamina economy teach itself? Kill criteria: a table of four laughs out loud and asks for a rematch unprompted, or back to the drawing board.</td></tr>
+        <tr><td class="k">M0 · Fun proof</td><td>MoleSim core with N-player plans, carveable terrain, the seamless move and its per-material stamina table, two weapons, ghost planning with the solid-mole rule, two knockout exits, four-player hotseat on one screen, programmer art. Week-one spike: Godot C# on real Android hardware. <strong>Done: passed.</strong></td><td>Is simultaneous resolution actually funny and tense with four real people in a room, and does the stamina economy teach itself? Kill criteria: a table of four laughs out loud and asks for a rematch unprompted, or back to the drawing board.</td></tr>
         <tr><td class="k">M1 · Vertical slice</td><td>Split and quadrant planning layouts with the merge moment, four-viewport performance spike, eight weapons including Fracking, crates and the full Boiling Point rise-and-close, all eight knockout exits, the complete wordless HUD and icon set, one painted biome, four controllers plus kb/m, determinism CI, IARC questionnaire dry run.</td><td>Does a four-player round stay readable, do the pratfalls land, can a stranger operate the game with no words on screen, and does the IARC dry run come back at E / PEGI 7 or better?</td></tr>
-        <tr><td class="k">M2 · Online alpha</td><td>Relay service, host lobbies with game codes, Anytime pace end to end with push and the 24 h forfeit, emote wheel, accounts and the two-lane age gate, mobile builds in TestFlight/closed track, <strong>clip encoder spike</strong> and the one-press share flow, <strong>first-round teaching spike</strong> tested on people who have never seen the game.</td><td>Does cross-play determinism hold on strangers' devices, can a mid-range phone really produce a shareable clip in five seconds, and can one live round teach a wordless game to a stranger?</td></tr>
+        <tr><td class="k">M2 · Online alpha</td><td>Relay service, host lobbies with game codes, Anytime pace end to end with push and the 24 h forfeit, emote wheel, accounts and the two-lane age gate, mobile builds on a Play closed track, <strong>clip encoder spike</strong> and the one-press share flow, <strong>first-round teaching spike</strong> tested on people who have never seen the game.</td><td>Does cross-play determinism hold on strangers' devices, can a mid-range phone really produce a shareable clip in five seconds, and can one live round teach a wordless game to a stranger?</td></tr>
         <tr><td class="k">M3 · Steam Early Access</td><td>Live pace, <strong>random matchmaking</strong>, three biomes, full 15-item arsenal including both crate rarities, replays and clip sharing, first cosmetics batch including knockout flourishes, Mole of the Match, ratings submitted.</td><td>Will people who do not know us play it, does four-player free-for-all hold up among strangers, do clips actually travel, and does anyone buy a hat?</td></tr>
-        <tr><td class="k">M4 · Mobile launch + 1.0</td><td>App Store and Play releases, cross-play GA, earnable cosmetics lane, rotating in-match challenges, matchmaking tuned for a real population. Localisation is store, settings and legal text only, because the game itself has none.</td><td>Does Anytime pace retain a mobile audience week over week, does matchmaking find people a game fast enough to be worth opening, and does the clip loop bring in installs at a rate that justifies free?</td></tr>
+        <tr><td class="k">M4 · Mobile launch + 1.0</td><td>Play release, cross-play GA, earnable cosmetics lane, rotating in-match challenges, matchmaking tuned for a real population. Localisation is store, settings and legal text only, because the game itself has none.</td><td>Does Anytime pace retain a mobile audience week over week, does matchmaking find people a game fast enough to be worth opening, and does the clip loop bring in installs at a rate that justifies free?</td></tr>
       </tbody>
     </table>
   </div>
@@ -1462,6 +1462,7 @@
         <tr><td class="k">Names in clips <span class="pill decided">Decided</span></td><td>On, for everyone: a clip shows every platoon's name and every mole's name, because they are generated, carry no player identity, and the play deserves its credit. Account names and handles never appear anywhere.</td><td>None needed; there is nothing personal to leak.</td></tr>
         <tr><td class="k">Damage numbers <span class="pill decided">Decided</span></td><td>On by default, in-world, platoon-coloured digits (<a href="#s13">§13</a>). The accessibility toggle still adds written labels and tooltips for players who want them.</td><td>The toggle doubles as the fallback if the wordless HUD fails its M2 stranger test.</td></tr>
         <tr><td class="k">2v2 teams <span class="pill decided">Decided</span></td><td>Out. Free-for-all only, per <a href="#s2">§2</a>.</td><td>M3 kingmaking review. If it proves unfixable, 2v2 is the designated answer, and it is cheap: friendly fire is already on for everyone, so a team is just a shared win condition.</td></tr>
+        <tr><td class="k">iOS <span class="pill open">Open</span></td><td>Out of scope for the MVP. Steam and Android only, which still gives couch play, cross-play and both online paces.</td><td>Revisit after the MVP ships. Two things to weigh then: Godot's Apple export needs a Mac and is labelled experimental, so it is a real cost rather than a checkbox; and the clip loop (<a href="#s15">§15</a>) quietly loses half its reach, because a clip that lands on an iPhone leads nowhere. The web replay player is the cheap partial answer, since it lets an iPhone at least watch what it was sent.</td></tr>
         <tr><td class="k">Tuning defaults <span class="pill decided">Decided</span></td><td>Speed 5 m/s, the 1.5/4/7/12 cost table, 0&#8211;8 m/s wind, lava from round 8 rising 3 m a round, bounces at 10 pluck (<a href="#s9">§9</a>). Locked for building.</td><td>M0 and M1 playtests move the numbers if the data says so. If tunnelling still dominates after cost tuning, a speed penalty in dirt is the reserve lever, at the price of some teachability.</td></tr>
       </tbody>
     </table>
@@ -1469,5 +1470,5 @@
 </section>
 
 <footer class="col footer-note">
-  <p>Molehill Mayhem · game design document v0.8 · updated 26 August 2026. Changes since v0.7: plans are laid in ink with one reset per turn (spares in crates) and damage now ends a mole's input, Worms-style; lava bounces twice at 10 pluck before the third landing knocks out; Boom Beets dynamite arrives on its own button and the Periscope leaves; Gnome Mercy is named; crates land centrally and equidistant, pillowforts stay legal; the resolution camera merges by proximity and splits when the fight spreads; joining moves from invite URLs to Kahoot-style game codes with a host who picks the player count; Anytime pace replaces Daily with a hard 24-hour forfeit; damage numbers are on by default and mole names show in clips. Every decision is now made; §21 lists the reality checks. Source lives at <code>C:\Personal\Molehill\docs\</code>.</p>
+  <p>Molehill Mayhem · game design document v0.9 · updated 26 August 2026. Changes since v0.8: iOS is out of scope until after the MVP, so the game ships on Steam and Android with cross-play between them, and the reach that costs is recorded as a checkpoint rather than waved through. Earlier, changes since v0.7: plans are laid in ink with one reset per turn (spares in crates) and damage now ends a mole's input, Worms-style; lava bounces twice at 10 pluck before the third landing knocks out; Boom Beets dynamite arrives on its own button and the Periscope leaves; Gnome Mercy is named; crates land centrally and equidistant, pillowforts stay legal; the resolution camera merges by proximity and splits when the fight spreads; joining moves from invite URLs to Kahoot-style game codes with a host who picks the player count; Anytime pace replaces Daily with a hard 24-hour forfeit; damage numbers are on by default and mole names show in clips. Every decision is now made; §21 lists the reality checks. Source lives at <code>C:\Personal\Molehill\docs\</code>.</p>
 </footer>

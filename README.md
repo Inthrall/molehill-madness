@@ -4,7 +4,7 @@ A turn-based artillery game where everybody takes their turn at the same time.
 
 Four players, four moles each, one shared eight-second clock. Every round all four plot a move at once, then every plan resolves together: shots have to lead moving targets, four ambushes collide mid-air, and the best-laid plan marches proudly into a crater that did not exist when it was drawn. At round eight a line of lava appears along the bottom of the map and starts climbing, then closes in from the sides, until there is nowhere left to be careful.
 
-Steam, iOS and Android, cross-play, free, cosmetics only. Multiplayer only: no campaign, no AI. No words anywhere in the game.
+Steam and Android, cross-play, free, cosmetics only. (iOS is out of scope until after the MVP.) Multiplayer only: no campaign, no AI. No words anywhere in the game.
 
 ## Documents
 

@@ -1,6 +1,8 @@
 # Phase 0 gate: proceed
 
-**Verdict: proceed to Phase 1, with one leg of the gate deferred and named.**
+**Verdict: passed. Proceed to Phase 1.**
+
+*Revised after the gate: iOS was taken out of scope until after the MVP, which closed the one leg that had been left open. The targets are Steam and Android, with cross-play between them.*
 
 The implementation plan puts a hard gate at the end of Phase 0 and gives it the authority to reopen the engine decision. Two questions had to be answered before anything else was worth building:
 
@@ -43,11 +45,13 @@ Three things make this more than "it worked on my machine twice".
 
 The plan's tick budget is a full 240-tick four-player round resolving in under 250 ms on a mid-range phone. The probe is a heavier workload than one round and completes in 22 ms, so there is roughly an order of magnitude of headroom. Ghost previews, instant replays and the clip renderer all depend on re-running the simulation constantly, and that now looks comfortably affordable.
 
-## What is not proven, and what follows from it
+## What is not covered, and what follows from it
 
-**iOS.** The plan's gate asks for both phones. Godot reports that Apple Embedded export with C#/.NET "is experimental and requires macOS", so it cannot be attempted from a Windows machine at all. This is a deferral, not a pass.
+**iOS is out of scope**, not unproven. The gate originally asked for both phones, and Godot reports that Apple Embedded export with C#/.NET "is experimental and requires macOS", so it could not be attempted from a Windows machine at all. Rather than carry that as an open risk, iOS was cut from the MVP.
 
-It is an acceptable deferral for three reasons: `MoleSim` has zero engine dependencies, so the determinism result carries over to any host that runs .NET; the same architecture is what makes the plan's "replace the lens" fallback real; and the risk is contained to the client layer, which is deliberately thin. It is **not** an acceptable deferral past Phase 4, where iOS builds are needed for TestFlight, so a Mac is now a dated dependency rather than a vague one.
+That is a real simplification rather than a deferral dressed up as one: it removes a Mac, an annual developer programme, a second signing pipeline, a second store review, and a whole leg of the determinism matrix. One dev machine builds everything the game ships on.
+
+It has a real cost too, and the cost is reach rather than engineering. The growth loop rests on shared clips (GDD §15), and a clip that lands on an iPhone leads nowhere: no install, no rematch. The cheap partial answer already in the plan is the web replay player (Phase 6.5), which compiles `MoleSim` to WASM and would at least let an iPhone watch what it was sent. Revisit properly after the MVP.
 
 **Godot's .NET Android export is labelled experimental** by Godot itself in 4.7. It works, and it produced a correct build here, but that label is a live risk to the engine choice rather than a footnote. It wants watching as the client grows past a single scene.
 
@@ -67,4 +71,4 @@ No Android SDK was installed. The toolchain is borrowed from an existing Unity i
 
 Proceed to Phase 1, MoleSim v0. The engine decision stands. The determinism approach is validated across the two CPU architectures that matter, and the performance headroom is large enough that the plan's reliance on cheap re-simulation is safe.
 
-Carry forward as tracked risks: iOS remains unproven and needs a Mac before Phase 4; Godot's .NET mobile export is experimental; four-viewport performance is still a Phase 3 question.
+Carry forward as tracked risks: Godot labels .NET mobile export experimental, which wants watching as the client grows past one scene; four-viewport performance is still a Phase 3 question; and iOS is a post-MVP decision with a known cost to the clip loop's reach.

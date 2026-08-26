@@ -241,7 +241,7 @@
 </style>
 
 <header class="col">
-  <p class="eyebrow">Implementation plan · v0.2 · 26 August 2026 · companion to the design document v0.8 · Phase 0 gate passed</p>
+  <p class="eyebrow">Implementation plan · v0.3 · 26 August 2026 · companion to the design document v0.9 · Phase 0 gate passed</p>
   <h1 class="masthead-title">DIGGING <span class="hill">IN</span></h1>
   <p class="tagline">How Molehill Mayhem actually gets built.</p>
   <div class="chips">
@@ -249,6 +249,7 @@
     <span class="chip">Sim first, engine second</span>
     <span class="chip">7 phases · 2 hard gates</span>
     <span class="chip">Solo-dev scale</span>
+    <span class="chip">Steam + Android</span>
     <span class="chip">Gates, not dates</span>
     <span class="chip">Tech gate passed</span>
   </div>
@@ -309,7 +310,7 @@
     <li><strong>The sim is the product; Godot is a lens</strong> (GDD §16). MoleSim is a plain C# library with zero engine dependencies, built and tested before the engine renders a single frame. This is the load-bearing architectural rule and every other choice defers to it.</li>
     <li><strong>Determinism is never retrofitted.</strong> Fixed-point maths from the first commit, replay-hash tests from the first playable sim, cross-platform hash checks from Phase 0. The design document calls determinism drift "fatal to online" (GDD §20) and this plan treats it that way.</li>
     <li><strong>Playtests are milestones, not celebrations.</strong> Phases 2, 3 and 4 each end with a structured test on real people, and the fun-proof gate is empowered to send the project back to the drawing board cheaply.</li>
-    <li><strong>Windows is the dev box.</strong> A Mac is needed only for iOS export and signing: hired cloud Mac or a secondhand Mac mini at Phase 0, mandatory by Phase 4 for TestFlight.</li>
+    <li><strong>Windows is the whole dev box.</strong> iOS is out of scope until after the MVP (GDD &#167;21), so no Mac, no Apple Developer Program and no second signing pipeline. This is the single largest scope saving in the plan: it removes a hardware dependency, an annual fee, a platform review process and an entire leg of the determinism matrix.</li>
     <li><strong>Scope guards from the design document hold here too:</strong> no solo modes, no AI, no map editor, no ranked, no fifth seat, no text anywhere. Nothing in this plan builds toward a cut feature.</li>
   </ul>
 </section>
@@ -322,7 +323,7 @@
       <thead><tr><th>Deliverable</th><th>What it is</th><th>Ships in</th></tr></thead>
       <tbody>
         <tr><td class="k">MoleSim</td><td>Pure C# <code>netstandard2.1</code> class library: terrain, physics, weapons, lava, rules, RNG, serialization. Zero Godot types, zero floats, zero I/O.</td><td>Every build of everything</td></tr>
-        <tr><td class="k">Client</td><td>Godot 4 (C#/.NET) project: rendering, planning UI, viewports and cameras, audio, platform plumbing, clip renderer. Consumes MoleSim by project reference.</td><td>Steam, iOS, Android</td></tr>
+        <tr><td class="k">Client</td><td>Godot 4 (C#/.NET) project: rendering, planning UI, viewports and cameras, audio, platform plumbing, clip renderer. Consumes MoleSim by project reference.</td><td>Steam, Android</td></tr>
         <tr><td class="k">Relay</td><td>ASP.NET Core minimal API plus a WebSocket hub: accounts, host lobbies and codes, round payload store-and-forward, timers and forfeits, push. Never simulates in v1.</td><td>One small cloud host</td></tr>
         <tr><td class="k">Tools</td><td>Headless console runner, replay corpus runner, divergence bisector, map baker. All thin shells over MoleSim.</td><td>CI and the dev desk</td></tr>
       </tbody>
@@ -451,7 +452,7 @@ ulong hash = match.StateHash();            // for CI + cheat verification</code>
         <tr><td class="k">0.1</td><td>Repo, solution skeleton, GitHub Actions building and testing on push</td><td><span class="pill size">S</span></td><td>A green badge on an empty but real pipeline.</td></tr>
         <tr><td class="k">0.2</td><td><code>Fix64</code> with deterministic sqrt and trig, property tests, banned-API analyzer wired</td><td><span class="pill size">M</span></td><td>Analyzer fails a test commit containing a <code>float</code>.</td></tr>
         <tr><td class="k">0.3</td><td>Terrain bitmap prototype: material ids, circle carve, PNG dump for eyeballing</td><td><span class="pill size">S</span></td><td>Carved craters look right in the dumps.</td></tr>
-        <tr><td class="k">0.4</td><td>Pin Godot 4.x; C# scene with a walking sprite; export to a real Android phone and a real iPhone</td><td><span class="pill size">M</span></td><td>60 fps walking mole on both physical devices. This is the single most important task in the plan.</td></tr>
+        <tr><td class="k">0.4</td><td>Pin Godot 4.x; C# scene with a walking sprite; export to a real Android phone</td><td><span class="pill size">M</span></td><td>60 fps walking mole on physical hardware. The single most important task in the plan. <strong>Done: 60 fps on a Mali-G78.</strong></td></tr>
         <tr><td class="k">0.5</td><td>Determinism smoke: a toy sim (walk + projectile) runs 240 ticks on Windows and on the Android device; compare hashes</td><td><span class="pill size">M</span></td><td>Identical hashes, ten runs from ten seeds.</td></tr>
         <tr><td class="k">0.6</td><td>Map authoring spike: layered file in Aseprite/Krita, baked to bitmap + materials by a CLI</td><td><span class="pill size">S</span></td><td>One hand-drawn test map round-trips.</td></tr>
       </tbody>
@@ -460,7 +461,7 @@ ulong hash = match.StateHash();            // for CI + cheat verification</code>
   <div class="fieldnote">
     <span class="tag">Tech gate · passed</span>
     <p><strong>The simulation computes byte-identical results on Windows, Linux and Android:</strong> combined hash <code>D1096413CA1B6CF8</code> across two CPU architectures and two .NET runtime versions. The ARM64 result is the one that counts, because x86-64 against ARM64 is exactly where IEEE 754 arithmetic diverges in practice, and that boundary is the entire reason the sim is integer-only. The probe runs in 22 ms at 60 fps on a Mali-G78, against a 250 ms budget, so the plan's reliance on cheap re-simulation is affordable rather than hopeful.</p>
-    <p><strong>One leg is deferred, not passed.</strong> Godot reports that Apple Embedded export with C#/.NET is experimental and requires macOS, so 0.4 could not be attempted for iOS from a Windows machine. Acceptable because MoleSim has no engine dependencies and the risk stays inside a deliberately thin client layer, but a Mac is now a dated dependency: needed before Phase 4 for TestFlight.</p>
+    <p><strong>Both questions answered, and the gate is clean.</strong> It was briefly half-answered: Godot reports that Apple Embedded export with C#/.NET is experimental and requires macOS, so iOS could not be attempted from a Windows machine at all. That is no longer a hole in the gate, because iOS is out of scope until after the MVP (GDD &#167;21). Steam and Android, cross-play between them, one dev machine.</p>
     <p>Three things the gate caught that would otherwise have been assumed: Godot 4.7.2's Android export template accepts <code>net9.0</code> only though its own editor assemblies are <code>net8.0</code>; Android export needs ETC2/ASTC enabled; and Godot wants a classic <code>.sln</code> where .NET 10 now writes <code>.slnx</code>, without which the export <strong>silently produced a signed APK containing no C# at all</strong>. Full write-up in <code>docs/phase-0-gate.md</code>.</p>
   </div>
 </section>
@@ -528,7 +529,7 @@ ulong hash = match.StateHash();            // for CI + cheat verification</code>
         <tr><td class="k">3.6</td><td>All eight knockout exits, final animation</td><td><span class="pill size">L</span></td><td>Contracted (§15); integration and timing in-house.</td></tr>
         <tr><td class="k">3.7</td><td>Wordless HUD and icon set v1: weapon objects, glyphs, emote wheel art, hand-drawn damage numerals</td><td><span class="pill size">L</span></td><td>Reviewed at quarter-screen and phone size before final rendering (GDD §17).</td></tr>
         <tr><td class="k">3.8</td><td>First painted biome (Garden) plus style guide</td><td><span class="pill size">L</span></td><td>Contracted, parallel; map baker consumes the layers.</td></tr>
-        <tr><td class="k">3.9</td><td>Determinism CI matrix live on Windows, Linux, Android, iOS; corpus past fifty replays</td><td><span class="pill size">M</span></td><td>Device runs semi-manual at first; see §13.</td></tr>
+        <tr><td class="k">3.9</td><td>Determinism CI matrix live on Windows, Linux and Android; corpus past fifty replays</td><td><span class="pill size">M</span></td><td>Device runs semi-manual at first; see §13.</td></tr>
         <tr><td class="k">3.10</td><td>Performance spikes: four live viewports at 60 fps on a mid PC; two panes on a Deck</td><td><span class="pill size">S</span></td><td>The second-youngest tech in the stack (GDD §16).</td></tr>
         <tr><td class="k">3.11</td><td>IARC questionnaire dry run</td><td><span class="pill size">S</span></td><td>E / PEGI 7 or better expected (GDD §18).</td></tr>
         <tr><td class="k">3.12</td><td>Stranger test: someone who has never seen the game operates it with no words on screen</td><td><span class="pill size">S</span></td><td>First hard evidence on the wordless bet.</td></tr>
@@ -549,13 +550,13 @@ ulong hash = match.StateHash();            // for CI + cheat verification</code>
       <thead><tr><th>#</th><th>Task</th><th>Size</th><th>Notes</th></tr></thead>
       <tbody>
         <tr><td class="k">4.1</td><td>Relay v0: minimal API; lobbies with host, count, pace; five-letter codes; plan submit and round fetch; SQLite first, Postgres when it hurts</td><td><span class="pill size">L</span></td><td>Stores seed + opaque payload blobs (~60 KB a match, GDD §14). Never parses plans.</td></tr>
-        <tr><td class="k">4.2</td><td>Anytime pace end to end: 24 h (or shorter, host's call) round windows, forfeit job, resolution push via FCM and APNs</td><td><span class="pill size">L</span></td><td>One notification a day per match at most.</td></tr>
+        <tr><td class="k">4.2</td><td>Anytime pace end to end: 24 h (or shorter, host's call) round windows, forfeit job, resolution push via FCM</td><td><span class="pill size">L</span></td><td>One notification a day per match at most.</td></tr>
         <tr><td class="k">4.3</td><td>Client online flow: host/join by code, code-prefilling links, background resume, notification deep link into the round</td><td><span class="pill size">L</span></td><td>The code entry screen is wordless too: five letter tiles.</td></tr>
         <tr><td class="k">4.4</td><td>Accounts and the two-lane age gate; matchmaking flag withheld under threshold</td><td><span class="pill size">M</span></td><td>Anonymous device account, optional email link (GDD §18).</td></tr>
         <tr><td class="k">4.5</td><td>Emote wheel, send and display</td><td><span class="pill size">S</span></td><td>The only communication channel in the game.</td></tr>
         <tr><td class="k">4.6</td><td><strong>Clip pipeline:</strong> offscreen 1080&#215;1920 re-sim render, drama scorer v0, platform hardware encoders (MediaCodec plugin, VideoToolbox plugin, bundled ffmpeg on desktop), share sheet, APNG fallback path</td><td><span class="pill size">XL</span></td><td>The flagged unknown (GDD §15, §20). The encoder spike runs first and alone; if five seconds on a mid phone fails, the fallback ships without shame.</td></tr>
         <tr><td class="k">4.7</td><td>First-round teaching build: drawn-paw demo, beginner seeding flag, measured with fresh testers</td><td><span class="pill size">M</span></td><td>Includes watching what happens when a beginner wastes their one reset (GDD §20).</td></tr>
-        <tr><td class="k">4.8</td><td>TestFlight and Play closed track: signing, builds, crash reporting (the one permitted analytics)</td><td><span class="pill size">M</span></td><td>The Mac becomes mandatory here.</td></tr>
+        <tr><td class="k">4.8</td><td>Play closed track: signing, builds, crash reporting (the one permitted analytics)</td><td><span class="pill size">S</span></td><td>One store, one keystore, no Mac in the loop.</td></tr>
       </tbody>
     </table>
   </div>
@@ -596,7 +597,7 @@ ulong hash = match.StateHash();            // for CI + cheat verification</code>
     <table>
       <thead><tr><th>#</th><th>Task</th><th>Size</th><th>Notes</th></tr></thead>
       <tbody>
-        <tr><td class="k">6.1</td><td>App Store and Play submissions: age gate review, IAP compliance, privacy labels</td><td><span class="pill size">M</span></td><td>The under-13 lanes (GDD §18) are the review-sensitive part; documented early.</td></tr>
+        <tr><td class="k">6.1</td><td>Play submission: age gate review, IAP compliance, data safety declaration</td><td><span class="pill size">M</span></td><td>The under-13 lanes (GDD §18) are the review-sensitive part; documented early.</td></tr>
         <tr><td class="k">6.2</td><td>Cross-play GA and relay load-hardening: rate limits, backup restore drills, an ops runbook one person can follow</td><td><span class="pill size">M</span></td><td>Still one small host; scale is a good problem.</td></tr>
         <tr><td class="k">6.3</td><td>Earnable cosmetics lane and rotating in-match challenges</td><td><span class="pill size">M</span></td><td>Everything earnable comes from real matches (GDD §19).</td></tr>
         <tr><td class="k">6.4</td><td>Shell localisation: store, settings, legal, nothing else, because the game has no words</td><td><span class="pill size">S</span></td><td>The wordless dividend, cashed (GDD §13).</td></tr>
@@ -628,7 +629,7 @@ ulong hash = match.StateHash();            // for CI + cheat verification</code>
   <p>The whole architecture rests on every device computing the same match. That is not a property you check occasionally; it is a treadmill the pipeline runs every day.</p>
   <figure class="wide">
     <div class="figwrap">
-      <svg viewBox="0 0 880 250" role="img" aria-label="The determinism loop: the golden corpus of recorded matches feeds CI builds on Windows, Linux, Android and iOS, each replays the corpus and emits hashes, a comparer checks all platforms agree, disagreement triggers the divergence bisector which locates the first differing tick, the bug is fixed, and the fixed match is added back into the corpus, which grows forever.">
+      <svg viewBox="0 0 880 250" role="img" aria-label="The determinism loop: the golden corpus of recorded matches feeds CI builds on Windows, Linux and Android, each replays the corpus and emits hashes, a comparer checks all platforms agree, disagreement triggers the divergence bisector which locates the first differing tick, the bug is fixed, and the fixed match is added back into the corpus, which grows forever.">
         <defs>
           <marker id="arrp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0 0 L10 5 L0 10 Z" fill="currentColor"/>
@@ -642,24 +643,21 @@ ulong hash = match.StateHash();            // for CI + cheat verification</code>
 
           <line x1="186" y1="123" x2="234" y2="123" stroke="currentColor" stroke-width="1.6" marker-end="url(#arrp)"/>
 
-          <rect x="238" y="40" width="150" height="34" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
-          <text x="313" y="62" text-anchor="middle" font-size="11.5">Windows replay</text>
-          <rect x="238" y="82" width="150" height="34" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
-          <text x="313" y="104" text-anchor="middle" font-size="11.5">Linux replay</text>
-          <rect x="238" y="124" width="150" height="34" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
-          <text x="313" y="146" text-anchor="middle" font-size="11.5">Android replay</text>
-          <rect x="238" y="166" width="150" height="34" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
-          <text x="313" y="188" text-anchor="middle" font-size="11.5">iOS replay</text>
+          <rect x="238" y="56" width="150" height="34" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <text x="313" y="78" text-anchor="middle" font-size="11.5">Windows · x86-64</text>
+          <rect x="238" y="104" width="150" height="34" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <text x="313" y="126" text-anchor="middle" font-size="11.5">Linux · x86-64</text>
+          <rect x="238" y="152" width="150" height="34" rx="8" style="stroke:var(--grass)" fill="none" stroke-width="2"/>
+          <text x="313" y="174" text-anchor="middle" font-size="11.5">Android · ARM64</text>
 
-          <line x1="390" y1="57" x2="452" y2="105" stroke="currentColor" stroke-width="1.4" marker-end="url(#arrp)"/>
-          <line x1="390" y1="99" x2="452" y2="115" stroke="currentColor" stroke-width="1.4" marker-end="url(#arrp)"/>
-          <line x1="390" y1="141" x2="452" y2="128" stroke="currentColor" stroke-width="1.4" marker-end="url(#arrp)"/>
-          <line x1="390" y1="183" x2="452" y2="138" stroke="currentColor" stroke-width="1.4" marker-end="url(#arrp)"/>
-          <text x="422" y="86" text-anchor="middle" font-size="10" font-family="'IBM Plex Mono',monospace">hashes</text>
+          <line x1="390" y1="73" x2="452" y2="108" stroke="currentColor" stroke-width="1.4" marker-end="url(#arrp)"/>
+          <line x1="390" y1="121" x2="452" y2="121" stroke="currentColor" stroke-width="1.4" marker-end="url(#arrp)"/>
+          <line x1="390" y1="169" x2="452" y2="134" stroke="currentColor" stroke-width="1.4" marker-end="url(#arrp)"/>
+          <text x="422" y="98" text-anchor="middle" font-size="10" font-family="'IBM Plex Mono',monospace">hashes</text>
 
           <rect x="456" y="92" width="140" height="58" rx="10" fill="none" stroke="currentColor" stroke-width="1.8"/>
           <text x="526" y="117" text-anchor="middle" font-weight="700">Compare</text>
-          <text x="526" y="135" text-anchor="middle" font-size="10.5" opacity="0.75">all four must agree</text>
+          <text x="526" y="135" text-anchor="middle" font-size="10.5" opacity="0.75">all three must agree</text>
 
           <line x1="598" y1="110" x2="652" y2="86" style="stroke:var(--grass)" stroke-width="2" marker-end="url(#arrp)"/>
           <text x="668" y="78" font-weight="700" style="fill:var(--grass)">green: merge</text>
@@ -678,7 +676,7 @@ ulong hash = match.StateHash();            // for CI + cheat verification</code>
     <figcaption><b>Every determinism bug makes the net stronger.</b> The corpus only ever grows, so the class of bug that would kill online play gets structurally harder to reintroduce with every fix.</figcaption>
   </figure>
   <ul>
-    <li><strong>Merge rules:</strong> sim changes require corpus green on Windows and Linux in CI; Android and iOS corpus runs are a scheduled nightly on real devices (manual button-press early, automated via a device farm when it earns the cost). A release build requires all four.</li>
+    <li><strong>Merge rules:</strong> sim changes require corpus green on Windows and Linux in CI; the Android corpus run is a scheduled nightly on a real device (manual button-press early, automated via a device farm when it earns the cost). A release build requires all three.</li>
     <li><strong>Every fixed bug becomes a replay.</strong> No exceptions. The corpus is the project's institutional memory.</li>
     <li><strong>Field telemetry closes the loop:</strong> from Phase 4, clients report a match-end state hash with the match id. Any disagreement between participants is a determinism bug caught in the wild with a perfect reproduction attached, because the match log is the repro.</li>
     <li><strong>Perf budgets are tests:</strong> the bench project asserts the tick budget (§04), viewport frame times, and clip render throughput, so a regression fails a build instead of a playtest.</li>
@@ -714,12 +712,10 @@ ulong hash = match.StateHash();            // for CI + cheat verification</code>
     <table>
       <thead><tr><th>Item</th><th>When</th><th>Rough cost</th></tr></thead>
       <tbody>
-        <tr><td class="k">Apple Developer Program</td><td>Phase 0 (device spike)</td><td>US$99 / year</td></tr>
-        <tr><td class="k">Google Play Console</td><td>Phase 4</td><td>US$25 once</td></tr>
+                <tr><td class="k">Google Play Console</td><td>Phase 4</td><td>US$25 once</td></tr>
         <tr><td class="k">Steam Direct</td><td>Phase 5</td><td>US$100 once</td></tr>
-        <tr><td class="k">Mac access for iOS builds</td><td>Phase 0 onward</td><td>Cloud Mac hours early; a used Mac mini by Phase 4</td></tr>
-        <tr><td class="k">Relay hosting</td><td>Phase 4 onward</td><td>One small VM or container app + managed Postgres, ~US$20&#8211;40 / month until success forces more</td></tr>
-        <tr><td class="k">Push (FCM, APNs)</td><td>Phase 4</td><td>Free tiers</td></tr>
+                <tr><td class="k">Relay hosting</td><td>Phase 4 onward</td><td>One small VM or container app + managed Postgres, ~US$20&#8211;40 / month until success forces more</td></tr>
+        <tr><td class="k">Push (FCM)</td><td>Phase 4</td><td>Free tier</td></tr>
         <tr><td class="k">Device farm for nightly hashes</td><td>When manual runs hurt</td><td>Deferred until it earns itself</td></tr>
         <tr><td class="k">Art packages A and B</td><td>Phases 2&#8211;3, 5</td><td>The real budget line; scoped with the artist, not guessed here</td></tr>
       </tbody>
@@ -735,7 +731,7 @@ ulong hash = match.StateHash();            // for CI + cheat verification</code>
     <table>
       <thead><tr><th>Risk</th><th>Retired by</th><th>How</th></tr></thead>
       <tbody>
-        <tr><td class="k">Godot C# mobile export</td><td>Phase 0 <span class="pill ship">Android done</span></td><td>Runs at 60 fps on a real phone. <strong>iOS still open:</strong> Godot's Apple Embedded .NET export requires macOS, so it could not be attempted. Needs a Mac before Phase 4.</td></tr>
+        <tr><td class="k">Godot C# mobile export</td><td>Phase 0 <span class="pill ship">Passed</span></td><td>Runs at 60 fps on a real Android phone with byte-identical simulation results. iOS is out of scope until after the MVP, which removes the Mac, the developer programme and a signing pipeline from the plan entirely.</td></tr>
         <tr><td class="k">Godot calls .NET mobile export experimental</td><td>Watch through Phase 3</td><td>Godot's own warning, not ours. It produced a correct Android build, but the label is a live risk to the engine choice and wants watching as the client grows past one scene.</td></tr>
         <tr><td class="k">Determinism drift</td><td>Phase 0 <span class="pill ship">Proven</span>, then forever</td><td>Identical hashes on x86-64 and ARM64, .NET 9 and .NET 10. Corpus from Phase 1, device matrix from Phase 3, field hashes from Phase 4.</td></tr>
         <tr><td class="k">WeGo not actually fun</td><td>Phase 2 <span class="pill gate">Gate</span></td><td>Fun proof with four humans before any content or online money.</td></tr>
@@ -761,8 +757,7 @@ ulong hash = match.StateHash();            // for CI + cheat verification</code>
     <li>Terrain bitmap: material ids, circle carve, rolling hash, PNG dump utility.</li>
     <li>Install and pin Godot 4.x; commit a C# scene with a placeholder mole walking on a flat floor.</li>
     <li>Export ticket 5 to a real Android phone; record fps and pain points.</li>
-    <li>Export ticket 5 to a real iPhone (cloud Mac, Apple account); record fps and pain points.</li>
-    <li>Toy sim: gravity, walking, one projectile; 240 ticks; state hash at the end.</li>
+        <li>Toy sim: gravity, walking, one projectile; 240 ticks; state hash at the end.</li>
     <li>Run ticket 8 on Windows and on the Android device from ticket 6; compare hashes across ten seeds.</li>
     <li>Write the Phase 0 gate memo: proceed as planned, or reopen the engine decision with evidence attached.</li>
   </ol>
@@ -773,5 +768,5 @@ ulong hash = match.StateHash();            // for CI + cheat verification</code>
 </section>
 
 <footer class="col footer-note">
-  <p>Digging In · implementation plan v0.2 · 26 August 2026 · companion to the Molehill Mayhem game design document v0.8. Phases map to GDD milestones M0&#8211;M4; the two hard gates are Phase 0 (tech, <strong>passed</strong>) and Phase 2 (fun). Gate evidence in <code>docs/phase-0-gate.md</code>; code at <a href="https://github.com/Inthrall/molehill-mayhem">github.com/Inthrall/molehill-mayhem</a>.</p>
+  <p>Digging In · implementation plan v0.3 · 26 August 2026 · companion to the Molehill Mayhem game design document v0.9. iOS is out of scope until after the MVP, so the targets are Steam and Android. Phases map to GDD milestones M0&#8211;M4; the two hard gates are Phase 0 (tech, <strong>passed</strong>) and Phase 2 (fun). Gate evidence in <code>docs/phase-0-gate.md</code>; code at <a href="https://github.com/Inthrall/molehill-mayhem">github.com/Inthrall/molehill-mayhem</a>.</p>
 </footer>
