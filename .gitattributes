@@ -5,6 +5,7 @@
 *.cs      text diff=csharp
 *.csproj  text
 *.sln     text eol=crlf
+*.slnx    text
 *.md      text
 *.html    text
 *.json    text

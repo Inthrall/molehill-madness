@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  CI: true
+
+jobs:
+  build:
+    name: Build and test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test --no-build --configuration Release --verbosity normal
+
+      - name: Record determinism fingerprint
+        shell: bash
+        run: |
+          dotnet run --project tools/Molehill.Cli --configuration Release --no-build -- selftest \
+            | tee full-fingerprint.txt
+          # Keep only the lines that must match across platforms. The runtime and OS
+          # lines are deliberately excluded: they are meant to differ.
+          grep -E '^(fix64|rng|terrain)' full-fingerprint.txt > fingerprint.txt
+          cat fingerprint.txt
+
+      - name: Upload fingerprint
+        uses: actions/upload-artifact@v4
+        with:
+          name: fingerprint-${{ matrix.os }}
+          path: fingerprint.txt
+          if-no-files-found: error
+
+  determinism:
+    name: Platforms agree
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download fingerprints
+        uses: actions/download-artifact@v4
+        with:
+          pattern: fingerprint-*
+          path: fingerprints
+
+      - name: Compare across platforms
+        run: |
+          echo "Fingerprints collected:"
+          find fingerprints -name fingerprint.txt | sort
+          echo
+
+          first=""
+          for file in $(find fingerprints -name fingerprint.txt | sort); do
+            echo "--- $file"
+            cat "$file"
+            echo
+            if [ -z "$first" ]; then
+              first="$file"
+            elif ! diff -u "$first" "$file"; then
+              echo
+              echo "::error::Simulation results differ between platforms. Online play is"
+              echo "::error::impossible until this is fixed. Bisect the first differing tick"
+              echo "::error::before doing anything else."
+              exit 1
+            fi
+          done
+
+          echo "All platforms computed identical results."
+
+  guards:
+    name: Simulation guards
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Stands in for a Roslyn analyzer until one is worth writing. The simulation must
+      # never contain IEEE 754 arithmetic, an unseeded generator, or a clock: each of
+      # them can produce a different answer on a different machine, which would silently
+      # fork a live match between a phone and a PC.
+      - name: No banned APIs in MoleSim
+        run: |
+          if grep -rnE '\b(float|double|System\.Random|DateTime|DateTimeOffset|Environment\.TickCount)\b' \
+               sim/MoleSim --include='*.cs'; then
+            echo
+            echo "::error::Banned API in MoleSim. The simulation must stay integer-only and"
+            echo "::error::free of clocks and unseeded randomness. Use Fix64 and MatchRng."
+            exit 1
+          fi
+          echo "MoleSim is clean."
+
+      # MoleSim is the game; nothing may pull it toward an engine or the outside world.
+      - name: MoleSim has no dependencies
+        run: |
+          if grep -nE '<(PackageReference|ProjectReference|FrameworkReference)' \
+               sim/MoleSim/MoleSim.csproj; then
+            echo
+            echo "::error::MoleSim must reference nothing. Move the dependency into a consumer."
+            exit 1
+          fi
+          echo "MoleSim references nothing."
