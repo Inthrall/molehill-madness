@@ -2,26 +2,22 @@ using Godot;
 using MoleSim.Terrain;
 
 /// <summary>
-/// Draws the terrain, and keeps up with it being chewed apart.
+/// Keeps a picture of the terrain up to date as it gets chewed apart.
 /// </summary>
 /// <remarks>
-/// One image pixel per terrain cell, uploaded once and then patched in place. The
-/// simulation reports the smallest rectangle that has changed since the last frame, so a
-/// crater costs an upload the size of the crater rather than the size of the map. That
-/// dirty-region path is the part worth proving at this stage: it is what has to hold when
-/// four moles are digging at once.
+/// One texel per terrain cell, solid or not, uploaded once and then patched in place. The
+/// simulation reports the smallest rectangle that has changed since the last frame, so a crater
+/// costs an upload the size of the crater rather than the size of the map. That dirty-region path
+/// is the part worth proving at this stage: it is what has to hold when four moles are digging at
+/// once.
 ///
-/// A texture rather than a generated mesh, deliberately. Marching squares would give
-/// smooth edges and belongs with the painted biome in Phase 3, but Phase 2 exists to
-/// answer whether the game is any fun, and chunky soil answers that just as well while
-/// costing a fraction of the work. The performance-critical half of the problem, knowing
-/// what to redraw, is exercised either way.
-///
-/// The ground is one flat colour with an outline where it meets air, and no other detail. It used
-/// to be painted a shade per material, which on a map that is two thirds underground reads as five
-/// kinds of stripe and tells a player nothing they can act on. What matters about a cell is which
-/// side of an edge it is on. The materials still decide what digging costs; they are simply not
-/// what the picture is about.
+/// This is a field rather than a picture, and everything about how the ground looks lives in
+/// <c>terrain.gdshader</c>: the flat fill, the outline, and the smoothing that turns a grid of cells
+/// into a curve. That is a better division than it might seem. Deciding here what colour a cell
+/// should be meant working out whether it was on an edge, and being on an edge is a property of a
+/// cell's neighbours rather than of the cell, so every change had to repaint a wider rectangle than
+/// the one that actually changed. The shader samples whatever is there when it draws, so none of
+/// that bookkeeping exists any more.
 /// </remarks>
 public sealed class TerrainView
 {
@@ -32,9 +28,17 @@ public sealed class TerrainView
     public TerrainView(TerrainGrid grid)
     {
         _grid = grid;
-        _image = Image.CreateEmpty(grid.Width, grid.Height, false, Image.Format.Rgba8);
 
-        Repaint(0, 0, grid.Width - 1, grid.Height - 1);
+        // One byte a cell. The shader wants a scalar to interpolate, not a colour to blend.
+        _image = Image.CreateEmpty(grid.Width, grid.Height, false, Image.Format.L8);
+
+        for (int y = 0; y < grid.Height; y++)
+        {
+            for (int x = 0; x < grid.Width; x++)
+            {
+                _image.SetPixel(x, y, Field(x, y));
+            }
+        }
 
         _texture = ImageTexture.CreateFromImage(_image);
         grid.TakeDirtyRegion(out _, out _, out _, out _);
@@ -50,60 +54,17 @@ public sealed class TerrainView
             return;
         }
 
-        // One cell wider than the change on every side. A cell turning to air changes how its
-        // neighbours are drawn, because a neighbour that was buried is now on the edge, so
-        // repainting only the reported rectangle leaves a crater with no outline down its sides.
-        Repaint(minX - 1, minY - 1, maxX + 1, maxY + 1);
+        for (int y = minY; y <= maxY; y++)
+        {
+            for (int x = minX; x <= maxX; x++)
+            {
+                _image.SetPixel(x, y, Field(x, y));
+            }
+        }
+
         _texture.Update(_image);
     }
 
-    private void Repaint(int fromX, int fromY, int toX, int toY)
-    {
-        int left = fromX < 0 ? 0 : fromX;
-        int top = fromY < 0 ? 0 : fromY;
-        int right = toX >= _grid.Width ? _grid.Width - 1 : toX;
-        int bottom = toY >= _grid.Height ? _grid.Height - 1 : toY;
-
-        for (int y = top; y <= bottom; y++)
-        {
-            for (int x = left; x <= right; x++)
-            {
-                _image.SetPixel(x, y, Shade(x, y));
-            }
-        }
-    }
-
-    private Color Shade(int x, int y)
-    {
-        if (!MaterialTable.IsSolid(_grid[x, y]))
-        {
-            return Palette.Nothing;
-        }
-
-        return TouchesAir(x, y) ? Palette.Edge : Palette.Ground;
-    }
-
-    /// <summary>
-    /// Whether a solid cell has air directly beside it, above it or below it.
-    /// </summary>
-    /// <remarks>
-    /// Four neighbours rather than eight. Counting the diagonals thickens the outline at every
-    /// corner, which on ground this chunky turns a crater rim into a smear.
-    ///
-    /// Off the edge of the map counts as solid, so the world's own borders are not outlined. The
-    /// outline is meant to say "the ground stops here", and the ground does not stop at the border,
-    /// it is simply where the map runs out.
-    /// </remarks>
-    private bool TouchesAir(int x, int y) =>
-        IsAir(x - 1, y) || IsAir(x + 1, y) || IsAir(x, y - 1) || IsAir(x, y + 1);
-
-    private bool IsAir(int x, int y)
-    {
-        if (x < 0 || x >= _grid.Width || y < 0 || y >= _grid.Height)
-        {
-            return false;
-        }
-
-        return !MaterialTable.IsSolid(_grid[x, y]);
-    }
+    private Color Field(int x, int y) =>
+        MaterialTable.IsSolid(_grid[x, y]) ? Colors.White : Colors.Black;
 }

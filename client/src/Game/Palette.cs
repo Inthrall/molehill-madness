@@ -65,8 +65,6 @@ public static class Palette
     /// <summary>The line where ground meets air, which is the only detail the terrain draws.</summary>
     public static readonly Color Edge = new Color(0.34f, 0.27f, 0.19f);
 
-    /// <summary>Nothing at all, so a pane's painted sky shows through the air.</summary>
-    public static readonly Color Nothing = new Color(0f, 0f, 0f, 0f);
 
     // ---- Platoons --------------------------------------------------------------------
 

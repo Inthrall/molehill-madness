@@ -32,11 +32,16 @@ public partial class WorldView : Control
     private int _camera;
     private float _pushing;
 
+    private readonly TerrainSkin _skin;
+
     public WorldView(Stage stage)
     {
         _stage = stage;
         ClipContents = true;
         MouseFilter = MouseFilterEnum.Ignore;
+
+        _skin = new TerrainSkin(stage);
+        AddChild(_skin);
     }
 
     /// <summary>Which platoon this view belongs to, or -1 when everybody is sharing it.</summary>
@@ -383,15 +388,14 @@ public partial class WorldView : Control
 
     public override void _Draw()
     {
-        // The sky, painted rather than mapped, so a pane is never looking at nothing and the
-        // camera is free to rise above the top of the map.
-        DrawRect(new Rect2(Vector2.Zero, Size), Palette.Paper);
+        // The ground and the sky are drawn by the skin, which sits behind this node so that its
+        // shader does not get applied to sixteen moles and a HUD as well.
+        _skin.Cover(MapOnPane());
 
         // Everything below is in world pixels; the transform puts them on the pane, and
         // ClipContents keeps them inside it.
         DrawSetTransform(Offset(), 0, Vector2.One);
 
-        DrawGround();
         DrawLava();
         DrawPlacements();
         DrawCrates();
@@ -688,14 +692,13 @@ public partial class WorldView : Control
         DrawRect(new Rect2(x, y, width * fraction, height), fill);
     }
 
-    private void DrawGround()
+    /// <summary>Where the whole map lands on this pane, which is all the skin needs to know.</summary>
+    private Rect2 MapOnPane()
     {
         float cell = _scale / WorldScale.CellsPerMetre;
 
-        DrawTextureRect(
-            _stage.Terrain,
-            new Rect2(0, 0, _stage.MapWidthCells * cell, _stage.MapHeightCells * cell),
-            false);
+        return new Rect2(
+            Offset(), new Vector2(_stage.MapWidthCells * cell, _stage.MapHeightCells * cell));
     }
 
     private void DrawLava()
@@ -863,7 +866,7 @@ public partial class WorldView : Control
                 ? ToPixels(_stage.Planners[mole.Seat].PlannedPosition)
                 : ToPixels(mole.Position);
 
-            DrawMole(at, mole.Seat, mole.Pluck, acting);
+            DrawMole(at, mole.Seat, mole.Pluck, acting, Owns(mole.Seat));
         }
     }
 
@@ -883,8 +886,18 @@ public partial class WorldView : Control
     /// Whether this pane is the one showing a given platoon's turn: its own, or the one being
     /// taken right now if everybody is sharing the screen.
     /// </summary>
-    private bool ShowsPlanOf(SeatPlanner planner) =>
-        _seat >= 0 ? planner.Seat == _seat : planner.Seat == SharedPlanSeat();
+    private bool ShowsPlanOf(SeatPlanner planner) => Owns(planner.Seat);
+
+    /// <summary>
+    /// Whether a platoon is the one this pane belongs to.
+    /// </summary>
+    /// <remarks>
+    /// Its own seat where it has one. Where it does not, the platoon holding the pointer, which is
+    /// what a hotseat prototype on one mouse actually is. A replay camera belongs to a piece of the
+    /// action rather than to anybody, so it owns nothing and nothing is private to it.
+    /// </remarks>
+    private bool Owns(int seat) =>
+        _seat >= 0 ? seat == _seat : seat == SharedPlanSeat();
 
     private void DrawReplay(RoundRecording recording, RoundResult result)
     {
@@ -896,11 +909,14 @@ public partial class WorldView : Control
                 continue;
             }
 
+            int seat = _stage.Match.Moles[slot].Seat;
+
             DrawMole(
                 ToPixels(recording.PositionAt(_stage.Seconds, slot)),
-                _stage.Match.Moles[slot].Seat,
+                seat,
                 recording.PluckOf(_stage.Tick, slot),
-                highlight: false);
+                highlight: false,
+                ours: Owns(seat));
         }
 
         float shotRadius = Mathf.Max((float)Projectile.Radius.ToDecimal() * _scale, 3f);
@@ -981,7 +997,17 @@ public partial class WorldView : Control
 
     private float MoleRadius() => (float)MatchSettings.Radius.ToDecimal() * _scale;
 
-    private void DrawMole(Vector2 at, int seat, int pluck, bool highlight)
+    /// <summary>
+    /// One mole, with a pluck bar over its head only if it is one of this pane's own.
+    /// </summary>
+    /// <remarks>
+    /// Sixteen bars on one screen is fifteen you cannot act on and one you can. A platoon's own
+    /// health is worth a glance every turn; everybody else's is a row of gauges to read past, and it
+    /// is the same argument as only showing a player their own plan. What everybody does get to see
+    /// is the tally, which counts who is still standing, and the damage numbers, which say what a
+    /// shot did the moment it lands.
+    /// </remarks>
+    private void DrawMole(Vector2 at, int seat, int pluck, bool highlight, bool ours)
     {
         float radius = MoleRadius();
         Color colour = Palette.Seat(seat);
@@ -995,6 +1021,11 @@ public partial class WorldView : Control
         DrawCircle(at + new Vector2(-radius * 0.45f, -radius * 0.8f), radius * 0.34f, colour);
         DrawCircle(at + new Vector2(radius * 0.45f, -radius * 0.8f), radius * 0.34f, colour);
         DrawCircle(at + new Vector2(0, radius * 0.34f), radius * 0.34f, Palette.Snout);
+
+        if (!ours)
+        {
+            return;
+        }
 
         // Pluck as a bar over the head. A number there would be unreadable at this size, and
         // wordless is the direction anyway.
