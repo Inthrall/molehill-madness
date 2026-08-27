@@ -65,6 +65,12 @@ namespace MoleSim.Tests;
 /// only the field they do it on. The caves stay buried under a roof of solid ground, which is what
 /// keeps the spawn points where they were, and <see cref="MapMakerTests"/> defends that rather than
 /// leaving it to these pins to notice.
+///
+/// Updated a seventh time when garden clutter arrived on the surface. Pots, mushrooms, logs,
+/// fences, gnomes and bird baths are built out of terrain rather than drawn over it, so they are
+/// cover you can hide behind and blow apart on the same terms as everything else, and the ground a
+/// match is played on is different from the first tick again. Same class of movement as before: the
+/// field changed, no rule about what a mole or a shell does was touched.
 /// </remarks>
 [TestFixture]
 public sealed class CorpusTests
@@ -143,19 +149,19 @@ public sealed class CorpusTests
     [Test]
     public void TwoPlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 2, seed: 1UL, rounds: 12), Is.EqualTo(0xF84B98EE055E5BEEUL));
+        Assert.That(Play(playerCount: 2, seed: 1UL, rounds: 12), Is.EqualTo(0x7B95F13257C2BAC6UL));
     }
 
     [Test]
     public void ThreePlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 3, seed: 20260826UL, rounds: 14), Is.EqualTo(0x38B0CF81163F79C8UL));
+        Assert.That(Play(playerCount: 3, seed: 20260826UL, rounds: 14), Is.EqualTo(0x219586457AA717E5UL));
     }
 
     [Test]
     public void FourPlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 4, seed: 4242UL, rounds: 16), Is.EqualTo(0x0507C551EC9B527AUL));
+        Assert.That(Play(playerCount: 4, seed: 4242UL, rounds: 16), Is.EqualTo(0xB10639761A13556EUL));
     }
 
     [Test]
@@ -163,7 +169,7 @@ public sealed class CorpusTests
     {
         // Past Boiling Point, so the rise, the closing sides and the three-strike rule are
         // all in the hash rather than only the early game.
-        Assert.That(Play(playerCount: 4, seed: 777UL, rounds: 26), Is.EqualTo(0xA16F7AECC252C2A4UL));
+        Assert.That(Play(playerCount: 4, seed: 777UL, rounds: 26), Is.EqualTo(0xBF5C9B967FE7C9BCUL));
     }
 
     [Test]
@@ -171,7 +177,7 @@ public sealed class CorpusTests
     {
         Assert.That(
             Play(playerCount: 2, seed: 31337UL, rounds: 24, widthCells: 600, heightCells: 320),
-            Is.EqualTo(0x6C73D356AFE37DB1UL));
+            Is.EqualTo(0x97713E56BC9888BAUL));
     }
 
     [Test]

@@ -23,6 +23,20 @@ public sealed class MapMakerTests
     private static TerrainGrid Field(ulong seed = 20260827UL) =>
         MapMaker.Field(Width, Height, seed);
 
+    /// <summary>The original ground line in a column, whatever has since been built on it.</summary>
+    private static int TurfCell(TerrainGrid grid, int cellX)
+    {
+        for (int cellY = 0; cellY < grid.Height; cellY++)
+        {
+            if (grid[cellX, cellY] == Material.Turf)
+            {
+                return cellY;
+            }
+        }
+
+        return grid.Height;
+    }
+
     /// <summary>The first solid cell in a column, which is what a spawn stands on.</summary>
     private static int SurfaceCell(TerrainGrid grid, int cellX)
     {
@@ -87,6 +101,65 @@ public sealed class MapMakerTests
         });
     }
 
+    /// <summary>
+    /// Solid cells above the turf line, which is exactly the garden clutter and nothing else.
+    /// </summary>
+    /// <remarks>
+    /// Turf is only laid by the surface pass, so the first turf cell in a column is the original
+    /// ground however much gets built on top of it or blown out from under it. Anything solid above
+    /// that line is something standing on the surface.
+    /// </remarks>
+    private static int StandingOnTheSurface(TerrainGrid grid)
+    {
+        int standing = 0;
+
+        for (int cellX = 0; cellX < grid.Width; cellX++)
+        {
+            for (int cellY = 0; cellY < grid.Height; cellY++)
+            {
+                if (grid[cellX, cellY] == Material.Turf)
+                {
+                    break;
+                }
+
+                if (MaterialTable.IsSolid(grid[cellX, cellY]))
+                {
+                    standing++;
+                }
+            }
+        }
+
+        return standing;
+    }
+
+    [Test]
+    public void ThereAreThingsStandingAboutInTheGarden()
+    {
+        // A dozen or so pots, mushrooms, logs, fences, gnomes and bird baths, each a couple of
+        // hundred cells. Sparse is fine; none at all means the placement search never succeeded,
+        // which is what happened twice while this was being written.
+        Assert.That(
+            StandingOnTheSurface(Field()), Is.GreaterThan(1000),
+            "the surface should have things standing on it");
+    }
+
+    [Test]
+    public void NothingStandsOnAStartingPosition()
+    {
+        TerrainGrid grid = Field();
+
+        foreach (Vec2 spawn in MapMaker.SpawnPoints(grid, 4, MatchSettings.MolesPerPlatoon))
+        {
+            int cellX = WorldScale.ToCell(spawn.X);
+
+            // The first solid cell in the column is what a mole stands on, and it should be the
+            // turf rather than the top of a mushroom.
+            Assert.That(
+                grid[cellX, SurfaceCell(grid, cellX)], Is.EqualTo(Material.Turf),
+                $"a mole starts on top of something at column {cellX}");
+        }
+    }
+
     [Test]
     public void CavesSitWhereAMoleCouldReachThem()
     {
@@ -111,6 +184,15 @@ public sealed class MapMakerTests
         Assert.That(shallow, Is.GreaterThan(Width * 4), "the caves are all out of reach");
     }
 
+    /// <summary>
+    /// Measured from the turf rather than from the first solid cell.
+    /// </summary>
+    /// <remarks>
+    /// Garden clutter stands on the surface, so the first solid cell in a column is sometimes the
+    /// top of a mushroom, and a mushroom has air under its cap by design. Turf is only laid by the
+    /// surface pass, so the first turf cell is the original ground whatever gets built on top of it,
+    /// and that is the line the caves must not come near.
+    /// </remarks>
     [Test]
     public void EveryCaveKeepsARoofOverIt()
     {
@@ -118,9 +200,9 @@ public sealed class MapMakerTests
 
         for (int cellX = 0; cellX < Width; cellX++)
         {
-            int surface = SurfaceCell(grid, cellX);
+            int surface = TurfCell(grid, cellX);
 
-            Assert.That(surface, Is.LessThan(Height), $"column {cellX} has no ground at all");
+            Assert.That(surface, Is.LessThan(Height), $"column {cellX} has no turf at all");
 
             // Ten solid cells below the surface everywhere. This is the guarantee that keeps the
             // spawn points where they were: break it and a mole starts down a hole instead.

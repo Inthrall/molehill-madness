@@ -56,9 +56,298 @@ namespace MoleSim.Match
 
             // Last, so the strata above do not fill them back in.
             Caves(grid, rng, surface, heightCells);
+            Clutter(grid, rng, surface);
 
             return grid;
         }
+
+        /// <summary>
+        /// Scatters garden things along the surface.
+        /// </summary>
+        /// <remarks>
+        /// The caves gave the underground plenty to do and left the surface a bare rolling line, so
+        /// this is the other half: pots, mushrooms, logs, fences, gnomes and bird baths standing
+        /// about in it. The design's first biome is a garden with lawns, flowerbeds and a sprinkler,
+        /// and its second is an allotment where root vegetables are "chunky soft cover", so cover
+        /// you can hide behind and blow apart is the point rather than decoration.
+        ///
+        /// They are built out of terrain rather than drawn on top of it, which is why there is no
+        /// rendering code here at all. The shader fills ground and outlines wherever it meets air, so
+        /// a pot made of cells arrives as an outlined pot for nothing, it is destructible on the same
+        /// terms as everything else, and it cannot end up floating over a crater somebody made
+        /// underneath it. Mostly loose soil, so it is cheap to dig through and cheap to remove.
+        /// </remarks>
+        private static void Clutter(TerrainGrid grid, MatchRng rng, int[] surface)
+        {
+            int wanted = ThingsPerThousandCells * grid.Width / 1000;
+            int attempts = wanted * AttemptsPerThing;
+            int placed = 0;
+
+            // Counted separately from the loop bound. They were the same variable to begin with, so
+            // the bound shrank every time something was placed and the search gave up early.
+            for (int attempt = 0; attempt < attempts && placed < wanted; attempt++)
+            {
+                int half = FootprintHalf;
+                int centre = half + rng.NextInt(grid.Width - (half * 2));
+
+                if (NearASpawn(grid.Width, centre))
+                {
+                    continue;
+                }
+
+                int highest = surface[centre];
+                int lowest = surface[centre];
+
+                for (int column = centre - half; column <= centre + half; column++)
+                {
+                    highest = surface[column] < highest ? surface[column] : highest;
+                    lowest = surface[column] > lowest ? surface[column] : lowest;
+                }
+
+                // Flat ground only. A pot halfway up a slope reads as a mistake, and the object is
+                // planted on the lowest point of its own footprint so nothing floats.
+                if (lowest - highest > SteepestGroundToStandOn)
+                {
+                    continue;
+                }
+
+                // Planted on the lowest point of its own footprint, so the high side of a slope
+                // buries a little of it rather than the low side leaving it hanging in the air.
+                Place(grid, rng, centre, lowest - 1);
+                placed++;
+            }
+        }
+
+        /// <summary>
+        /// Whether a column is close to where somebody might start.
+        /// </summary>
+        /// <remarks>
+        /// A spawn stands on the first solid cell in its column, so a mole would otherwise start the
+        /// match balanced on top of a mushroom, which is funny once and then is a mole falling off a
+        /// mushroom. The map is built before anybody says how many are playing, so this checks every
+        /// count the game allows rather than the one in use.
+        /// </remarks>
+        private static bool NearASpawn(int gridWidth, int column)
+        {
+            for (int players = 2; players <= 4; players++)
+            {
+                int total = players * MatchSettings.MolesPerPlatoon;
+
+                for (int slot = 0; slot < total; slot++)
+                {
+                    if (System.Math.Abs(SpawnColumn(gridWidth, slot, total) - column) < SpawnClearance)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>Builds one thing, standing on the given cell.</summary>
+        private static void Place(TerrainGrid grid, MatchRng rng, int centre, int standsOn)
+        {
+            switch (rng.NextInt(6))
+            {
+                case 0:
+                    Flowerpot(grid, rng, centre, standsOn);
+                    break;
+
+                case 1:
+                    Mushroom(grid, rng, centre, standsOn);
+                    break;
+
+                case 2:
+                    Log(grid, rng, centre, standsOn);
+                    break;
+
+                case 3:
+                    Fence(grid, rng, centre, standsOn);
+                    break;
+
+                case 4:
+                    Gnome(grid, rng, centre, standsOn);
+                    break;
+
+                default:
+                    BirdBath(grid, rng, centre, standsOn);
+                    break;
+            }
+        }
+
+        /// <summary>A pot, wider at the top, with a rim.</summary>
+        private static void Flowerpot(TerrainGrid grid, MatchRng rng, int centre, int standsOn)
+        {
+            int height = 20 + rng.NextInt(8);
+            int top = 10 + rng.NextInt(2);
+            int bottom = top - 4;
+
+            for (int row = 0; row < height; row++)
+            {
+                int half = bottom + ((top - bottom) * row / (height - 1));
+                Bar(grid, centre, standsOn - row, half, Material.LooseSoil);
+            }
+
+            Bar(grid, centre, standsOn - height, top + 2, Material.LooseSoil);
+            Bar(grid, centre, standsOn - height - 1, top + 2, Material.LooseSoil);
+        }
+
+        /// <summary>A stalk under a cap wider than it is, which is the overhang worth having.</summary>
+        private static void Mushroom(TerrainGrid grid, MatchRng rng, int centre, int standsOn)
+        {
+            int stalk = 14 + rng.NextInt(6);
+            int cap = 11 + rng.NextInt(2);
+
+            for (int row = 0; row < stalk; row++)
+            {
+                Bar(grid, centre, standsOn - row, 4, Material.LooseSoil);
+            }
+
+            grid.DepositCircle(centre, standsOn - stalk - (cap / 3), cap, Material.LooseSoil);
+            Bar(grid, centre, standsOn - stalk, cap, Material.LooseSoil);
+        }
+
+        /// <summary>A fallen log lying along the ground.</summary>
+        private static void Log(TerrainGrid grid, MatchRng rng, int centre, int standsOn)
+        {
+            int half = 11 + rng.NextInt(2);
+            int thick = 6 + rng.NextInt(3);
+
+            for (int row = 0; row < thick * 2; row++)
+            {
+                Bar(grid, centre, standsOn - row, half, Material.LooseSoil);
+            }
+
+            // Ends tucked inside the log's own width. Centred on the ends instead, they stuck out a
+            // whole radius further than anything had accounted for, which is how a log came to be
+            // lying across a starting position that was supposed to be clear.
+            grid.DepositCircle(centre - half + thick, standsOn - thick, thick, Material.LooseSoil);
+            grid.DepositCircle(centre + half - thick, standsOn - thick, thick, Material.LooseSoil);
+        }
+
+        /// <summary>Pickets and two rails. The one thing here with gaps to shoot through.</summary>
+        private static void Fence(TerrainGrid grid, MatchRng rng, int centre, int standsOn)
+        {
+            int posts = 3;
+            int gap = 9 + rng.NextInt(2);
+            int height = 22 + rng.NextInt(8);
+            int from = centre - (gap * (posts - 1) / 2);
+
+            for (int post = 0; post < posts; post++)
+            {
+                for (int row = 0; row < height; row++)
+                {
+                    Bar(grid, from + (post * gap), standsOn - row, 2, Material.LooseSoil);
+                }
+            }
+
+            for (int rail = 0; rail < 2; rail++)
+            {
+                int y = standsOn - (height / 3) - (rail * height / 3);
+
+                for (int row = 0; row < 3; row++)
+                {
+                    Bar(grid, centre, y - row, (gap * (posts - 1) / 2) + 2, Material.LooseSoil);
+                }
+            }
+        }
+
+        /// <summary>A gnome: a body and a pointed hat. The moles take him very seriously.</summary>
+        private static void Gnome(TerrainGrid grid, MatchRng rng, int centre, int standsOn)
+        {
+            int body = 16 + rng.NextInt(5);
+            int hat = 14 + rng.NextInt(5);
+
+            for (int row = 0; row < body; row++)
+            {
+                Bar(grid, centre, standsOn - row, 10 - (row * 3 / body), Material.LooseSoil);
+            }
+
+            for (int row = 0; row < hat; row++)
+            {
+                Bar(grid, centre, standsOn - body - row, 9 - (row * 9 / hat), Material.LooseSoil);
+            }
+        }
+
+        /// <summary>A pedestal under a wide shallow basin. Stone, so it is dearer to remove.</summary>
+        private static void BirdBath(TerrainGrid grid, MatchRng rng, int centre, int standsOn)
+        {
+            int stem = 16 + rng.NextInt(5);
+            int basin = 11 + rng.NextInt(2);
+
+            for (int row = 0; row < stem; row++)
+            {
+                Bar(grid, centre, standsOn - row, 5, Material.PackedSoil);
+            }
+
+            for (int row = 0; row < 4; row++)
+            {
+                Bar(grid, centre, standsOn - stem - row, basin - row, Material.PackedSoil);
+            }
+        }
+
+        /// <summary>
+        /// One row of cells, centred, which is what all of these are built out of.
+        /// </summary>
+        /// <remarks>
+        /// Fills air and leaves ground alone. A thing standing on the ground does not replace the
+        /// ground it stands on, and overwriting was doing real damage: a thing is planted on the
+        /// lowest point of its own footprint, so on any slope its lower rows sat at or under the
+        /// turf on the high side and painted the turf away. That left columns with no turf in them
+        /// at all, and the turf line is how anything else works out where the original ground was.
+        /// </remarks>
+        private static void Bar(TerrainGrid grid, int centre, int y, int half, Material material)
+        {
+            if (y < 0 || y >= grid.Height)
+            {
+                return;
+            }
+
+            for (int x = centre - half; x <= centre + half; x++)
+            {
+                if (x >= 0 && x < grid.Width && !MaterialTable.IsSolid(grid[x, y]))
+                {
+                    grid.Set(x, y, material);
+                }
+            }
+        }
+
+        /// <summary>Things per thousand cells of width, so a narrow map gets proportionally fewer.</summary>
+        private const int ThingsPerThousandCells = 24;
+
+        /// <summary>Tries per thing wanted, since most spots are too steep or too near a spawn.</summary>
+        private const int AttemptsPerThing = 40;
+
+        /// <summary>
+        /// Half the ground a thing is checked over, in cells, before it is put there. At least as
+        /// wide as the widest thing built below, which is the flowerpot counting its rim.
+        /// </summary>
+        private const int FootprintHalf = 14;
+
+        /// <summary>
+        /// Cells of surface height change a thing will stand on, across its whole footprint.
+        /// </summary>
+        /// <remarks>
+        /// This was four to begin with and nothing was ever placed. The surface comes from triangle
+        /// waves whose slopes reach half a cell per column, so it moves ten to twenty cells across a
+        /// footprint this wide and every candidate spot failed. Ten is loose enough to find spots and
+        /// tight enough that things are not left standing on a hillside at an angle they cannot have.
+        /// </remarks>
+        private const int SteepestGroundToStandOn = 10;
+
+        /// <summary>
+        /// Cells kept clear either side of anywhere somebody might start.
+        /// </summary>
+        /// <remarks>
+        /// Just wider than the widest thing here, which is all that is needed: the point is that
+        /// nothing covers a spawn column, not that nothing stands near one. It was twenty-two, and
+        /// with sixteen spawns fifty-five cells apart across three possible player counts, that
+        /// blocked nearly the whole span between the margins. Things were still placed, and a test
+        /// confirmed as much, but every one of them ended up huddled at the two edges of the map
+        /// where nobody was looking.
+        /// </remarks>
+        private const int SpawnClearance = 15;
 
         /// <summary>
         /// Hollows the underground out into caves.
@@ -256,20 +545,31 @@ namespace MoleSim.Match
             Vec2[] points = new Vec2[playerCount * molesPerPlatoon];
             int total = points.Length;
 
-            // Leave a margin at each edge, then space everybody evenly. Platoons interleave
-            // rather than clustering, which keeps anybody from being cornered at the start.
-            int margin = grid.Width / 12;
-            int span = grid.Width - (margin * 2);
-
             for (int slot = 0; slot < total; slot++)
             {
-                int cellX = margin + (span * slot / (total > 1 ? total - 1 : 1));
+                int cellX = SpawnColumn(grid.Width, slot, total);
                 points[slot] = new Vec2(
                     WorldScale.ToCentreMetres(cellX),
                     SurfaceHeight(grid, cellX) - MatchSettings.Radius - WorldScale.CellSize);
             }
 
             return points;
+        }
+
+        /// <summary>
+        /// Which column one spawn stands in.
+        /// </summary>
+        /// <remarks>
+        /// A margin at each edge, then everybody spaced evenly. Platoons interleave rather than
+        /// clustering, which keeps anybody from being cornered at the start. Shared with the surface
+        /// clutter, which needs to know where not to put a mushroom.
+        /// </remarks>
+        private static int SpawnColumn(int gridWidth, int slot, int total)
+        {
+            int margin = gridWidth / 12;
+            int span = gridWidth - (margin * 2);
+
+            return margin + (span * slot / (total > 1 ? total - 1 : 1));
         }
 
         /// <summary>World height of the first solid cell in a column.</summary>
