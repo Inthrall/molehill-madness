@@ -33,6 +33,7 @@ public partial class MenuScene : Control
     private Vector2 _play;
     private float _button;
     private bool _startAtOnce;
+    private bool _needsGate;
 
     public override void _Ready()
     {
@@ -58,6 +59,12 @@ public partial class MenuScene : Control
             _players = Mathf.Clamp(asked, MatchSetup.FewestPlayers, MatchSetup.MostPlayers);
         }
 
+        // The design asks at first run, before anything else happens. Deferred by a frame for the same
+        // reason the driver is: changing scene from inside _Ready tears down the tree being built.
+        // The driver walks past it, because a test run has nobody to answer and the answer it would
+        // need is not the thing under test.
+        _needsGate = Player.NeedsGate && !Flags.Driven();
+
         // A match this device is already in outranks starting a new one, and the player has to be
         // able to get back to it without remembering a code they were told once.
         _canResume = Online.Remembers();
@@ -71,6 +78,14 @@ public partial class MenuScene : Control
 
     public override void _Process(double delta)
     {
+        if (_needsGate)
+        {
+            _needsGate = false;
+            GetTree().CallDeferred(
+                SceneTree.MethodName.ChangeSceneToFile, "res://scenes/Gate.tscn");
+            return;
+        }
+
         if (_startAtOnce)
         {
             _startAtOnce = false;

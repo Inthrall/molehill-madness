@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Game/GateScene.cs" id="1_gate"]
+
+[node name="Gate" type="Control"]
+script = ExtResource("1_gate")
