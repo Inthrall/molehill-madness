@@ -29,6 +29,17 @@ window/handheld/orientation=4
 
 project/assembly_name="Molehill.Client"
 
+[importer_defaults]
+
+; Mipmaps on every texture, because every texture in this game is drawn smaller than it is
+; stored. A dirt tile is a thousand texels over six metres of map, so at the normal framing
+; every neighbouring fragment reads a texel four apart and the texture cache is useless; a
+; grass tuft shrunk from a hundred and sixty pixels to sixty without them aliases into
+; dashes. Set here rather than on each file so art added later cannot quietly miss it.
+texture={
+"mipmaps/generate": true
+}
+
 [rendering]
 
 ; Compatibility rather than Forward+, because the widest possible spread of

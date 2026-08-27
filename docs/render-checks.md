@@ -18,7 +18,7 @@ pwsh tools/scripts/import-art.ps1 -Source art
 godot --path client --headless --import
 ```
 
-Run the importer with `-Report` first if the source art itself is new. It prints the panorama's horizon fraction and how much of the watermark is left in each patched rectangle, and both of those are numbers the client has hard-coded against the art it was written for.
+Add `-Only 'mole *'` to work on one family of sheets without waiting for the rest. Run the importer with `-Report` first if the source art itself is new. It prints the panorama's horizon fraction and how much of the watermark is left in each patched rectangle, and both of those are numbers the client has hard-coded against the art it was written for.
 
 ## Render at 16:9, always
 
