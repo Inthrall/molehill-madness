@@ -862,8 +862,8 @@ public partial class WorldView : Control
     }
 
     /// <summary>
-    /// Two of the eight exits, roughed in. The reel is chosen in the simulation, so this only
-    /// plays what it was told and anything without an animation yet gets the default.
+    /// Plays whichever exit the simulation chose. All eight of them are drawn in
+    /// <see cref="ExitReel"/>; this only works out where and how far through.
     /// </summary>
     private void DrawExit(RoundRecording recording, int slot)
     {
@@ -887,39 +887,7 @@ public partial class WorldView : Control
         float radius = MoleRadius();
         Color colour = Palette.Seat(mole.Seat);
 
-        if (exit.Value == KnockoutExit.StretcherSquad)
-        {
-            // Carried off, waving weakly, by two worms and a very small stretcher.
-            Vector2 carried = at + new Vector2(life * radius * 3.5f, -life * radius * 0.5f);
-
-            DrawLine(
-                carried + new Vector2(-radius, radius * 0.6f),
-                carried + new Vector2(radius, radius * 0.6f), Palette.Ink, radius * 0.22f);
-            DrawCircle(carried, radius * 0.75f, colour);
-            DrawCircle(carried + new Vector2(-radius * 1.3f, radius * 0.75f), radius * 0.36f, Palette.Snout);
-            DrawCircle(carried + new Vector2(radius * 1.3f, radius * 0.75f), radius * 0.36f, Palette.Snout);
-            return;
-        }
-
-        // Spin and poof: spins faster, shrinks to nothing, and goes in a puff of dust that
-        // leaves its boots standing. Without the dust it just gets smaller, which reads as a
-        // rendering fault rather than as a joke.
-        if (life < 1f)
-        {
-            DrawArc(
-                at, radius * (0.6f + (life * 2.2f)), 0, Mathf.Tau, 28,
-                new Color(Palette.Dust, 1f - life), radius * 0.3f);
-        }
-
-        Vector2 boot = new Vector2(radius * 0.5f, radius * 0.55f);
-
-        DrawRect(new Rect2(at.X - boot.X - 1, at.Y + boot.Y, boot.X, boot.Y), Palette.Ink);
-        DrawRect(new Rect2(at.X + 1, at.Y + boot.Y, boot.X, boot.Y), Palette.Ink);
-
-        DrawCircle(
-            at + new Vector2(Mathf.Cos(life * 24f) * radius * 0.4f, -life * radius * 1.6f),
-            Mathf.Lerp(radius, 0f, life),
-            colour);
+        ExitReel.Play(this, exit.Value, at, radius, colour, life);
     }
 
     private float MoleRadius() => (float)MatchSettings.Radius.ToDecimal() * _scale;

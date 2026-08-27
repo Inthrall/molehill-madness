@@ -68,6 +68,9 @@ public sealed class Stage
     /// <summary>How long a damage number lives, at thirty ticks a second.</summary>
     public const int DamageNumberTicks = 45;
 
-    /// <summary>The pratfall's running time, in ticks.</summary>
-    public const int ExitTicks = 36;
+    /// <summary>
+    /// The pratfall's running time, in ticks. A second and a half, which is what the longer gags
+    /// need: a helmet has to spin for an unreasonable length of time before it clangs flat.
+    /// </summary>
+    public const int ExitTicks = 45;
 }
