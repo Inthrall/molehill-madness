@@ -39,13 +39,12 @@ public sealed class AutoPilot
     /// </remarks>
     public sealed class Intent
     {
-        public Intent(List<Vec2> route, Vec2 aimAt, bool plantCharge, bool hop, bool brace)
+        public Intent(List<Vec2> route, Vec2 aimAt, bool plantCharge, bool hop)
         {
             Route = route;
             AimAt = aimAt;
             PlantCharge = plantCharge;
             Hop = hop;
-            Brace = brace;
         }
 
         public List<Vec2> Route { get; }
@@ -57,9 +56,6 @@ public sealed class AutoPilot
 
         /// <summary>Whether to book a hop partway along the route.</summary>
         public bool Hop { get; }
-
-        /// <summary>Whether to end the turn dug in.</summary>
-        public bool Brace { get; }
     }
 
     /// <summary>
@@ -86,16 +82,15 @@ public sealed class AutoPilot
         Mole? quarry = Nearest(actor);
         List<Vec2> route = new List<Vec2>();
 
-        // Hops and braces on a rota rather than at random, so every one of them turns up in a
-        // recorded capture within three rounds and none of them goes unexercised.
+        // Hops on a rota rather than at random, so they turn up in a recorded capture within
+        // three rounds rather than never.
         bool hop = _match.Round % 3 == 1;
-        bool brace = _match.Round % 3 == 2;
 
         if (quarry is null)
         {
             return new Intent(
                 route, actor.Position + new Vec2(Fix64.One, -Fix64.One),
-                plantCharge: false, hop, brace);
+                plantCharge: false, hop);
         }
 
         bool rightward = quarry.Position.X > actor.Position.X;
@@ -126,7 +121,7 @@ public sealed class AutoPilot
         bool plant = Vec2.Distance(quarry.Position, from) < Fix64.FromInt(6);
 
         return new Intent(
-            route, new Vec2(from.X + (sign * reach), from.Y - reach), plant, hop, brace);
+            route, new Vec2(from.X + (sign * reach), from.Y - reach), plant, hop);
     }
 
     /// <summary>Must match the drag distance the planning screen treats as full power.</summary>

@@ -48,8 +48,11 @@ namespace MoleSim.Match
         /// <summary>Everything scheduled along it, in tick order.</summary>
         public PlanAction[] Actions { get; }
 
-        /// <summary>A plan that does nothing, which is what bracing in place amounts to.</summary>
-        public static Plan Brace(int seat, int moleIndex) =>
+        /// <summary>
+        /// A plan that does nothing, which the design calls bracing in place and is the safe
+        /// default for a dropped connection or a distracted friend.
+        /// </summary>
+        public static Plan Idle(int seat, int moleIndex) =>
             new Plan(seat, moleIndex, WeaponId.None, Array.Empty<RoutePoint>(), Array.Empty<PlanAction>());
 
         /// <summary>Converts the route to world positions for the solver.</summary>
@@ -105,10 +108,14 @@ namespace MoleSim.Match
         /// <summary>Jump a gap or a lip.</summary>
         Hop = 0,
 
-        /// <summary>Dig in and take less from the next blast.</summary>
-        Brace = 1,
+        // 1 was Brace: dig in where you stand for a third off the next blast. Removed, because
+        // holding still is what a player who plans nothing already does, so the action's only
+        // content was the damage bonus, and a bonus for staying put pulls against a design that
+        // fights bunkering with the stalemate nudge. Planning nothing still braces in place; there
+        // is simply nothing to press for it. The number is left vacant rather than reused so the
+        // wire encoding of everything else is untouched.
 
-        /// <summary>The turn's single shot, stamped at the pen's tip.</summary>
+        /// <summary>The turn's single shot, stamped where the mole has been steered to.</summary>
         Fire = 2,
 
         /// <summary>Plant the Boom Beets, which does not spend the turn's shot.</summary>
@@ -158,9 +165,6 @@ namespace MoleSim.Match
 
         public static PlanAction Hop(int tick) =>
             new PlanAction(tick, PlanActionKind.Hop, 0, 0, 0);
-
-        public static PlanAction Brace(int tick) =>
-            new PlanAction(tick, PlanActionKind.Brace, 0, 0, 0);
 
         public static PlanAction Dynamite(int tick) =>
             new PlanAction(tick, PlanActionKind.Dynamite, 0, 0, 0);

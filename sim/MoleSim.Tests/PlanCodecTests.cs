@@ -20,7 +20,7 @@ public sealed class PlanCodecTests
             PlanAction.Hop(18),
             PlanAction.Fire(96, new Vec2(Fix64.FromInt(3), -Fix64.FromInt(2)), 200),
             PlanAction.Dynamite(150),
-            PlanAction.Brace(200),
+            PlanAction.Hop(200),
         };
 
         return new Plan(seat: 2, moleIndex: 3, WeaponId.BeetleLauncher, route, actions);
@@ -85,9 +85,9 @@ public sealed class PlanCodecTests
     }
 
     [Test]
-    public void ABracePlanIsAlmostNothing()
+    public void AnIdlePlanIsAlmostNothing()
     {
-        byte[] wire = PlanCodec.Write(Plan.Brace(seat: 0, moleIndex: 1));
+        byte[] wire = PlanCodec.Write(Plan.Idle(seat: 0, moleIndex: 1));
 
         Assert.That(wire.Length, Is.LessThan(16));
         Assert.That(PlanCodec.Read(wire).Route, Is.Empty);

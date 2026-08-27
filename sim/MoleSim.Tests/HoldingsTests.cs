@@ -98,7 +98,7 @@ public sealed class HoldingsTests
         int before = match.Stock(0, WeaponId.BeetleLauncher);
 
         match.SubmitPlan(Wield(0, 0, WeaponId.BeetleLauncher));
-        match.SubmitPlan(Plan.Brace(1, 0));
+        match.SubmitPlan(Plan.Idle(1, 0));
         match.ResolveRound();
 
         Assert.That(match.Stock(0, WeaponId.BeetleLauncher), Is.EqualTo(before - 1));
@@ -112,7 +112,7 @@ public sealed class HoldingsTests
         for (int round = 0; round < MatchSettings.MolesPerPlatoon; round++)
         {
             match.SubmitPlan(Wield(0, round, WeaponId.ClodLobber));
-            match.SubmitPlan(Plan.Brace(1, round));
+            match.SubmitPlan(Plan.Idle(1, round));
             match.ResolveRound();
         }
 
@@ -137,7 +137,7 @@ public sealed class HoldingsTests
         for (int round = 0; round < stock; round++)
         {
             match.SubmitPlan(Wield(0, round, WeaponId.BeetleLauncher));
-            match.SubmitPlan(Plan.Brace(1, round));
+            match.SubmitPlan(Plan.Idle(1, round));
             match.ResolveRound();
         }
 
@@ -157,7 +157,7 @@ public sealed class HoldingsTests
         match.SubmitPlan(new Plan(
             0, 0, WeaponId.ClodLobber, Array.Empty<RoutePoint>(),
             new[] { PlanAction.Dynamite(4) }));
-        match.SubmitPlan(Plan.Brace(1, 0));
+        match.SubmitPlan(Plan.Idle(1, 0));
         match.ResolveRound();
 
         Assert.That(match.Stock(0, WeaponId.BoomBeets), Is.EqualTo(before - 1));

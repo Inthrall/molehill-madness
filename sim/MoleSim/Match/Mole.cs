@@ -79,12 +79,6 @@ namespace MoleSim.Match
         public bool IsSnared { get; set; }
 
         /// <summary>
-        /// Braced: dug in where it stands, and taking less from anything that goes off nearby.
-        /// Round-scoped, so it buys one round of cover and has to be chosen again.
-        /// </summary>
-        public bool IsBraced { get; set; }
-
-        /// <summary>
         /// Which way the mole is pointing. On the ground that is the way it last walked;
         /// in the air it is the way it is travelling, which is what makes a shot fired
         /// mid-tumble go somewhere its owner did not choose.
@@ -103,7 +97,6 @@ namespace MoleSim.Match
             StalledTicks = 0;
             DiggingIsCheap = false;
             IsSnared = false;
-            IsBraced = false;
         }
 
         /// <summary>

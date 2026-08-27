@@ -54,16 +54,6 @@ public sealed class SeatPlanner
     /// <summary>Hops scheduled along the way, in the order they will happen.</summary>
     public IReadOnlyList<PlanAction> Hops => _hops;
 
-    /// <summary>Whether the turn ends dug in.</summary>
-    /// <remarks>
-    /// A flag rather than a booked action, because bracing is the one thing in a plan that means
-    /// "when I have finished moving" rather than "now". Booking it at the moment the button went
-    /// down was a quiet trap: bracing early cancelled the mole's own input partway along, so the
-    /// walk the player was still steering was silently truncated at the press. The tick is worked
-    /// out in <see cref="Commit"/>, by which time where the walk ended is known.
-    /// </remarks>
-    public bool Bracing { get; private set; }
-
     /// <summary>How many of a weapon this platoon has, or -1 for unlimited.</summary>
     public int Stock(WeaponId weapon) => _match.Stock(Seat, weapon);
 
@@ -138,7 +128,6 @@ public sealed class SeatPlanner
         Walk = null;
         Shot = null;
         Charge = null;
-        Bracing = false;
         _hops.Clear();
         Aiming = false;
         Committed = false;
@@ -376,7 +365,7 @@ public sealed class SeatPlanner
         ChargeAt = PlannedPosition;
     }
 
-    // ---- Hopping and bracing -------------------------------------------------------
+    // ---- Hopping ---------------------------------------------------------------------
 
     /// <summary>
     /// Books a hop for the moment it is pressed.
@@ -415,15 +404,6 @@ public sealed class SeatPlanner
     /// <summary>Where a hop was booked, for the client to mark it.</summary>
     public Vec2 HopPosition(PlanAction hop) =>
         Walk?.PositionAt(hop.Tick) ?? Actor?.Position ?? Vec2.Zero;
-
-    /// <summary>Ends the turn dug in, or stops doing so. Costs nothing to change your mind.</summary>
-    public void ToggleBrace()
-    {
-        if (IsPlanning)
-        {
-            Bracing = !Bracing;
-        }
-    }
 
     /// <summary>Which tick of the round the mole has walked as far as.</summary>
     private int Now()
@@ -495,7 +475,6 @@ public sealed class SeatPlanner
     {
         Shot = null;
         Charge = null;
-        Bracing = false;
         _hops.Clear();
         Aiming = false;
         _tickDebt = 0;
@@ -540,13 +519,6 @@ public sealed class SeatPlanner
         if (Shot is not null)
         {
             actions.Add(Shot.Value);
-        }
-
-        // Bracing at the end of the walk, and last in the list, so on a tick it shares with the
-        // shot the mole fires and then digs in rather than stopping before it has thrown anything.
-        if (Bracing)
-        {
-            actions.Add(PlanAction.Brace(Now()));
         }
 
         _match.SubmitPlan(new Plan(Seat, Actor.Index, Weapon, route, actions.ToArray()));

@@ -105,7 +105,7 @@ public sealed class ArsenalTests
             }
 
             match.SubmitPlan(Wield(0, 0, WeaponId.ClodLobber, new Vec2(Fix64.One, -Fix64.One), 255, tick: 2));
-            match.SubmitPlan(Plan.Brace(1, 0));
+            match.SubmitPlan(Plan.Idle(1, 0));
             match.ResolveRound();
 
             return match.Terrain.Hash;
@@ -124,7 +124,7 @@ public sealed class ArsenalTests
         {
             MoleMatch match = NewMatch();
             match.SubmitPlan(Wield(0, 0, WeaponId.ClodLobber, new Vec2(Fix64.One, -Fix64.One), 255, tick: 2));
-            match.SubmitPlan(Plan.Brace(1, 0));
+            match.SubmitPlan(Plan.Idle(1, 0));
             match.ResolveRound();
             return match.Terrain.Hash;
         }
@@ -239,7 +239,7 @@ public sealed class ArsenalTests
     {
         MoleMatch match = NewMatch();
         match.SubmitPlan(Wield(0, 0, WeaponId.AcornMortar, new Vec2(Fix64.One, -Fix64.One), 160));
-        match.SubmitPlan(Plan.Brace(1, 0));
+        match.SubmitPlan(Plan.Idle(1, 0));
 
         RoundResult result = match.ResolveRound();
 
@@ -302,7 +302,7 @@ public sealed class ArsenalTests
         Assert.That(TerrainQuery.MaterialAt(match.Terrain, tunnel), Is.EqualTo(Material.Air), "precondition");
 
         match.SubmitPlan(Wield(0, 0, WeaponId.Fracking, Vec2.UnitY));
-        match.SubmitPlan(Plan.Brace(1, 0));
+        match.SubmitPlan(Plan.Idle(1, 0));
         match.ResolveRound();
 
         Assert.That(TerrainQuery.MaterialAt(match.Terrain, tunnel), Is.Not.EqualTo(Material.Air),
@@ -320,7 +320,7 @@ public sealed class ArsenalTests
             0, 0, WeaponId.PowerClaws,
             new[] { new RoutePoint(targetCell, SurfaceCell + 90) },
             new[] { PlanAction.Fire(1, Vec2.UnitY, 1) }));
-        match.SubmitPlan(Plan.Brace(1, 0));
+        match.SubmitPlan(Plan.Idle(1, 0));
         match.ResolveRound();
 
         Fix64 clawed = digger.Stamina;
@@ -332,7 +332,7 @@ public sealed class ArsenalTests
             0, 0, WeaponId.None,
             new[] { new RoutePoint(WorldScale.ToCell(plainDigger.Position.X) + 120, SurfaceCell + 90) },
             Array.Empty<PlanAction>()));
-        plain.SubmitPlan(Plan.Brace(1, 0));
+        plain.SubmitPlan(Plan.Idle(1, 0));
         plain.ResolveRound();
 
         Assert.That(clawed, Is.GreaterThan(plainDigger.Stamina),
@@ -346,7 +346,7 @@ public sealed class ArsenalTests
         ulong before = match.Terrain.Hash;
 
         match.SubmitPlan(Wield(0, 0, WeaponId.Sandbag, Vec2.UnitY, 1));
-        match.SubmitPlan(Plan.Brace(1, 0));
+        match.SubmitPlan(Plan.Idle(1, 0));
         match.ResolveRound();
 
         Assert.That(match.Terrain.Hash, Is.Not.EqualTo(before), "something should have been deposited");
@@ -361,7 +361,7 @@ public sealed class ArsenalTests
         ulong before = match.Terrain.Hash;
 
         match.SubmitPlan(Wield(0, 0, WeaponId.TunnelTorpedo, new Vec2(Fix64.One, Fix64.Ratio(1, 2)), 255, tick: 1));
-        match.SubmitPlan(Plan.Brace(1, 0));
+        match.SubmitPlan(Plan.Idle(1, 0));
         match.ResolveRound();
 
         Assert.Multiple(() =>
@@ -379,15 +379,15 @@ public sealed class ArsenalTests
         Mole victim = MoleOf(match, 1, 0);
 
         match.SubmitPlan(Wield(0, 0, WeaponId.SnapTrap, Vec2.UnitY, 1));
-        match.SubmitPlan(Plan.Brace(1, 0));
+        match.SubmitPlan(Plan.Idle(1, 0));
         match.ResolveRound();
 
         // Standing on it the same round it was placed is safe.
         victim.Position = placer.Position;
         Assert.That(victim.Pluck, Is.EqualTo(100), "it should not be armed yet");
 
-        match.SubmitPlan(Plan.Brace(0, 1));
-        match.SubmitPlan(Plan.Brace(1, 1));
+        match.SubmitPlan(Plan.Idle(0, 1));
+        match.SubmitPlan(Plan.Idle(1, 1));
         match.ResolveRound();
 
         Assert.That(victim.Pluck, Is.LessThan(100), "and should catch somebody the round after");
@@ -424,7 +424,7 @@ public sealed class ArsenalTests
         MoleMatch match = NewMatch();
 
         match.SubmitPlan(Wield(0, 0, WeaponId.SpecialDelivery, Vec2.UnitX, 128, tick: 1));
-        match.SubmitPlan(Plan.Brace(1, 0));
+        match.SubmitPlan(Plan.Idle(1, 0));
         RoundResult result = match.ResolveRound();
 
         Assert.That(result.Detonations, Is.EqualTo(3), "three sacks, three bangs");
@@ -457,7 +457,7 @@ public sealed class ArsenalTests
         match.Restock(0, WeaponId.GnomeMercy, 1);
 
         match.SubmitPlan(Wield(0, 0, WeaponId.GnomeMercy, Vec2.UnitX, 100, tick: 1));
-        match.SubmitPlan(Plan.Brace(1, 0));
+        match.SubmitPlan(Plan.Idle(1, 0));
         RoundResult result = match.ResolveRound();
 
         Assert.That(result.Detonations, Is.GreaterThan(1), "it shows no mercy whatsoever");
@@ -488,7 +488,7 @@ public sealed class ArsenalTests
         Mole capper = MoleOf(match, 0, 0);
 
         match.SubmitPlan(Wield(0, 0, WeaponId.GeyserCap, Vec2.UnitY, 1));
-        match.SubmitPlan(Plan.Brace(1, 0));
+        match.SubmitPlan(Plan.Idle(1, 0));
         match.ResolveRound();
 
         // The vent stays put, so anybody standing on it next round goes up.
@@ -502,13 +502,13 @@ public sealed class ArsenalTests
         MoleMatch match = NewMatch();
 
         match.SubmitPlan(Wield(0, 0, WeaponId.GeyserCap, Vec2.UnitY, 1));
-        match.SubmitPlan(Plan.Brace(1, 0));
+        match.SubmitPlan(Plan.Idle(1, 0));
         match.ResolveRound();
 
         int ventsAfterOne = match.Placements.Count(p => p.Weapon == WeaponId.GeyserCap);
 
-        match.SubmitPlan(Plan.Brace(0, 1));
-        match.SubmitPlan(Plan.Brace(1, 1));
+        match.SubmitPlan(Plan.Idle(0, 1));
+        match.SubmitPlan(Plan.Idle(1, 1));
         match.ResolveRound();
 
         Assert.That(match.Placements.Count(p => p.Weapon == WeaponId.GeyserCap),
@@ -521,79 +521,15 @@ public sealed class ArsenalTests
         MoleMatch match = NewMatch();
 
         match.SubmitPlan(Wield(0, 0, WeaponId.RootSnare, Vec2.UnitY, 1));
-        match.SubmitPlan(Plan.Brace(1, 0));
+        match.SubmitPlan(Plan.Idle(1, 0));
         match.ResolveRound();
 
-        match.SubmitPlan(Plan.Brace(0, 1));
-        match.SubmitPlan(Plan.Brace(1, 1));
+        match.SubmitPlan(Plan.Idle(0, 1));
+        match.SubmitPlan(Plan.Idle(1, 1));
         match.ResolveRound();
 
         Assert.That(match.Placements.Any(p => p.Weapon == WeaponId.RootSnare), Is.False,
             "a snare costs its victim one turn, not the match");
-    }
-
-    // ---- Bracing --------------------------------------------------------------------
-
-    [Test]
-    public void ABracedMoleTakesLessThanAnUnbracedOne()
-    {
-        // Bracing used to only stop a mole moving, which is also what planning nothing does,
-        // so it was a choice with no consequence and a button that would do nothing. Digging in
-        // is what the action has always claimed to be for.
-        Assert.That(DamageTakenWhileBracing(brace: true),
-            Is.LessThan(DamageTakenWhileBracing(brace: false)));
-    }
-
-    [Test]
-    public void BracingWearsOffAfterTheRound()
-    {
-        MoleMatch match = NewMatch();
-        Mole target = MoleOf(match, 1, 0);
-
-        match.SubmitPlan(new Plan(
-            1, 0, WeaponId.None, Array.Empty<RoutePoint>(), new[] { PlanAction.Brace(1) }));
-        match.SubmitPlan(Plan.Brace(0, 0));
-        match.ResolveRound();
-
-        Assume.That(target.IsBraced, Is.True, "it should be dug in by the end of its own round");
-
-        match.SubmitPlan(Plan.Brace(0, 1));
-        match.SubmitPlan(Plan.Brace(1, 1));
-        match.ResolveRound();
-
-        // One round of cover, and it has to be chosen again. Otherwise the first player to
-        // brace is permanently harder to shift, which is the opposite of what the design wants.
-        Assert.That(target.IsBraced, Is.False);
-    }
-
-    private static int DamageTakenWhileBracing(bool brace)
-    {
-        MoleMatch match = NewMatch();
-        Mole shooter = MoleOf(match, 0, 0);
-        Mole target = MoleOf(match, 1, 0);
-
-        target.Position = shooter.Position + new Vec2(Fix64.Ratio(1, 2), Fix64.Zero);
-
-        PlanAction[] actions = brace
-            ? new[] { PlanAction.Brace(0) }
-            : Array.Empty<PlanAction>();
-
-        match.SubmitPlan(new Plan(
-            1, 0, WeaponId.None, Array.Empty<RoutePoint>(), actions));
-        match.SubmitPlan(Wield(0, 0, WeaponId.ClodLobber, Vec2.UnitX, 255, tick: 4));
-
-        RoundResult result = match.ResolveRound();
-        int taken = 0;
-
-        foreach (BlastHit hit in result.Hits)
-        {
-            if (hit.Seat == 1 && hit.MoleIndex == 0)
-            {
-                taken += hit.Damage;
-            }
-        }
-
-        return taken;
     }
 
     // ---- The map has to survive long enough to be played on -------------------------

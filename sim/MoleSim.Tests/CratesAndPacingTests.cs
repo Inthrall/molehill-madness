@@ -30,13 +30,13 @@ public sealed class CratesAndPacingTests
     private static Mole MoleOf(MoleMatch match, int seat, int index) =>
         match.Moles.Single(mole => mole.Seat == seat && mole.Index == index);
 
-    private static RoundResult BraceRound(MoleMatch match, int moleIndex = 0)
+    private static RoundResult IdleRound(MoleMatch match, int moleIndex = 0)
     {
         for (int seat = 0; seat < match.PlayerCount; seat++)
         {
             if (match.Eligible(seat).Any(mole => mole.Index == moleIndex))
             {
-                match.SubmitPlan(Plan.Brace(seat, moleIndex));
+                match.SubmitPlan(Plan.Idle(seat, moleIndex));
             }
         }
 
@@ -61,7 +61,7 @@ public sealed class CratesAndPacingTests
     public void TheNextCratesAreAnnouncedInTheAftermath()
     {
         MoleMatch match = NewMatch(playerCount: 4);
-        RoundResult result = BraceRound(match);
+        RoundResult result = IdleRound(match);
 
         Assert.Multiple(() =>
         {
@@ -77,7 +77,7 @@ public sealed class CratesAndPacingTests
     {
         // The whole point of the spawn: nobody gets a crate in their own trench.
         MoleMatch match = NewMatch(playerCount: 4);
-        RoundResult result = BraceRound(match);
+        RoundResult result = IdleRound(match);
 
         Vec2 crate = result.NextCrates[0].Position;
 
@@ -105,7 +105,7 @@ public sealed class CratesAndPacingTests
     public void CratesLandTowardTheMiddleRatherThanTheEdges()
     {
         MoleMatch match = NewMatch(playerCount: 4);
-        RoundResult result = BraceRound(match);
+        RoundResult result = IdleRound(match);
 
         Fix64 mapWidth = WorldScale.ToMetres(WidthCells);
 
@@ -120,7 +120,7 @@ public sealed class CratesAndPacingTests
     public void TwoCratesInARoundAreNotOnTopOfEachOther()
     {
         MoleMatch match = NewMatch(playerCount: 4);
-        RoundResult result = BraceRound(match);
+        RoundResult result = IdleRound(match);
 
         Fix64 gap = Vec2.Distance(result.NextCrates[0].Position, result.NextCrates[1].Position);
 
@@ -131,7 +131,7 @@ public sealed class CratesAndPacingTests
     public void ACrateEmbedsItselfSoTheLastStretchHasToBeDug()
     {
         MoleMatch match = NewMatch();
-        RoundResult result = BraceRound(match);
+        RoundResult result = IdleRound(match);
 
         Vec2 crate = result.NextCrates[0].Position;
         int surfaceCell = 0;
@@ -153,14 +153,14 @@ public sealed class CratesAndPacingTests
     public void AMoleThatWalksOntoACrateGetsIt()
     {
         MoleMatch match = NewMatch();
-        RoundResult telegraphed = BraceRound(match);
+        RoundResult telegraphed = IdleRound(match);
         Vec2 where = telegraphed.NextCrates[0].Position;
 
         // Put a mole right on the spot and let the round run.
         Mole taker = MoleOf(match, 0, 1);
         taker.Position = where;
 
-        RoundResult result = BraceRound(match, moleIndex: 1);
+        RoundResult result = IdleRound(match, moleIndex: 1);
 
         Assert.Multiple(() =>
         {
@@ -174,13 +174,13 @@ public sealed class CratesAndPacingTests
     public void TwoMolesArrivingTogetherSplitTheCrate()
     {
         MoleMatch match = NewMatch();
-        RoundResult telegraphed = BraceRound(match);
+        RoundResult telegraphed = IdleRound(match);
         Vec2 where = telegraphed.NextCrates[0].Position;
 
         MoleOf(match, 0, 1).Position = where;
         MoleOf(match, 1, 1).Position = where;
 
-        RoundResult result = BraceRound(match, moleIndex: 1);
+        RoundResult result = IdleRound(match, moleIndex: 1);
 
         Assert.Multiple(() =>
         {
@@ -193,7 +193,7 @@ public sealed class CratesAndPacingTests
     public void ThreeMolesArrivingTogetherTearItApartAndNobodyGetsAnything()
     {
         MoleMatch match = NewMatch(playerCount: 3);
-        RoundResult telegraphed = BraceRound(match);
+        RoundResult telegraphed = IdleRound(match);
         Vec2 where = telegraphed.NextCrates[0].Position;
 
         for (int seat = 0; seat < 3; seat++)
@@ -201,7 +201,7 @@ public sealed class CratesAndPacingTests
             MoleOf(match, seat, 1).Position = where;
         }
 
-        RoundResult result = BraceRound(match, moleIndex: 1);
+        RoundResult result = IdleRound(match, moleIndex: 1);
 
         Assert.Multiple(() =>
         {
@@ -219,10 +219,10 @@ public sealed class CratesAndPacingTests
         taker.Pluck = 90;
 
         // Force the contents rather than fishing for a grub from the generator.
-        RoundResult telegraphed = BraceRound(match);
+        RoundResult telegraphed = IdleRound(match);
         taker.Position = telegraphed.NextCrates[0].Position;
 
-        BraceRound(match, moleIndex: 1);
+        IdleRound(match, moleIndex: 1);
 
         Assert.That(taker.Pluck, Is.LessThanOrEqualTo(MatchSettings.StartingPluck),
             "a grub must never overfill a mole");
@@ -232,10 +232,10 @@ public sealed class CratesAndPacingTests
     public void ACrateIsGoneOnceItHasBeenClaimed()
     {
         MoleMatch match = NewMatch();
-        RoundResult telegraphed = BraceRound(match);
+        RoundResult telegraphed = IdleRound(match);
         MoleOf(match, 0, 1).Position = telegraphed.NextCrates[0].Position;
 
-        BraceRound(match, moleIndex: 1);
+        IdleRound(match, moleIndex: 1);
 
         // A fresh telegraph replaces the list each round, so the claimed one is not
         // hanging about to be claimed twice.
@@ -248,7 +248,7 @@ public sealed class CratesAndPacingTests
         CrateKind First(ulong seed)
         {
             MoleMatch match = NewMatch(seed: seed);
-            BraceRound(match);
+            IdleRound(match);
             return match.Crates[0].Contents.Kind;
         }
 
@@ -264,9 +264,9 @@ public sealed class CratesAndPacingTests
 
         Assert.That(match.StaminaScale, Is.EqualTo(Fix64.One), "nothing to answer for yet");
 
-        RoundResult first = BraceRound(match, 0);
-        RoundResult second = BraceRound(match, 1);
-        RoundResult third = BraceRound(match, 2);
+        RoundResult first = IdleRound(match, 0);
+        RoundResult second = IdleRound(match, 1);
+        RoundResult third = IdleRound(match, 2);
 
         Assert.Multiple(() =>
         {
@@ -281,12 +281,12 @@ public sealed class CratesAndPacingTests
     public void TheNudgeActuallyShortensEverybodysLegs()
     {
         MoleMatch match = NewMatch();
-        BraceRound(match, 0);
-        BraceRound(match, 1);
-        BraceRound(match, 2);
+        IdleRound(match, 0);
+        IdleRound(match, 1);
+        IdleRound(match, 2);
 
         // Fourth round: everybody starts with nine tenths of a tank.
-        BraceRound(match, 3);
+        IdleRound(match, 3);
 
         Assert.That(
             MoleOf(match, 0, 3).Stamina.ToDecimal(),
@@ -298,8 +298,8 @@ public sealed class CratesAndPacingTests
     public void OneShotFiredAnywhereResetsThePatienceCounter()
     {
         MoleMatch match = NewMatch();
-        BraceRound(match, 0);
-        BraceRound(match, 1);
+        IdleRound(match, 0);
+        IdleRound(match, 1);
 
         // Somebody finally does something, which should clear the count.
         //
@@ -314,12 +314,12 @@ public sealed class CratesAndPacingTests
         match.SubmitPlan(new Plan(
             0, 2, WeaponId.BeetleLauncher, Array.Empty<RoutePoint>(),
             new[] { PlanAction.Fire(2, aim, 255) }));
-        match.SubmitPlan(Plan.Brace(1, 2));
+        match.SubmitPlan(Plan.Idle(1, 2));
         RoundResult noisy = match.ResolveRound();
 
         Assert.That(noisy.TotalDamage, Is.GreaterThan(0), "precondition: something happened");
 
-        RoundResult after = BraceRound(match, 3);
+        RoundResult after = IdleRound(match, 3);
 
         Assert.Multiple(() =>
         {
@@ -441,7 +441,7 @@ public sealed class CratesAndPacingTests
         match.SubmitPlan(new Plan(
             0, 0, WeaponId.BeetleLauncher, Array.Empty<RoutePoint>(),
             new[] { PlanAction.Fire(2, aim, 255) }));
-        match.SubmitPlan(Plan.Brace(1, 0));
+        match.SubmitPlan(Plan.Idle(1, 0));
 
         RoundResult result = match.ResolveRound();
 

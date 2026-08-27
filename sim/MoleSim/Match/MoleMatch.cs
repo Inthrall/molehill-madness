@@ -407,7 +407,6 @@ namespace MoleSim.Match
                     hash = Fold(hash, (ulong)mole.Stamina.Raw);
                     hash = Fold(hash, (ulong)mole.LavaStrikes);
                     hash = Fold(hash, mole.IsOffDuty ? 1UL : 0UL);
-                    hash = Fold(hash, mole.IsBraced ? 1UL : 0UL);
                 }
 
                 // What each platoon is holding decides which plans are legal, so two machines
@@ -469,14 +468,6 @@ namespace MoleSim.Match
                         actor.AddImpulse(-Vec2.UnitY * HopSpeed);
                     }
 
-                    break;
-
-                case PlanActionKind.Brace:
-                    // Stops where it stands and digs in, which halves what the next blast
-                    // takes out of it. Holding still is what a player who plans nothing also
-                    // does, so without the digging in this would be a button with no effect.
-                    actor.WaypointIndex = int.MaxValue;
-                    actor.IsBraced = true;
                     break;
 
                 case PlanActionKind.Fire:

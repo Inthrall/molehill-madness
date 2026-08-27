@@ -89,8 +89,8 @@ public sealed class MoleMatchTests
     public void ARoundResolvesAndAdvancesTheClock()
     {
         MoleMatch match = NewMatch();
-        match.SubmitPlan(Plan.Brace(0, 0));
-        match.SubmitPlan(Plan.Brace(1, 0));
+        match.SubmitPlan(Plan.Idle(0, 0));
+        match.SubmitPlan(Plan.Idle(1, 0));
 
         RoundResult result = match.ResolveRound();
 
@@ -107,12 +107,12 @@ public sealed class MoleMatchTests
     public void APlanForAMoleThatHasAlreadyActedIsRefused()
     {
         MoleMatch match = NewMatch();
-        match.SubmitPlan(Plan.Brace(0, 0));
-        match.SubmitPlan(Plan.Brace(1, 0));
+        match.SubmitPlan(Plan.Idle(0, 0));
+        match.SubmitPlan(Plan.Idle(1, 0));
         match.ResolveRound();
 
-        Assert.Throws<InvalidPlanException>(() => match.SubmitPlan(Plan.Brace(0, 0)));
-        Assert.DoesNotThrow(() => match.SubmitPlan(Plan.Brace(0, 1)));
+        Assert.Throws<InvalidPlanException>(() => match.SubmitPlan(Plan.Idle(0, 0)));
+        Assert.DoesNotThrow(() => match.SubmitPlan(Plan.Idle(0, 1)));
     }
 
     [Test]
@@ -122,13 +122,13 @@ public sealed class MoleMatchTests
 
         for (int index = 0; index < MatchSettings.MolesPerPlatoon; index++)
         {
-            match.SubmitPlan(Plan.Brace(0, index));
-            match.SubmitPlan(Plan.Brace(1, index));
+            match.SubmitPlan(Plan.Idle(0, index));
+            match.SubmitPlan(Plan.Idle(1, index));
             match.ResolveRound();
         }
 
         // Everybody has been, so mole zero comes round again.
-        Assert.DoesNotThrow(() => match.SubmitPlan(Plan.Brace(0, 0)));
+        Assert.DoesNotThrow(() => match.SubmitPlan(Plan.Idle(0, 0)));
     }
 
     [Test]
@@ -138,8 +138,8 @@ public sealed class MoleMatchTests
 
         Assert.Multiple(() =>
         {
-            Assert.Throws<InvalidPlanException>(() => match.SubmitPlan(Plan.Brace(0, 99)));
-            Assert.Throws<InvalidPlanException>(() => match.SubmitPlan(Plan.Brace(7, 0)));
+            Assert.Throws<InvalidPlanException>(() => match.SubmitPlan(Plan.Idle(0, 99)));
+            Assert.Throws<InvalidPlanException>(() => match.SubmitPlan(Plan.Idle(7, 0)));
         });
     }
 
@@ -184,7 +184,7 @@ public sealed class MoleMatchTests
         {
             PlanAction.Fire(2, aim, 255),
         }));
-        match.SubmitPlan(Plan.Brace(1, 0));
+        match.SubmitPlan(Plan.Idle(1, 0));
 
         RoundResult result = match.ResolveRound();
 
@@ -259,7 +259,7 @@ public sealed class MoleMatchTests
         {
             PlanAction.Dynamite(2),
         }));
-        match.SubmitPlan(Plan.Brace(1, 0));
+        match.SubmitPlan(Plan.Idle(1, 0));
 
         RoundResult result = match.ResolveRound();
 
@@ -277,8 +277,8 @@ public sealed class MoleMatchTests
 
         for (int round = 0; round < MatchSettings.BoilingPointRound - 1; round++)
         {
-            match.SubmitPlan(Plan.Brace(0, round % MatchSettings.MolesPerPlatoon));
-            match.SubmitPlan(Plan.Brace(1, round % MatchSettings.MolesPerPlatoon));
+            match.SubmitPlan(Plan.Idle(0, round % MatchSettings.MolesPerPlatoon));
+            match.SubmitPlan(Plan.Idle(1, round % MatchSettings.MolesPerPlatoon));
             match.ResolveRound();
         }
 
@@ -293,8 +293,8 @@ public sealed class MoleMatchTests
 
         for (int round = 0; round < 12; round++)
         {
-            match.SubmitPlan(Plan.Brace(0, round % MatchSettings.MolesPerPlatoon));
-            match.SubmitPlan(Plan.Brace(1, round % MatchSettings.MolesPerPlatoon));
+            match.SubmitPlan(Plan.Idle(0, round % MatchSettings.MolesPerPlatoon));
+            match.SubmitPlan(Plan.Idle(1, round % MatchSettings.MolesPerPlatoon));
             match.ResolveRound();
 
             if (match.Round < MatchSettings.BoilingPointRound)
@@ -340,7 +340,7 @@ public sealed class MoleMatchTests
             mole.TakeDamage(200);
         }
 
-        match.SubmitPlan(Plan.Brace(0, 0));
+        match.SubmitPlan(Plan.Idle(0, 0));
         RoundResult result = match.ResolveRound();
 
         Assert.Multiple(() =>
@@ -377,8 +377,8 @@ public sealed class MoleMatchTests
 
         for (int round = 0; round < 8; round++)
         {
-            match.SubmitPlan(Plan.Brace(0, round % MatchSettings.MolesPerPlatoon));
-            match.SubmitPlan(Plan.Brace(1, round % MatchSettings.MolesPerPlatoon));
+            match.SubmitPlan(Plan.Idle(0, round % MatchSettings.MolesPerPlatoon));
+            match.SubmitPlan(Plan.Idle(1, round % MatchSettings.MolesPerPlatoon));
             match.ResolveRound();
 
             Assert.That(Fix64.Abs(match.Wind), Is.LessThanOrEqualTo(MatchSettings.MaxWindSpeed));
@@ -467,13 +467,13 @@ public sealed class MoleMatchTests
     }
 
     [Test]
-    public void ASeatThatSubmitsNothingBracesInPlace()
+    public void ASeatThatSubmitsNothingHoldsItsGround()
     {
         MoleMatch match = NewMatch();
         Mole idle = MoleOf(match, 1, 0);
         Vec2 before = idle.Position;
 
-        match.SubmitPlan(Plan.Brace(0, 0));
+        match.SubmitPlan(Plan.Idle(0, 0));
         match.ResolveRound();
 
         Assert.Multiple(() =>
@@ -495,7 +495,7 @@ public sealed class MoleMatchTests
             0, 0, WeaponId.None,
             new[] { new RoutePoint(targetCell, SurfaceCell - 7) },
             System.Array.Empty<PlanAction>()));
-        match.SubmitPlan(Plan.Brace(1, 0));
+        match.SubmitPlan(Plan.Idle(1, 0));
 
         match.ResolveRound();
 
@@ -516,14 +516,14 @@ public sealed class MoleMatchTests
             0, 0, WeaponId.None,
             new[] { new RoutePoint(targetCell, SurfaceCell - 7) },
             System.Array.Empty<PlanAction>()));
-        match.SubmitPlan(Plan.Brace(1, 0));
+        match.SubmitPlan(Plan.Idle(1, 0));
         match.ResolveRound();
 
         Assert.That(walker.Stamina.ToDecimal(), Is.EqualTo(40m).Within(2m),
             "a full round of surface walking costs sixty of the hundred");
 
-        match.SubmitPlan(Plan.Brace(0, 1));
-        match.SubmitPlan(Plan.Brace(1, 1));
+        match.SubmitPlan(Plan.Idle(0, 1));
+        match.SubmitPlan(Plan.Idle(1, 1));
         match.ResolveRound();
 
         Assert.That(walker.Stamina, Is.EqualTo(Fix64.FromInt(MatchSettings.StartingStamina)),

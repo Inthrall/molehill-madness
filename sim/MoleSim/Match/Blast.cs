@@ -96,14 +96,6 @@ namespace MoleSim.Match
                 Fix64 closeness = Fix64.One - (distance / spec.BlastRadius);
                 int damage = Fix64.ToInt(Fix64.FromInt(spec.Damage) * closeness);
 
-                // A braced mole is dug in and takes a third less. Modest on purpose: the
-                // design already fights bunkering with the stalemate nudge, and a brace strong
-                // enough to be worth sitting behind would be pulling the other way.
-                if (mole.IsBraced)
-                {
-                    damage = damage * 2 / 3;
-                }
-
                 if (damage < 1)
                 {
                     damage = 1;

@@ -26,9 +26,6 @@ public enum TouchTarget
     /// <summary>Book a hop for this moment of the walk.</summary>
     Hop = 6,
 
-    /// <summary>Dig in where the walk ends.</summary>
-    Brace = 7,
-
     /// <summary>The movement stick, which walks the mole.</summary>
     Stick = 8,
 }
@@ -58,7 +55,6 @@ public partial class TouchControls : Control
     private Vector2 _reset;
     private Vector2 _commit;
     private Vector2 _hop;
-    private Vector2 _brace;
     private Vector2 _stickHome;
     private Rect2 _wheel;
     private float _button;
@@ -106,21 +102,20 @@ public partial class TouchControls : Control
         _stickHome = new Vector2(
             margin + _stickRadius, screen.Y - margin - _stickRadius);
 
-        // The three things that happen at a moment go in a small column up the left edge, above
-        // the stick and clear of its grab ring. They were a row across the middle of the screen
-        // to begin with, at full size, which put three dinner plates over the one part of the
-        // picture the player is trying to aim into. They are pressed once or twice a turn, so they
-        // can be small and they can be slightly out of the way.
+        // Hop and reset go in a small column up the left edge, above the stick and clear of its
+        // grab ring. They were a row across the middle of the screen to begin with, at full size,
+        // which put dinner plates over the one part of the picture the player is trying to aim
+        // into. They are pressed once or twice a turn, so they can be small and slightly out of
+        // the way.
         //
-        // Reset is furthest from the thumb on purpose. It is the one press nobody wants to make by
+        // Reset is the further of the two on purpose. It is the one press nobody wants to make by
         // accident, and it is a hold rather than a tap, so a little reach costs it nothing.
         float column = margin + _small;
         float lowest = _stickHome.Y - (_stickRadius * StickGrab) - (_small * 1.2f);
         float gap = _small * 2.3f;
 
         _hop = new Vector2(column, lowest);
-        _brace = new Vector2(column, lowest - gap);
-        _reset = new Vector2(column, lowest - (gap * 2f));
+        _reset = new Vector2(column, lowest - gap);
 
         // The wheel runs up the right edge above the buttons, clear of the topmost of them by
         // a margin, so a flick can never be mistaken for a press. Overlapping them was the
@@ -141,11 +136,6 @@ public partial class TouchControls : Control
         if (Within(at, _hop, _small))
         {
             return TouchTarget.Hop;
-        }
-
-        if (Within(at, _brace, _small))
-        {
-            return TouchTarget.Brace;
         }
 
         if (Within(at, _reset, _small))
@@ -226,7 +216,6 @@ public partial class TouchControls : Control
         DrawButton(_commit, TouchTarget.Commit, _button);
         DrawButton(_reset, TouchTarget.Reset, _small);
         DrawButton(_hop, TouchTarget.Hop, _small);
-        DrawButton(_brace, TouchTarget.Brace, _small);
         DrawAimStick();
     }
 
@@ -330,15 +319,14 @@ public partial class TouchControls : Control
     private void DrawButton(Vector2 at, TouchTarget target, float radius)
     {
         SeatPlanner planner = Planner!;
-        bool active = target == TouchTarget.Brace && planner.Bracing;
-        bool down = _pressed == target || active;
+        bool down = _pressed == target;
         float glyph = radius * (_glyph / _button);
 
         DrawCircle(at, radius, down ? new Color(Palette.OnPanel, 0.22f) : Palette.Panel);
         DrawArc(
             at, radius, 0, Mathf.Tau, 32,
-            active ? Palette.OnPanel : new Color(Palette.OnPanel, 0.3f),
-            active ? 3f : 2f);
+            down ? Palette.OnPanel : new Color(Palette.OnPanel, 0.3f),
+            down ? 3f : 2f);
 
         switch (target)
         {
@@ -367,12 +355,6 @@ public partial class TouchControls : Control
                         : Palette.OnPanelDim);
                 DrawCount(
                     at, radius, SeatPlanner.MaxHops - planner.Hops.Count, Palette.OnPanel);
-                break;
-
-            case TouchTarget.Brace:
-                Glyphs.Brace(
-                    this, at, glyph * 0.9f,
-                    active ? new Color(0.435f, 0.647f, 0.325f) : Palette.OnPanel);
                 break;
 
             case TouchTarget.Reset:

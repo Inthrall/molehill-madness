@@ -48,6 +48,13 @@ namespace MoleSim.Tests;
 /// back to the Clod Lobber once its Beetle Launchers are gone. Bracing now takes a third off
 /// what a blast does, where before it only stopped a mole walking, which is what planning
 /// nothing already did. Three deliberate rule changes in one commit, hence one pin move.
+///
+/// Updated a fifth time when bracing was removed again. It was a button whose only content was
+/// the damage bonus, since holding still is what a player who plans nothing already does, and a
+/// bonus for staying put pulls against a design that fights bunkering with the stalemate nudge.
+/// Planning nothing still braces in place; there is simply nothing to press for it. No behavioural
+/// test moved, which is the interesting part: every one of these five pins shifted purely because
+/// the braced flag came out of the state hash, and nothing else about any match changed.
 /// </remarks>
 [TestFixture]
 public sealed class CorpusTests
@@ -126,19 +133,19 @@ public sealed class CorpusTests
     [Test]
     public void TwoPlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 2, seed: 1UL, rounds: 12), Is.EqualTo(0x2EE6147DFB5111EBUL));
+        Assert.That(Play(playerCount: 2, seed: 1UL, rounds: 12), Is.EqualTo(0x41C7A60C89A49FD4UL));
     }
 
     [Test]
     public void ThreePlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 3, seed: 20260826UL, rounds: 14), Is.EqualTo(0x906633326C2DA966UL));
+        Assert.That(Play(playerCount: 3, seed: 20260826UL, rounds: 14), Is.EqualTo(0x82C51E45A0684DC5UL));
     }
 
     [Test]
     public void FourPlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 4, seed: 4242UL, rounds: 16), Is.EqualTo(0xBDECE6933D5B321EUL));
+        Assert.That(Play(playerCount: 4, seed: 4242UL, rounds: 16), Is.EqualTo(0xAB46AF8FFC2ADD05UL));
     }
 
     [Test]
@@ -146,7 +153,7 @@ public sealed class CorpusTests
     {
         // Past Boiling Point, so the rise, the closing sides and the three-strike rule are
         // all in the hash rather than only the early game.
-        Assert.That(Play(playerCount: 4, seed: 777UL, rounds: 26), Is.EqualTo(0x78E2458043DC17F6UL));
+        Assert.That(Play(playerCount: 4, seed: 777UL, rounds: 26), Is.EqualTo(0x18693C47D80B1221UL));
     }
 
     [Test]
@@ -154,7 +161,7 @@ public sealed class CorpusTests
     {
         Assert.That(
             Play(playerCount: 2, seed: 31337UL, rounds: 24, widthCells: 600, heightCells: 320),
-            Is.EqualTo(0xEEF99F89FEFBBDD0UL));
+            Is.EqualTo(0x50B9D4464F73FAE8UL));
     }
 
     [Test]

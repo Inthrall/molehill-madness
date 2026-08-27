@@ -1010,14 +1010,6 @@ public partial class WorldView : Control
             Glyphs.Hop(this, at, marker * 0.9f, seat);
         }
 
-        if (planner.Bracing)
-        {
-            Vector2 at = ToPixels(planner.PlannedPosition) + new Vector2(0, -radius * 2.4f);
-
-            DrawCircle(at, marker * 0.5f, new Color(Palette.Paper, 0.75f));
-            Glyphs.Brace(this, at, marker * 0.85f, seat);
-        }
-
         // The charge, where it was dropped rather than where the mole has since walked to.
         // Plant, run, regret, and knowing exactly where you left it is the whole difference
         // between the first two and the third.

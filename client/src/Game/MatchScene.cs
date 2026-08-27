@@ -109,7 +109,6 @@ public partial class MatchScene : Node2D
         _shoulderHeldDown = new bool[_players];
         _plantHeld = new bool[_players];
         _hopHeld = new bool[_players];
-        _braceHeld = new bool[_players];
         _driven = new bool[_players];
         _damageTaken = new int[_players];
         _outAtRound = new int[_players];
@@ -1116,11 +1115,6 @@ public partial class MatchScene : Node2D
 
                 break;
 
-            case TouchTarget.Brace:
-                planner!.ToggleBrace();
-                Click();
-                break;
-
             default:
                 break;
         }
@@ -1495,11 +1489,6 @@ public partial class MatchScene : Node2D
 
                 break;
 
-            case Key.B:
-                planner?.ToggleBrace();
-                Click();
-                break;
-
             case Key.C:
                 RecentreViews();
                 break;
@@ -1657,15 +1646,6 @@ public partial class MatchScene : Node2D
         }
 
         _hopHeld[seat] = hopping;
-
-        bool bracing = Input.IsJoyButtonPressed(pad, JoyButton.DpadDown);
-
-        if (bracing && !_braceHeld[seat])
-        {
-            planner.ToggleBrace();
-        }
-
-        _braceHeld[seat] = bracing;
         TurnWheel(seat, pad, planner);
     }
 
@@ -1698,7 +1678,6 @@ public partial class MatchScene : Node2D
     private bool[] _shoulderHeldDown = System.Array.Empty<bool>();
     private bool[] _plantHeld = System.Array.Empty<bool>();
     private bool[] _hopHeld = System.Array.Empty<bool>();
-    private bool[] _braceHeld = System.Array.Empty<bool>();
 
     /// <summary>How far a gamepad axis must move before it counts as pushed.</summary>
     private const float PadDeadZone = 0.2f;
@@ -1776,11 +1755,6 @@ public partial class MatchScene : Node2D
             if (intent.PlantCharge)
             {
                 planner.PlantCharge();
-            }
-
-            if (intent.Brace)
-            {
-                planner.ToggleBrace();
             }
 
             _driven[planner.Seat] = true;

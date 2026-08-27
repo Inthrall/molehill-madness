@@ -532,19 +532,6 @@ public static class Glyphs
             at + new Vector2(unit * 0.4f, -unit * 0.25f));
     }
 
-    /// <summary>A shield. Braced, and taking less from the next blast.</summary>
-    public static void Brace(CanvasItem into, Vector2 at, float size, Color ink)
-    {
-        float unit = size / 2f;
-
-        Polygon(into, ink,
-            at + new Vector2(-unit * 0.7f, -unit * 0.8f),
-            at + new Vector2(unit * 0.7f, -unit * 0.8f),
-            at + new Vector2(unit * 0.7f, unit * 0.1f),
-            at + new Vector2(0, unit * 0.9f),
-            at + new Vector2(-unit * 0.7f, unit * 0.1f));
-    }
-
     /// <summary>A tick. This plan is locked in.</summary>
     public static void Committed(CanvasItem into, Vector2 at, float size, Color ink)
     {
