@@ -229,7 +229,7 @@ public partial class MenuScene : Control
         switch (_where)
         {
             case MatchSetup.Table.Hosting:
-                Online.Host(_players, _pace);
+                Online.Host(_players, _pace, Flags.Window() ?? 0);
                 break;
 
             case MatchSetup.Table.Joining when Flags.Join() is string prefilled:

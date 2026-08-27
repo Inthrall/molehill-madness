@@ -113,6 +113,7 @@ public partial class MatchScene : Node2D
     private double _finishedFor;
 
     private Lobby? _lobby;
+    private WaitingSign? _waiting;
     private bool _saidCode;
 
     /// <summary>Which platoon is this device's, or -1 on the couch where they all are.</summary>
@@ -193,6 +194,12 @@ public partial class MatchScene : Node2D
 
         _scoreboard = new Scoreboard();
         overlay.AddChild(_scoreboard);
+
+        if (Online.Playing)
+        {
+            _waiting = new WaitingSign();
+            overlay.AddChild(_waiting);
+        }
 
         if (!Flags.Asked("--mute"))
         {
@@ -731,6 +738,8 @@ public partial class MatchScene : Node2D
 
         _terrain.Refresh();
         Relayout(delta);
+
+        _waiting?.Watch(Online.Match, _beat == Beat.Waiting);
 
         // The scoreboard is the whole screen once the match is over. Leaving the clock, the wind
         // and the running tally showing through it is three dead instruments behind a result.

@@ -57,13 +57,18 @@ namespace Molehill.Online
         // ---- Lobbies ----------------------------------------------------------------
 
         public Task<Reply<Seating>> Host(
-            int playerCount, MatchPace pace, CancellationToken cancel = default) =>
+            int playerCount,
+            MatchPace pace,
+            int windowSeconds = 0,
+            CancellationToken cancel = default) =>
             Call(
                 () =>
                 {
                     HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, "/lobbies")
                     {
-                        Content = Body($"{{\"playerCount\":{playerCount},\"pace\":\"{pace}\"}}"),
+                        Content = Body(
+                            $"{{\"playerCount\":{playerCount},\"pace\":\"{pace}\","
+                            + $"\"windowSeconds\":{windowSeconds.ToString(CultureInfo.InvariantCulture)}}}"),
                     };
 
                     return request;
@@ -140,6 +145,40 @@ namespace Molehill.Online
                     HttpMethod.Get, $"/matches/{Tidy(code)}/rounds/{round}"),
                 element => ReadRound(element, round),
                 cancel);
+
+        /// <summary>
+        /// Tells the relay where to reach this player when a round comes round to them.
+        /// </summary>
+        /// <remarks>
+        /// Anytime pace does not work without this. A round window is a day long, so a client that
+        /// only learns whose turn it is by polling would have to poll all day and drain a battery to
+        /// do it, and the design allows at most one notification a day per match precisely because
+        /// that one is meant to be enough.
+        ///
+        /// Obtaining the token is the platform's job and the part that is not done: it needs Firebase
+        /// Cloud Messaging on the device, which on Android means a Godot plugin this project does not
+        /// have yet. The relay side is finished and this call is what will feed it.
+        /// </remarks>
+        public Task<Reply<bool>> RegisterDevice(
+            string code,
+            string token,
+            string deviceToken,
+            string platform,
+            CancellationToken cancel = default) =>
+            Call(
+                () =>
+                {
+                    HttpRequestMessage request = Signed(
+                        HttpMethod.Put, $"/matches/{Tidy(code)}/device", token);
+
+                    request.Content = Body(
+                        $"{{\"token\":{Quoted(deviceToken)},\"platform\":{Quoted(platform)}}}");
+
+                    return request;
+                },
+                _ => true,
+                cancel,
+                emptyBodyMeansSuccess: true);
 
         /// <summary>
         /// Reports what this client thought the world looked like at the end of a round.
@@ -272,15 +311,19 @@ namespace Molehill.Online
                     element.GetProperty("seed").GetString() ?? "0", CultureInfo.InvariantCulture),
                 element.GetProperty("seated").GetInt32(),
                 element.GetProperty("started").GetBoolean(),
-                element.GetProperty("round").GetInt32());
+                element.GetProperty("round").GetInt32(),
+                element.TryGetProperty("windowSeconds", out JsonElement window) ? window.GetInt32() : 0,
+                Deadline(element));
 
         private static RoundRelease ReadRound(JsonElement element, int round)
         {
             bool complete = element.GetProperty("complete").GetBoolean();
+            DateTimeOffset? deadline = Deadline(element);
 
             if (!complete)
             {
-                return RoundRelease.Waiting(round, element.GetProperty("waitingOn").GetInt32());
+                return RoundRelease.Waiting(
+                    round, element.GetProperty("waitingOn").GetInt32(), deadline);
             }
 
             List<byte[]> plans = new List<byte[]>();
@@ -291,8 +334,29 @@ namespace Molehill.Online
                     plan.GetProperty("payload").GetString() ?? string.Empty));
             }
 
-            return new RoundRelease(round, complete: true, waitingOn: 0, plans);
+            List<int> forfeited = new List<int>();
+
+            if (element.TryGetProperty("forfeited", out JsonElement gaveUp)
+                && gaveUp.ValueKind == JsonValueKind.Array)
+            {
+                foreach (JsonElement seat in gaveUp.EnumerateArray())
+                {
+                    forfeited.Add(seat.GetInt32());
+                }
+            }
+
+            return new RoundRelease(round, complete: true, waitingOn: 0, plans, forfeited, deadline);
         }
+
+        /// <summary>
+        /// The deadline, if there is one. Live pace has none and sends null.
+        /// </summary>
+        private static DateTimeOffset? Deadline(JsonElement element) =>
+            element.TryGetProperty("deadline", out JsonElement due)
+                && due.ValueKind != JsonValueKind.Null
+                && due.TryGetDateTimeOffset(out DateTimeOffset when)
+                    ? when
+                    : null;
 
         private static MatchPace Pace(string? name) =>
             string.Equals(name, "Anytime", StringComparison.OrdinalIgnoreCase)
@@ -309,6 +373,16 @@ namespace Molehill.Online
 
         private static StringContent Body(string json) =>
             new StringContent(json, Encoding.UTF8, "application/json");
+
+        /// <summary>
+        /// A string safely inside JSON.
+        /// </summary>
+        /// <remarks>
+        /// The other bodies here are numbers and enum names, which cannot contain anything that needs
+        /// escaping. A push token comes from a platform and is not this code's to make assumptions
+        /// about, so it goes through the serializer rather than into a string.
+        /// </remarks>
+        private static string Quoted(string value) => JsonSerializer.Serialize(value);
 
         /// <summary>
         /// Strips a code down to the letters before it goes in a URL.

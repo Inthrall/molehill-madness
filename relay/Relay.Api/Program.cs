@@ -16,25 +16,40 @@ builder.Services.AddSingleton(_ =>
         ? new MatchStore($"Data Source={path}")
         : MatchStore.InMemory());
 
+// The clock, from the container rather than read straight off the wall. Every deadline in the game
+// hangs off it, and a test that had to wait a real minute to see a forfeit would not get written.
+builder.Services.AddSingleton(TimeProvider.System);
+
+// The forfeit sweep. One player who loses interest must not be able to end a match for three other
+// people by never opening the game again, and the client that would notice is the one that is waiting.
+builder.Services.AddHostedService<ForfeitSweeper>();
+
+// Notifications are decided when a round resolves and drained separately. There is no Firebase
+// project to point a real sender at yet, so this one writes them down: the question during
+// development is whether the right people are told at the right times, and a log answers it.
+builder.Services.AddSingleton<INudgeSender, LoggingNudgeSender>();
+builder.Services.AddHostedService<NudgeDrain>();
+
 WebApplication app = builder.Build();
 
 app.MapGet("/health", () => Results.Ok(new { ok = true }));
 
 // ---- Lobbies --------------------------------------------------------------------------
 
-app.MapPost("/lobbies", (OpenLobby request, MatchStore store) =>
+app.MapPost("/lobbies", (OpenLobby request, MatchStore store, TimeProvider clock) =>
 {
     if (request.PlayerCount is < 2 or > 4)
     {
         return Results.BadRequest(new { error = "A match is two to four players." });
     }
 
-    (Match match, Seat host) = store.Open(request.PlayerCount, request.Pace, DateTimeOffset.UtcNow);
+    (Match match, Seat host) = store.Open(
+        request.PlayerCount, request.Pace, clock.GetUtcNow(), request.WindowSeconds);
 
     return Results.Created($"/lobbies/{match.Code}", Joined.From(match, host, seatsTaken: 1));
 });
 
-app.MapPost("/lobbies/{code}/seats", (string code, MatchStore store) =>
+app.MapPost("/lobbies/{code}/seats", (string code, MatchStore store, TimeProvider clock) =>
 {
     // The code arrives from a human ear and a human thumb, so it is tidied before it is trusted.
     if (GameCode.Parse(code) is not string tidy)
@@ -42,7 +57,7 @@ app.MapPost("/lobbies/{code}/seats", (string code, MatchStore store) =>
         return Results.NotFound(new { error = "No such game code." });
     }
 
-    (Seat? seat, JoinRefusal refusal) = store.Join(tidy, DateTimeOffset.UtcNow);
+    (Seat? seat, JoinRefusal refusal) = store.Join(tidy, clock.GetUtcNow());
 
     if (refusal == JoinRefusal.NoSuchMatch)
     {
@@ -74,6 +89,8 @@ app.MapGet("/lobbies/{code}", (string code, MatchStore store) =>
         seated = store.SeatsTaken(tidy),
         started = match.Started,
         round = match.Round,
+        windowSeconds = match.WindowSeconds,
+        deadline = match.Deadline,
     });
 });
 
@@ -105,7 +122,7 @@ app.MapGet("/matches/{code}/seat", (string code, HttpRequest http, MatchStore st
 // one and never simulates. Every client's own simulation decides whether a plan was legal, which is
 // what keeps a second implementation of the rules from existing in here.
 app.MapPost("/matches/{code}/rounds/{round:int}/plan", async (
-    string code, int round, HttpRequest http, MatchStore store) =>
+    string code, int round, HttpRequest http, MatchStore store, TimeProvider clock) =>
 {
     if (GameCode.Parse(code) is not string tidy || store.Find(tidy) is not Match match)
     {
@@ -137,7 +154,7 @@ app.MapPost("/matches/{code}/rounds/{round:int}/plan", async (
         return Results.BadRequest(new { error = "That plan is too large to be one." });
     }
 
-    if (!store.Submit(tidy, round, seat, payload, DateTimeOffset.UtcNow))
+    if (!store.Submit(tidy, round, seat, payload, clock.GetUtcNow()))
     {
         // Simultaneous turns are the whole game, so a second plan for the same round is refused
         // rather than replacing the first.
@@ -151,29 +168,52 @@ app.MapPost("/matches/{code}/rounds/{round:int}/plan", async (
     });
 });
 
-app.MapGet("/matches/{code}/rounds/{round:int}", (string code, int round, MatchStore store) =>
+app.MapGet("/matches/{code}/rounds/{round:int}", (
+    string code, int round, MatchStore store, TimeProvider clock) =>
 {
     if (GameCode.Parse(code) is not string tidy || store.Find(tidy) is not Match match)
     {
         return Results.NotFound(new { error = "No such game code." });
     }
 
-    IReadOnlyList<Submission> submissions = store.Submissions(tidy, round);
+    DateTimeOffset now = clock.GetUtcNow();
 
-    // Nothing is handed back until every seat is in. Releasing plans early would let the last
-    // player to commit see what everybody else did first, which is the one thing simultaneous
-    // turns exist to prevent.
-    if (submissions.Count < match.PlayerCount)
+    // Swept here as well as on the timer, so a reader arriving the moment a window closes gets the
+    // resolved round rather than being told to wait up to another half a minute for the sweeper.
+    // The forfeit insert is idempotent, so doing it in both places is free.
+    if (round == match.Round)
+    {
+        Forfeits.Sweep(store, tidy, now);
+    }
+
+    IReadOnlyList<Submission> submissions = store.Submissions(tidy, round);
+    IReadOnlyList<int> forfeited = store.Forfeited(tidy, round);
+
+    // Nothing is handed back until every seat has answered. Releasing plans early would let the
+    // last player to commit see what everybody else did first, which is the one thing simultaneous
+    // turns exist to prevent. Forfeiting counts as answering: otherwise one player losing interest
+    // would end the match for the other three by never opening the game again.
+    if (!Forfeits.Settled(match.PlayerCount, submissions.Count, forfeited.Count))
     {
         return Results.Ok(new
         {
             round,
             complete = false,
-            waitingOn = match.PlayerCount - submissions.Count,
+            waitingOn = match.PlayerCount - submissions.Count - forfeited.Count,
+            deadline = match.Deadline,
         });
     }
 
-    store.Advance(tidy, round + 1);
+    bool moved = match.Round == round;
+
+    store.Advance(tidy, round + 1, now);
+
+    // Told once, by whoever reads the resolved round first, and only about a round that was actually
+    // current: a client re-reading an old round for a replay must not wake three phones up.
+    if (moved)
+    {
+        Nudges.Decide(store, tidy, round + 1, now);
+    }
 
     return Results.Ok(new
     {
@@ -181,7 +221,37 @@ app.MapGet("/matches/{code}/rounds/{round:int}", (string code, int round, MatchS
         complete = true,
         seed = match.Seed.ToString(System.Globalization.CultureInfo.InvariantCulture),
         plans = submissions.Select(s => new { seat = s.Seat, payload = Convert.ToBase64String(s.Payload) }),
+        // The seats that did nothing. Clients feed the simulation nothing for these, which is not
+        // the same as feeding it an empty plan and is why the relay never has to build one.
+        forfeited,
     });
+});
+
+// ---- Being told it is your turn -------------------------------------------------------
+
+// Where to reach this player when a round comes round to them. One device per seat, latest wins,
+// because a player who reinstalls has a new push token and the old one is dead.
+app.MapPut("/matches/{code}/device", (
+    string code, RegisterDevice request, HttpRequest http, MatchStore store, TimeProvider clock) =>
+{
+    if (GameCode.Parse(code) is not string tidy || store.Find(tidy) is not Match _)
+    {
+        return Results.NotFound(new { error = "No such game code." });
+    }
+
+    if (store.SeatOf(tidy, http.Headers["X-Seat-Token"].ToString()) is not int seat)
+    {
+        return Results.Unauthorized();
+    }
+
+    if (string.IsNullOrWhiteSpace(request.Token) || request.Token.Length > Limits.LongestDeviceToken)
+    {
+        return Results.BadRequest(new { error = "That is not a device token." });
+    }
+
+    store.RegisterDevice(tidy, seat, request.Token, request.Platform ?? "unknown", clock.GetUtcNow());
+
+    return Results.NoContent();
 });
 
 // ---- Determinism reports --------------------------------------------------------------
@@ -190,7 +260,8 @@ app.MapGet("/matches/{code}/rounds/{round:int}", (string code, int round, MatchS
 // match. Collecting them is what turns a determinism bug on a stranger's phone into a bug report
 // with a perfect reproduction attached, because the seed and every plan are already stored here.
 app.MapPost("/matches/{code}/rounds/{round:int}/hash", (
-    string code, int round, ReportHash report, HttpRequest http, MatchStore store) =>
+    string code, int round, ReportHash report, HttpRequest http, MatchStore store,
+    TimeProvider clock) =>
 {
     if (GameCode.Parse(code) is not string tidy || store.Find(tidy) is not Match _)
     {
@@ -210,7 +281,7 @@ app.MapPost("/matches/{code}/rounds/{round:int}/hash", (
     // First report for a seat and round stands. A client that reports twice has restarted or
     // retried, and quietly replacing the first answer would erase exactly the disagreement this
     // exists to catch.
-    store.ReportHash(tidy, round, seat, hash, DateTimeOffset.UtcNow);
+    store.ReportHash(tidy, round, seat, hash, clock.GetUtcNow());
 
     return Results.Accepted();
 });

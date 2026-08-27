@@ -100,6 +100,29 @@ public static class Flags
         return null;
     }
 
+    /// <summary>
+    /// How long an Anytime round waits, as <c>--window=120</c> seconds.
+    /// </summary>
+    /// <remarks>
+    /// The design gives the host the call, defaulting to a day. This exists mostly so the forfeit path
+    /// can be watched without waiting one: a two-minute window makes it a thing you can see happen.
+    /// </remarks>
+    public static int? Window()
+    {
+        const string named = "--window=";
+
+        foreach (string argument in OS.GetCmdlineUserArgs())
+        {
+            if (argument.StartsWith(named, System.StringComparison.Ordinal)
+                && int.TryParse(argument.Substring(named.Length), out int seconds))
+            {
+                return seconds;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>Whether to open a lobby at once, as <c>--host</c>.</summary>
     public static bool Host() => Asked("--host");
 

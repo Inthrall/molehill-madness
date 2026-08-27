@@ -40,9 +40,9 @@ public static class Online
     public static RelayClient Relay =>
         _relay ??= new RelayClient(new Uri(Flags.Relay(), UriKind.Absolute));
 
-    public static void Host(int playerCount, MatchPace pace)
+    public static void Host(int playerCount, MatchPace pace, int windowSeconds = 0)
     {
-        Match = OnlineMatch.Hosting(Relay, playerCount, pace);
+        Match = OnlineMatch.Hosting(Relay, playerCount, pace, windowSeconds);
     }
 
     public static void Join(string code)

@@ -256,7 +256,7 @@ public sealed class MatchStoreTests
     {
         (Match match, Seat _) = _store.Open(playerCount: 2, Pace.Live, _now);
 
-        _store.Advance(match.Code, 2);
+        _store.Advance(match.Code, 2, _now);
 
         Assert.That(_store.Find(match.Code)!.Round, Is.EqualTo(2));
     }
@@ -271,9 +271,9 @@ public sealed class MatchStoreTests
     {
         (Match match, Seat _) = _store.Open(playerCount: 2, Pace.Live, _now);
 
-        _store.Advance(match.Code, 5);
-        _store.Advance(match.Code, 5);
-        _store.Advance(match.Code, 2);
+        _store.Advance(match.Code, 5, _now);
+        _store.Advance(match.Code, 5, _now);
+        _store.Advance(match.Code, 2, _now);
 
         Assert.That(_store.Find(match.Code)!.Round, Is.EqualTo(5));
     }

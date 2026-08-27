@@ -91,7 +91,9 @@ namespace Molehill.Online
             ulong seed,
             int seated,
             bool started,
-            int round)
+            int round,
+            int windowSeconds,
+            DateTimeOffset? deadline)
         {
             Code = code;
             Seat = seat;
@@ -102,6 +104,8 @@ namespace Molehill.Online
             Seated = seated;
             Started = started;
             Round = round;
+            WindowSeconds = windowSeconds;
+            Deadline = deadline;
         }
 
         public string Code { get; }
@@ -123,6 +127,21 @@ namespace Molehill.Online
         public bool Started { get; }
 
         public int Round { get; }
+
+        /// <summary>
+        /// How long an Anytime round waits before the missing players forfeit. Zero in Live pace.
+        /// </summary>
+        public int WindowSeconds { get; }
+
+        /// <summary>
+        /// When this round starts forfeiting, or null when it never does.
+        /// </summary>
+        /// <remarks>
+        /// Worth having on the client because a player who can see how long they have left behaves very
+        /// differently from one who cannot, and Anytime pace is otherwise a screen with no urgency on it
+        /// at all.
+        /// </remarks>
+        public DateTimeOffset? Deadline { get; }
     }
 
     /// <summary>How a match is paced, which the host picks up front.</summary>
@@ -186,12 +205,20 @@ namespace Molehill.Online
     /// </remarks>
     public sealed class RoundRelease
     {
-        public RoundRelease(int round, bool complete, int waitingOn, IReadOnlyList<byte[]> plans)
+        public RoundRelease(
+            int round,
+            bool complete,
+            int waitingOn,
+            IReadOnlyList<byte[]> plans,
+            IReadOnlyList<int> forfeited,
+            DateTimeOffset? deadline)
         {
             Round = round;
             Complete = complete;
             WaitingOn = waitingOn;
             Plans = plans;
+            Forfeited = forfeited;
+            Deadline = deadline;
         }
 
         public int Round { get; }
@@ -203,7 +230,22 @@ namespace Molehill.Online
         /// <summary>Every seat's plan for the round, as the bytes they sent, in seat order.</summary>
         public IReadOnlyList<byte[]> Plans { get; }
 
-        public static RoundRelease Waiting(int round, int waitingOn) =>
-            new RoundRelease(round, complete: false, waitingOn, Array.Empty<byte[]>());
+        /// <summary>
+        /// Seats that ran out of window and did nothing.
+        /// </summary>
+        /// <remarks>
+        /// Not empty plans. The relay does not know what a plan looks like and must not learn, so a
+        /// forfeit travels as the seat number and nothing else, and a client feeds its simulation
+        /// nothing at all for that platoon. Which is exactly the platoon doing nothing.
+        /// </remarks>
+        public IReadOnlyList<int> Forfeited { get; }
+
+        /// <summary>When the missing players forfeit, or null in Live pace where nobody does.</summary>
+        public DateTimeOffset? Deadline { get; }
+
+        public static RoundRelease Waiting(int round, int waitingOn, DateTimeOffset? deadline) =>
+            new RoundRelease(
+                round, complete: false, waitingOn,
+                Array.Empty<byte[]>(), Array.Empty<int>(), deadline);
     }
 }

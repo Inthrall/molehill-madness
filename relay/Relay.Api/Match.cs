@@ -23,7 +23,55 @@ public sealed record Match(
     ulong Seed,
     DateTimeOffset OpenedAt,
     int Round,
-    bool Started);
+    bool Started,
+    int WindowSeconds,
+    DateTimeOffset RoundOpenedAt)
+{
+    /// <summary>
+    /// When this round stops waiting and starts forfeiting, or null if it never does.
+    /// </summary>
+    /// <remarks>
+    /// Live pace has no deadline: everybody is present, so the round resolves the moment the last
+    /// plan lands and a timer would only ever fire on somebody whose phone died. Anytime pace is the
+    /// opposite, and the window is what stops one player who has lost interest from ending a match
+    /// for three other people by simply never opening the game again.
+    /// </remarks>
+    public DateTimeOffset? Deadline =>
+        WindowSeconds > 0 ? RoundOpenedAt.AddSeconds(WindowSeconds) : null;
+
+    public bool Expired(DateTimeOffset now) => Deadline is DateTimeOffset due && now >= due;
+}
+
+/// <summary>How long an Anytime round waits before the missing players forfeit.</summary>
+public static class RoundWindow
+{
+    /// <summary>The design's default: a day, which is what makes the pace worth having.</summary>
+    public const int Default = 24 * 60 * 60;
+
+    /// <summary>
+    /// The shortest a host may set.
+    /// </summary>
+    /// <remarks>
+    /// A minute, which is far shorter than anybody would choose and exists so the forfeit path can be
+    /// watched in a test and in a playtest without waiting a day for it.
+    /// </remarks>
+    public const int Shortest = 60;
+
+    /// <summary>A week. Past this a match is not paused, it is abandoned.</summary>
+    public const int Longest = 7 * 24 * 60 * 60;
+
+    public static int Sane(Pace pace, int asked)
+    {
+        if (pace == Pace.Live)
+        {
+            // Live has no window at all rather than a very long one, so nothing has to remember to
+            // exclude it from the forfeit sweep.
+            return 0;
+        }
+
+        return asked <= 0 ? Default : Math.Clamp(asked, Shortest, Longest);
+    }
+}
 
 /// <summary>One seat, and the token that proves somebody owns it.</summary>
 /// <remarks>

@@ -77,6 +77,7 @@ namespace Molehill.Online
         private byte[]? _mine;
         private double _quiet;
         private List<Plan> _plans = new List<Plan>();
+        private IReadOnlyList<int> _forfeited = Array.Empty<int>();
 
         private OnlineMatch(RelayClient relay, Func<System.Threading.Tasks.Task<Reply<Seating>>> arrive)
         {
@@ -86,11 +87,12 @@ namespace Molehill.Online
         }
 
         /// <summary>Opens a new lobby and takes the host's seat in it.</summary>
-        public static OnlineMatch Hosting(RelayClient relay, int playerCount, MatchPace pace)
+        public static OnlineMatch Hosting(
+            RelayClient relay, int playerCount, MatchPace pace, int windowSeconds = 0)
         {
             ArgumentNullException.ThrowIfNull(relay);
 
-            return new OnlineMatch(relay, () => relay.Host(playerCount, pace));
+            return new OnlineMatch(relay, () => relay.Host(playerCount, pace, windowSeconds));
         }
 
         /// <summary>Takes a seat in somebody else's lobby.</summary>
@@ -144,6 +146,18 @@ namespace Molehill.Online
         /// Every seat's plan for the round, in seat order, once <see cref="Stage"/> is RoundReady.
         /// </summary>
         public IReadOnlyList<Plan> Plans => _plans;
+
+        /// <summary>
+        /// Seats that ran out of window this round and did nothing.
+        /// </summary>
+        /// <remarks>
+        /// Worth showing: a platoon that stood still because its player is asleep looks identical to one
+        /// that stood still on purpose, and the difference matters to everybody else at the table.
+        /// </remarks>
+        public IReadOnlyList<int> Forfeited => _forfeited;
+
+        /// <summary>When this round starts forfeiting, or null in Live pace where it never does.</summary>
+        public DateTimeOffset? Deadline { get; private set; }
 
         /// <summary>Why the match ended, or the last thing that went wrong.</summary>
         public RelayOutcome Trouble { get; private set; }
@@ -225,6 +239,7 @@ namespace Molehill.Online
 
             Round++;
             _plans = new List<Plan>();
+            _forfeited = Array.Empty<int>();
             _mine = null;
             Stage = OnlineStage.Planning;
             _quiet = 0;
@@ -414,6 +429,7 @@ namespace Molehill.Online
             if (!release.Complete)
             {
                 WaitingOn = release.WaitingOn;
+                Deadline = release.Deadline;
                 _quiet = 0;
                 return;
             }
@@ -450,28 +466,48 @@ namespace Molehill.Online
                 return;
             }
 
-            if (plans.Count != PlayerCount)
-            {
-                Trouble = RelayOutcome.Refused;
-                Stage = OnlineStage.Incompatible;
-                return;
-            }
-
-            bool[] seen = new bool[PlayerCount];
+            bool[] answered = new bool[PlayerCount];
 
             foreach (Plan plan in plans)
             {
-                if (plan.Seat < 0 || plan.Seat >= PlayerCount || seen[plan.Seat])
+                if (plan.Seat < 0 || plan.Seat >= PlayerCount || answered[plan.Seat])
                 {
                     Trouble = RelayOutcome.Refused;
                     Stage = OnlineStage.Incompatible;
                     return;
                 }
 
-                seen[plan.Seat] = true;
+                answered[plan.Seat] = true;
+            }
+
+            // A forfeited seat answered by running out of window, and it answers with nothing rather
+            // than with an empty plan. This is why the check is "every seat accounted for" rather
+            // than "a plan per seat", which would refuse every Anytime round somebody slept through.
+            foreach (int seat in release.Forfeited)
+            {
+                if (seat < 0 || seat >= PlayerCount || answered[seat])
+                {
+                    Trouble = RelayOutcome.Refused;
+                    Stage = OnlineStage.Incompatible;
+                    return;
+                }
+
+                answered[seat] = true;
+            }
+
+            foreach (bool seat in answered)
+            {
+                if (!seat)
+                {
+                    Trouble = RelayOutcome.Refused;
+                    Stage = OnlineStage.Incompatible;
+                    return;
+                }
             }
 
             _plans = plans;
+            _forfeited = release.Forfeited;
+            Deadline = release.Deadline;
             WaitingOn = 0;
             Stage = OnlineStage.RoundReady;
         }

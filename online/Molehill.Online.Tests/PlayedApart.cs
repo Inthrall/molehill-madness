@@ -14,12 +14,26 @@ internal sealed class TestRelay : WebApplicationFactory<Program>
 {
     private readonly string _databaseName;
 
-    public TestRelay(string databaseName) => _databaseName = databaseName;
+    public TestRelay(string databaseName, Clock? clock = null)
+    {
+        _databaseName = databaseName;
+        Clock = clock;
+    }
+
+    /// <summary>The clock this relay runs on, when the test is driving one.</summary>
+    public Clock? Clock { get; }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.ConfigureServices(services =>
-            services.AddSingleton(MatchStore.InMemory(_databaseName)));
+        {
+            services.AddSingleton(MatchStore.InMemory(_databaseName));
+
+            if (Clock is not null)
+            {
+                services.AddSingleton<TimeProvider>(Clock);
+            }
+        });
     }
 
     /// <summary>A relay client wired to this relay, over the in-process pipeline.</summary>
@@ -48,8 +62,9 @@ internal sealed class Player
     /// <summary>This player's own simulation, built once the seed is known.</summary>
     public MoleMatch? Match { get; private set; }
 
-    public static Player Hosting(RelayClient relay, int playerCount, MatchPace pace) =>
-        new Player(OnlineMatch.Hosting(relay, playerCount, pace));
+    public static Player Hosting(
+        RelayClient relay, int playerCount, MatchPace pace, int windowSeconds = 0) =>
+        new Player(OnlineMatch.Hosting(relay, playerCount, pace, windowSeconds));
 
     public static Player Joining(RelayClient relay, string code) =>
         new Player(OnlineMatch.Joining(relay, code));
@@ -114,10 +129,9 @@ internal sealed class Player
     {
         BuildWorld();
 
-        foreach (Plan plan in Online.Plans)
-        {
-            Match!.SubmitPlan(plan);
-        }
+        // Through the feeder, the way the game does, so an illegal plan is dropped rather than
+        // thrown and a forfeited seat simply has nothing to feed.
+        RoundFeeder.Feed(Match!, Online.Plans);
 
         int round = Online.Round;
 
