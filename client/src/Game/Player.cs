@@ -26,6 +26,7 @@ public static class Player
     private static string _id = string.Empty;
     private static AgeBand _band = AgeBand.Unknown;
     private static int _reviewAfter;
+    private static int _planned;
     private static bool _loaded;
 
     /// <summary>This device's identifier. Random, and meaningless to anybody including us.</summary>
@@ -88,6 +89,70 @@ public static class Player
         Save();
     }
 
+    /// <summary>
+    /// Whether this device has ever finished a planning phase.
+    /// </summary>
+    /// <remarks>
+    /// The design's beginner flag, and it does two jobs. It decides whether the drawn paw appears,
+    /// which is the whole tutorial. And it is what "first matches are seeded together where the
+    /// population allows" would consult, so a beginner's first game is against other beginners rather
+    /// than somebody who has been reading dirt for six months.
+    ///
+    /// The seeding half has nowhere to happen yet, because there is no matchmaking: codes travel in
+    /// friend groups and couch play works at a population of zero. Like the age band, the flag is not
+    /// sent anywhere until something asks for it.
+    /// </remarks>
+    public static bool Beginner
+    {
+        get
+        {
+            Load();
+
+            return _planned == 0;
+        }
+    }
+
+    /// <summary>How many turns this device has ever planned. Small numbers are the interesting ones.</summary>
+    public static int Planned
+    {
+        get
+        {
+            Load();
+
+            return _planned;
+        }
+    }
+
+    /// <summary>
+    /// Notes that a turn was planned.
+    /// </summary>
+    /// <remarks>
+    /// Counted rather than flagged, because "has this player seen the game before" and "is this their
+    /// very first turn" are different questions and the second one is the one the paw asks. A count
+    /// answers both and costs the same.
+    /// </remarks>
+    public static void Planned1More()
+    {
+        Load();
+
+        if (_planned >= int.MaxValue)
+        {
+            return;
+        }
+
+        _planned++;
+        Save();
+    }
+
+    /// <summary>Forgets everything about experience, so the paw appears again. For testing.</summary>
+    public static void ForgetExperience()
+    {
+        Load();
+
+        _planned = 0;
+        Save();
+    }
+
     /// <summary>Forgets the answer, so the gate is asked again. For settings, and for testing.</summary>
     public static void ForgetAge()
     {
@@ -116,6 +181,7 @@ public static class Player
             _id = file.GetValue("account", "id", string.Empty).AsString();
             _band = (AgeBand)file.GetValue("account", "band", 0).AsInt32();
             _reviewAfter = file.GetValue("account", "reviewAfter", 0).AsInt32();
+            _planned = file.GetValue("account", "planned", 0).AsInt32();
         }
 
         if (_id.Length > 0)
@@ -134,6 +200,7 @@ public static class Player
         file.SetValue("account", "id", _id);
         file.SetValue("account", "band", (int)_band);
         file.SetValue("account", "reviewAfter", _reviewAfter);
+        file.SetValue("account", "planned", _planned);
         file.Save(Kept);
     }
 

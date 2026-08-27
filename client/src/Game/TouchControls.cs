@@ -129,6 +129,18 @@ public partial class TouchControls : Control
     }
 
     /// <summary>What is under a touch, so the scene knows whether it is a control or the map.</summary>
+    /// <summary>
+    /// Where the movement control sits, so the first-run demonstration can point at the real one.
+    /// </summary>
+    /// <remarks>
+    /// Read rather than guessed. A drawn hand demonstrating a gesture two centimetres away from the
+    /// control it is demonstrating teaches the wrong thing, and the layout moves with the screen.
+    /// </remarks>
+    public Vector2 StickHome => _stickHome;
+
+    /// <summary>How far the stick travels, which is how far the demonstration should drag.</summary>
+    public float StickReach => _stickRadius;
+
     public TouchTarget Hit(Vector2 at)
     {
         // The small column is tested before the stick. Its lowest button sits just outside the

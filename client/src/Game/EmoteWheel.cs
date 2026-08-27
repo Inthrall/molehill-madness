@@ -131,9 +131,17 @@ public partial class EmoteWheel : Control
 
         _button = Mathf.Clamp(Mathf.Min(viewport.X, viewport.Y) * 0.045f, 22f, 40f);
 
-        // Bottom left, which is the one corner nothing else uses: the tally is centred, the touch
-        // controls are under the thumbs, and the waiting band is along the top.
-        _middle = new Vector2(_button * 2.2f, viewport.Y - (_button * 2.2f));
+        // Top left, in the sky.
+        //
+        // It was bottom left to begin with, which is where the touch stick lives, and the numbers
+        // were worse than they looked: at 1280 by 720 the wheel's button sat inside the stick's grab
+        // ring, and an open wheel blanketed the stick completely. Since the wheel gets first refusal
+        // on presses, that made the movement control unusable on a phone in an online match, which is
+        // every online match on a phone.
+        //
+        // Nothing else is up here. The tally is centred at the bottom, the thumbs own both bottom
+        // corners, and the waiting band is top centre.
+        _middle = new Vector2(_button * 2.2f, _button * 2.2f);
 
         if (_open)
         {

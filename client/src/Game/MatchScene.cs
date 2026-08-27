@@ -121,6 +121,8 @@ public partial class MatchScene : Node2D
     private Lobby? _lobby;
     private WaitingSign? _waiting;
     private EmoteWheel? _wheel;
+    private FirstGesture? _gesture;
+    private bool _shownTheGesture;
 
     /// <summary>How often the driver says something. Slower than the relay would allow.</summary>
     private const double SaySomethingEvery = 4.0;
@@ -343,6 +345,69 @@ public partial class MatchScene : Node2D
         System.Array.Clear(_driven, 0, _driven.Length);
         _pointerSeat = NextPointerSeat(from: 0);
         RecentreViews();
+        ShowTheGestureOnce();
+    }
+
+    /// <summary>
+    /// Puts the drawn paw in front of a player who has never planned a turn.
+    /// </summary>
+    /// <remarks>
+    /// The whole of the design's tutorial. There are no solo modes so there is no puzzle ladder to
+    /// hide one in, and nothing is written down so there is no text to explain with: "the first round
+    /// of a real match has to do the whole job", and this is the one gesture it has to give away.
+    ///
+    /// Once ever rather than once a match, and never under the driver, which has no eyes and would
+    /// only be recording it.
+    /// </remarks>
+    private void ShowTheGestureOnce()
+    {
+        if (_gesture is not null || _shownTheGesture || _autoPilot is not null || !Player.Beginner)
+        {
+            return;
+        }
+
+        _shownTheGesture = true;
+
+        CanvasLayer over = new CanvasLayer();
+        AddChild(over);
+
+        _gesture = new FirstGesture();
+        over.AddChild(_gesture);
+    }
+
+    /// <summary>
+    /// Tells the paw where to point, once the layout knows where its controls are.
+    /// </summary>
+    /// <remarks>
+    /// Separate from creating it, because the touch controls lay themselves out in _Process and the
+    /// round begins before that. Reading the stick's position at BeginRound gave the origin, and the
+    /// paw performed its whole demonstration in the top-left corner of the screen, which the renders
+    /// caught and nothing else would have.
+    /// </remarks>
+    private void PlaceTheGesture()
+    {
+        if (_gesture is null || _gesture.Placed)
+        {
+            return;
+        }
+
+        Vector2 screen = GetViewportRect().Size;
+        Vector2 from = _touch is not null && _touch.StickHome != Vector2.Zero
+            ? _touch.StickHome
+            : new Vector2(screen.X * 0.3f, screen.Y * 0.66f);
+
+        // Waits for the real position rather than settling for a guess, since the whole point is to
+        // point at the control the player is going to use.
+        if (_touch is not null && _touch.StickHome == Vector2.Zero)
+        {
+            return;
+        }
+
+        float reach = _touch?.StickReach ?? (screen.Y * 0.1f);
+
+        // Up and to the right, which is a walk rather than a dig: the first thing to understand is
+        // that pushing moves the mole, and the stamina lesson is taught by the bar a moment later.
+        _gesture.Demonstrate(from, from + new Vector2(reach * 0.85f, -reach * 0.55f));
     }
 
     /// <summary>
@@ -428,6 +493,13 @@ public partial class MatchScene : Node2D
                     played.Add(plan);
                 }
             }
+        }
+
+        // This device has now planned a turn, which is what stops the drawn paw appearing again and is
+        // what "first matches are seeded together" would consult once there is matchmaking to seed.
+        if (_autoPilot is null)
+        {
+            Player.Planned1More();
         }
 
         // Kept, because a clip is the round played again and replaying round five needs rounds one
@@ -787,6 +859,9 @@ public partial class MatchScene : Node2D
             _touch.Planner = Pointed();
             _touch.QueueRedraw();
         }
+
+        // After the layout, so the paw points at where the controls actually ended up.
+        PlaceTheGesture();
     }
 
     // ---- Playing apart ---------------------------------------------------------------
@@ -1312,6 +1387,14 @@ public partial class MatchScene : Node2D
                 button.Position,
                 button.ButtonIndex == MouseButton.WheelUp ? ZoomNotch : 1f / ZoomNotch);
             return;
+        }
+
+        // Any press at all ends the demonstration. Somebody who has started has understood, and a
+        // drawn hand carrying on over the top of them is now clutter.
+        if (_gesture is not null && Pressing(@event, out Vector2 _))
+        {
+            _gesture.Interrupted();
+            _gesture = null;
         }
 
         // The wheel gets first refusal, before anything reaches the map. The map is a Node2D reading

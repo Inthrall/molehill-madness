@@ -909,6 +909,41 @@ public static class Glyphs
             at + new Vector2(-unit * 0.5f, -unit * 0.1f));
     }
 
+    /// <summary>
+    /// A paw with one digit out, pressing. The hand in the first-run demonstration.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not the raised paw the emote wheel uses. That one means "well played" and reads as
+    /// a greeting; this one has to read as a finger on a control, which needs the extended digit and
+    /// the tilt. A game whose only tutorial is one drawn hand should draw a hand that is obviously
+    /// doing something.
+    /// </remarks>
+    public static void Pointing(CanvasItem into, Vector2 at, float size, Color ink)
+    {
+        float unit = size / 2f;
+
+        // The pad, tilted, so it reads as a hand at an angle rather than a blob.
+        Oval(into, at + new Vector2(unit * 0.16f, unit * 0.42f), unit * 0.44f, unit * 0.52f, ink);
+
+        // Three folded digits down the near side.
+        for (int digit = 0; digit < 3; digit++)
+        {
+            into.DrawCircle(
+                at + new Vector2(unit * (0.5f - (digit * 0.02f)), unit * (0.16f + (digit * 0.34f))),
+                unit * 0.17f,
+                ink);
+        }
+
+        // And the one that is out, pointing up and slightly back, with its tip where the press is.
+        Polygon(into, ink,
+            at + new Vector2(-unit * 0.34f, unit * 0.44f),
+            at + new Vector2(-unit * 0.06f, unit * 0.6f),
+            at + new Vector2(unit * 0.12f, -unit * 0.7f),
+            at + new Vector2(-unit * 0.2f, -unit * 0.72f));
+
+        into.DrawCircle(at + new Vector2(-unit * 0.04f, -unit * 0.72f), unit * 0.16f, ink);
+    }
+
     // ---- Primitives -----------------------------------------------------------------
 
     private static void Arc(
