@@ -10,7 +10,7 @@ config_version=5
 
 config/name="Molehill Mayhem"
 config/description="Four platoons, one screen, everything happening at once."
-run/main_scene="res://scenes/Match.tscn"
+run/main_scene="res://scenes/Menu.tscn"
 config/features=PackedStringArray("4.7", "C#", "Mobile")
 config/icon="res://icon.svg"
 

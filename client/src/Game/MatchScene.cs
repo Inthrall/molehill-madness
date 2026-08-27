@@ -27,7 +27,6 @@ public partial class MatchScene : Node2D
 {
     private const int MapWidthCells = 1000;
     private const int MapHeightCells = 480;
-    private const int PlayerCount = 4;
 
     /// <summary>
     /// How long a planning phase lasts. The design's Live pace is a minute; this is tighter
@@ -68,6 +67,9 @@ public partial class MatchScene : Node2D
     private int[] _gamepad = System.Array.Empty<int>();
     private readonly List<WorldView> _views = new List<WorldView>();
 
+    /// <summary>How many platoons are playing, which the menu chose. Two, three or four.</summary>
+    private int _players = MatchSetup.MostPlayers;
+
     private Beat _beat = Beat.Planning;
     private float _clock;
     private int _pointerSeat;
@@ -84,20 +86,37 @@ public partial class MatchScene : Node2D
     private int _sounded;
     private bool _forceSplit;
 
+    private Scoreboard? _scoreboard;
+    private int[] _damageTaken = System.Array.Empty<int>();
+    private int[] _outAtRound = System.Array.Empty<int>();
+    private double _finishedFor;
+
     public override void _Ready()
     {
         // The terrain is one pixel per cell blown up several times over, so it has to be
         // point-sampled. Filtered, the soil turns to smudge and the cell grid stops reading.
         TextureFilter = TextureFilterEnum.Nearest;
 
-        _match = MoleMatch.Create(PlayerCount, 20260826UL, MapWidthCells, MapHeightCells);
+        _players = Mathf.Clamp(
+            MatchSetup.PlayerCount, MatchSetup.FewestPlayers, MatchSetup.MostPlayers);
+
+        _match = MoleMatch.Create(_players, MatchSetup.Seed, MapWidthCells, MapHeightCells);
         _shadow = _match.Terrain.Clone();
         _terrain = new TerrainView(_shadow);
         _stage = new Stage(_match, _terrain.Texture, MapWidthCells, MapHeightCells);
 
-        _planners = new SeatPlanner[PlayerCount];
+        _shoulderHeldUp = new bool[_players];
+        _shoulderHeldDown = new bool[_players];
+        _plantHeld = new bool[_players];
+        _hopHeld = new bool[_players];
+        _braceHeld = new bool[_players];
+        _driven = new bool[_players];
+        _damageTaken = new int[_players];
+        _outAtRound = new int[_players];
 
-        for (int seat = 0; seat < PlayerCount; seat++)
+        _planners = new SeatPlanner[_players];
+
+        for (int seat = 0; seat < _players; seat++)
         {
             _planners[seat] = new SeatPlanner(_match, seat);
         }
@@ -111,13 +130,16 @@ public partial class MatchScene : Node2D
         _hud = new MatchHud();
         overlay.AddChild(_hud);
 
-        if (!WasAskedFor("--mute"))
+        _scoreboard = new Scoreboard();
+        overlay.AddChild(_scoreboard);
+
+        if (!Flags.Asked("--mute"))
         {
             _sfx = new Sfx();
             AddChild(_sfx);
         }
 
-        if (WantsTouch())
+        if (Flags.WantsTouch())
         {
             _touch = new TouchControls();
             overlay.AddChild(_touch);
@@ -131,14 +153,14 @@ public partial class MatchScene : Node2D
             Input.EmulateTouchFromMouse = true;
         }
 
-        _forceSplit = WasAskedFor("--split");
+        _forceSplit = Flags.Asked("--split");
 
-        if (WasAskedFor("--demo"))
+        if (Flags.Asked("--demo"))
         {
             _autoPilot = new AutoPilot(_match);
         }
 
-        if (WasAskedFor("--frail"))
+        if (Flags.Asked("--frail"))
         {
             // Rigged starting conditions, the way a test fixture rigs them, so knockouts
             // happen in the first round or two and the exits can be watched. The one thing
@@ -169,13 +191,13 @@ public partial class MatchScene : Node2D
     /// </remarks>
     private void AssignDevices()
     {
-        _devices = new Device[PlayerCount];
-        _gamepad = new int[PlayerCount];
+        _devices = new Device[_players];
+        _gamepad = new int[_players];
         Godot.Collections.Array<int> pads = Input.GetConnectedJoypads();
 
         _devices[0] = Device.Pointer;
 
-        for (int seat = 1; seat < PlayerCount; seat++)
+        for (int seat = 1; seat < _players; seat++)
         {
             if (seat - 1 < pads.Count)
             {
@@ -193,7 +215,7 @@ public partial class MatchScene : Node2D
     {
         int count = 0;
 
-        for (int seat = 0; seat < PlayerCount; seat++)
+        for (int seat = 0; seat < _players; seat++)
         {
             if (_devices[seat] != Device.Shared && _match.SeatIsAlive(seat))
             {
@@ -203,22 +225,6 @@ public partial class MatchScene : Node2D
 
         return count;
     }
-
-    private static bool WasAskedFor(string flag)
-    {
-        foreach (string argument in OS.GetCmdlineUserArgs())
-        {
-            if (argument == flag)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static bool WantsTouch() =>
-        OS.HasFeature("mobile") || WasAskedFor("--touch");
 
     // ---- Beats -----------------------------------------------------------------------
 
@@ -258,7 +264,7 @@ public partial class MatchScene : Node2D
     /// </summary>
     private int NextPointerSeat(int from)
     {
-        for (int seat = from; seat < PlayerCount; seat++)
+        for (int seat = from; seat < _players; seat++)
         {
             if (_devices[seat] == Device.Gamepad)
             {
@@ -311,6 +317,7 @@ public partial class MatchScene : Node2D
         NoteWhenThingsHappened();
         ComposeReplayCameras();
         RecentreViews();
+        KeepScore();
         ReportRound();
     }
 
@@ -362,6 +369,65 @@ public partial class MatchScene : Node2D
 
         _stage.ExitTick = exits;
         _stage.HitTick = hits;
+        _stage.Climax = PickTheMoment(exits, hits);
+    }
+
+    /// <summary>
+    /// Which moment of the round the replay slows down and pushes in on.
+    /// </summary>
+    /// <remarks>
+    /// The last knockout, because that is what a round is about and knockouts arrive at the end of
+    /// one, which is the "final impact" the design asks for. Failing that the heaviest hit, so a
+    /// round nobody went out of still ends on something. Failing both, nothing: a round where four
+    /// moles walked about and missed does not want a slow motion replay of the missing.
+    /// </remarks>
+    private Climax PickTheMoment(int[] exits, int[] hits)
+    {
+        if (_result is null)
+        {
+            return Climax.None;
+        }
+
+        int latest = -1;
+        int latestSlot = -1;
+
+        foreach (Knockout knockout in _result.Knockouts)
+        {
+            int slot = SlotOf(knockout.Seat, knockout.MoleIndex);
+
+            if (slot < 0 || slot >= exits.Length || exits[slot] <= latest)
+            {
+                continue;
+            }
+
+            latest = exits[slot];
+            latestSlot = slot;
+        }
+
+        if (latestSlot >= 0)
+        {
+            return new Climax(latest, latestSlot);
+        }
+
+        int hardest = 0;
+        int hardestAt = -1;
+        int hardestSlot = -1;
+
+        for (int index = 0; index < _result.Hits.Count && index < hits.Length; index++)
+        {
+            BlastHit hit = _result.Hits[index];
+
+            if (hit.Damage <= hardest)
+            {
+                continue;
+            }
+
+            hardest = hit.Damage;
+            hardestAt = hits[index];
+            hardestSlot = SlotOf(hit.Seat, hit.MoleIndex);
+        }
+
+        return hardestSlot >= 0 ? new Climax(hardestAt, hardestSlot) : Climax.None;
     }
 
     /// <summary>
@@ -456,6 +522,43 @@ public partial class MatchScene : Node2D
         return _planners[mole.Seat].Actor == mole;
     }
 
+    /// <summary>
+    /// Adds the round to the running tally the final scoreboard is built from.
+    /// </summary>
+    /// <remarks>
+    /// Damage taken rather than dealt, because that is what the simulation records: a
+    /// <see cref="BlastHit"/> names its victim, and nothing anywhere names who threw the thing.
+    /// Recording the thrower would mean carrying attribution through every blast, gusher and lava
+    /// bounce for the sake of a scoreboard, and "who took the most" is a fair proxy for how a
+    /// platoon's afternoon went anyway.
+    ///
+    /// The round a platoon went out is kept so the scoreboard can order the losers by how long
+    /// they lasted, which is the only ranking a free-for-all has below the winner.
+    /// </remarks>
+    private void KeepScore()
+    {
+        if (_result is null)
+        {
+            return;
+        }
+
+        foreach (BlastHit hit in _result.Hits)
+        {
+            if (hit.Seat >= 0 && hit.Seat < _damageTaken.Length)
+            {
+                _damageTaken[hit.Seat] += hit.Damage;
+            }
+        }
+
+        for (int seat = 0; seat < _players; seat++)
+        {
+            if (_outAtRound[seat] == 0 && !_match.SeatIsAlive(seat))
+            {
+                _outAtRound[seat] = _result.Round;
+            }
+        }
+    }
+
     private void ReportRound()
     {
         if (_autoPilot is null || _result is null)
@@ -509,6 +612,11 @@ public partial class MatchScene : Node2D
                 RunReplay(delta);
                 break;
 
+            case Beat.Finished:
+                _finishedFor += delta;
+                DriveIfAsked(delta);
+                break;
+
             default:
                 DriveIfAsked(delta);
                 break;
@@ -516,6 +624,10 @@ public partial class MatchScene : Node2D
 
         _terrain.Refresh();
         Relayout(delta);
+
+        // The scoreboard is the whole screen once the match is over. Leaving the clock, the wind
+        // and the running tally showing through it is three dead instruments behind a result.
+        _hud.Visible = _beat != Beat.Finished;
         _hud.Apply(BuildHudState());
 
         if (_touch is not null)
@@ -530,7 +642,7 @@ public partial class MatchScene : Node2D
     {
         _clock -= (float)delta;
 
-        for (int seat = 0; seat < PlayerCount; seat++)
+        for (int seat = 0; seat < _players; seat++)
         {
             if (_devices[seat] == Device.Gamepad)
             {
@@ -566,7 +678,7 @@ public partial class MatchScene : Node2D
 
     private void RunReplay(double delta)
     {
-        _playback += delta;
+        _playback += delta * Pace();
         _stage.Tick = CurrentTick();
         _stage.Seconds = Fix64.Ratio((int)(_playback * 1000), 1000);
         CatchTerrainUp(_result!.Recording!.ChangesUpTo(_stage.Tick));
@@ -578,7 +690,61 @@ public partial class MatchScene : Node2D
         }
 
         CatchTerrainUp(int.MaxValue);
-        _beat = _result.MatchOver ? Beat.Finished : Beat.Aftermath;
+
+        if (!_result.MatchOver)
+        {
+            _beat = Beat.Aftermath;
+            return;
+        }
+
+        _beat = Beat.Finished;
+        _finishedFor = 0;
+        _scoreboard?.Show(FinalStandings());
+    }
+
+    /// <summary>
+    /// The match as a table: winner first, then whoever lasted longest.
+    /// </summary>
+    /// <remarks>
+    /// Ordering is the whole result in a free-for-all. There is no second place otherwise, only
+    /// four platoons and the order they stopped being platoons in.
+    /// </remarks>
+    private Scoreboard.Standing[] FinalStandings()
+    {
+        Scoreboard.Standing[] rows = new Scoreboard.Standing[_players];
+        int winner = _result?.WinningSeat ?? -1;
+
+        for (int seat = 0; seat < _players; seat++)
+        {
+            int survivors = 0;
+
+            foreach (Mole mole in _match.Moles)
+            {
+                if (mole.Seat == seat && !mole.IsOffDuty)
+                {
+                    survivors++;
+                }
+            }
+
+            rows[seat] = new Scoreboard.Standing(
+                seat, survivors, _damageTaken[seat], _outAtRound[seat], seat == winner);
+        }
+
+        System.Array.Sort(rows, (first, second) =>
+        {
+            if (first.Won != second.Won)
+            {
+                return first.Won ? -1 : 1;
+            }
+
+            // Never knocked out sorts as having lasted forever, which is what a draw is.
+            int lasted = (second.OutAtRound == 0 ? int.MaxValue : second.OutAtRound)
+                .CompareTo(first.OutAtRound == 0 ? int.MaxValue : first.OutAtRound);
+
+            return lasted != 0 ? lasted : second.Survivors.CompareTo(first.Survivors);
+        });
+
+        return rows;
     }
 
     /// <summary>
@@ -643,6 +809,32 @@ public partial class MatchScene : Node2D
             }
         }
     }
+
+    /// <summary>
+    /// How fast the replay is running: full speed, until the round's big moment.
+    /// </summary>
+    /// <remarks>
+    /// The clock is scaled rather than the tick, so everything slows together and stays in step:
+    /// the moles, the terrain catching up, the damage numbers, the cameras, and the noises, each of
+    /// which is driven off this one number. Playback still ends at the same point in the recording,
+    /// because <see cref="_playback"/> counts simulation seconds rather than real ones. It simply
+    /// takes longer to get there.
+    /// </remarks>
+    private double Pace()
+    {
+        if (!_stage.Climax.Exists)
+        {
+            return 1;
+        }
+
+        float weight = _stage.Climax.Weight(
+            (float)(_playback * MatchSettings.TicksPerSecond));
+
+        return Mathf.Lerp(1f, SlowMotion, weight);
+    }
+
+    /// <summary>How slowly the big moment plays. About a third, which reads as deliberate.</summary>
+    private const float SlowMotion = 0.32f;
 
     /// <summary>Halfway through the round, which is when the crates arrive.</summary>
     private const int CrateLandingTick = MatchSettings.TicksPerRound / 2;
@@ -711,7 +903,7 @@ public partial class MatchScene : Node2D
             }
 
             return _forceSplit || SimultaneousSeats() >= 2
-                ? SplitLayout.PerSeat(PlayerCount, band)
+                ? SplitLayout.PerSeat(_players, band)
                 : SplitLayout.Shared(band);
         }
 
@@ -735,6 +927,12 @@ public partial class MatchScene : Node2D
 
     public override void _UnhandledInput(InputEvent @event)
     {
+        if (_beat == Beat.Finished)
+        {
+            HandleScoreboard(@event);
+            return;
+        }
+
         if (@event is InputEventKey { Pressed: true, Echo: false } key)
         {
             HandleKey(key);
@@ -1311,6 +1509,48 @@ public partial class MatchScene : Node2D
         }
     }
 
+    /// <summary>
+    /// The scoreboard takes one press, and every press is the same press.
+    /// </summary>
+    /// <remarks>
+    /// The button is drawn so there is something obvious to aim at, but a tap anywhere counts.
+    /// Four people crowding round a phone to see who won should not then have to take turns
+    /// finding a target, and there is nothing else on this screen a press could have meant.
+    ///
+    /// Held off for a moment first, so the press that skipped the last replay cannot carry through
+    /// and dismiss the result nobody has read yet.
+    /// </remarks>
+    private void HandleScoreboard(InputEvent @event)
+    {
+        if (_finishedFor < ScoreboardSettles)
+        {
+            return;
+        }
+
+        bool pressed = @event switch
+        {
+            InputEventKey { Pressed: true, Echo: false } => true,
+            InputEventScreenTouch { Pressed: true } => true,
+            InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left } => true,
+            _ => false,
+        };
+
+        if (pressed)
+        {
+            BackToTheMenu();
+        }
+    }
+
+    /// <summary>Long enough that the keypress which skipped the last replay does not carry on.</summary>
+    private const double ScoreboardSettles = 0.6;
+
+    private void BackToTheMenu()
+    {
+        // Deferred, because tearing the scene down from inside its own input handling is the
+        // one thing Godot asks you not to do.
+        GetTree().CallDeferred(SceneTree.MethodName.ChangeSceneToFile, "res://scenes/Menu.tscn");
+    }
+
     private void Advance(SeatPlanner? planner)
     {
         switch (_beat)
@@ -1452,11 +1692,13 @@ public partial class MatchScene : Node2D
         _shoulderHeldDown[seat] = down;
     }
 
-    private readonly bool[] _shoulderHeldUp = new bool[PlayerCount];
-    private readonly bool[] _shoulderHeldDown = new bool[PlayerCount];
-    private readonly bool[] _plantHeld = new bool[PlayerCount];
-    private readonly bool[] _hopHeld = new bool[PlayerCount];
-    private readonly bool[] _braceHeld = new bool[PlayerCount];
+    // Sized in _Ready rather than here, because the player count is a decision the menu makes
+    // and a field initialiser cannot see another field.
+    private bool[] _shoulderHeldUp = System.Array.Empty<bool>();
+    private bool[] _shoulderHeldDown = System.Array.Empty<bool>();
+    private bool[] _plantHeld = System.Array.Empty<bool>();
+    private bool[] _hopHeld = System.Array.Empty<bool>();
+    private bool[] _braceHeld = System.Array.Empty<bool>();
 
     /// <summary>How far a gamepad axis must move before it counts as pushed.</summary>
     private const float PadDeadZone = 0.2f;
@@ -1478,6 +1720,22 @@ public partial class MatchScene : Node2D
 
         if (_autoClock <= AutoPause)
         {
+            return;
+        }
+
+        if (_beat == Beat.Finished)
+        {
+            // Back to the menu, which under the driver starts another match at once. That makes a
+            // long run a soak test of the whole loop rather than of one match, and it is the only
+            // way the way out of a finished match gets exercised without a finger. It waits long
+            // enough first that the result is on screen for a recorded frame to catch, which is
+            // roughly as long as a person takes to look at it.
+            if (_finishedFor > ScoreboardPause)
+            {
+                _autoClock = 0;
+                BackToTheMenu();
+            }
+
             return;
         }
 
@@ -1582,16 +1840,19 @@ public partial class MatchScene : Node2D
     /// </summary>
     private const int TicksPerLeg = 60;
 
-    private readonly bool[] _driven = new bool[PlayerCount];
+    private bool[] _driven = System.Array.Empty<bool>();
 
     /// <summary>Long enough that a recorded frame catches the planning screen mid-thought.</summary>
     private const double AutoPause = 0.35;
+
+    /// <summary>How long the driver leaves a result up before starting the next match.</summary>
+    private const double ScoreboardPause = 1.6;
 
     // ---- Reporting -------------------------------------------------------------------
 
     private MatchHud.State BuildHudState()
     {
-        SplitLayout.TrySpareCell(PlayerCount, Band(), out Rect2 spare);
+        SplitLayout.TrySpareCell(_players, Band(), out Rect2 spare);
         SplitLayout.Pane[] panes = Panes();
         bool splitting = panes.Length > 1;
 
@@ -1608,9 +1869,8 @@ public partial class MatchScene : Node2D
             Committed = CommittedPerSeat(),
             Wind = (float)_match.Wind.ToDecimal(),
             Round = _match.Round + (_beat == Beat.Planning ? 1 : 0),
-            Winner = _beat == Beat.Finished ? _result?.WinningSeat ?? -1 : -2,
             SpareCell = spare,
-            HasSpareCell = splitting && PlayerCount == 3,
+            HasSpareCell = splitting && _players == 3,
             Split = splitting,
         };
     }
@@ -1625,7 +1885,7 @@ public partial class MatchScene : Node2D
     /// </remarks>
     private int[] StandingPerSeat()
     {
-        int[] standing = new int[PlayerCount];
+        int[] standing = new int[_players];
         RoundRecording? recording = _beat == Beat.Resolving ? _stage.Recording : null;
 
         for (int slot = 0; slot < _match.Moles.Count; slot++)
@@ -1647,9 +1907,9 @@ public partial class MatchScene : Node2D
 
     private bool[] CommittedPerSeat()
     {
-        bool[] committed = new bool[PlayerCount];
+        bool[] committed = new bool[_players];
 
-        for (int seat = 0; seat < PlayerCount; seat++)
+        for (int seat = 0; seat < _players; seat++)
         {
             committed[seat] = _beat == Beat.Planning && _planners[seat].Committed;
         }

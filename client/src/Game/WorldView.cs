@@ -30,6 +30,7 @@ public partial class WorldView : Control
     private int _seat = -1;
     private int[]? _watching;
     private int _camera;
+    private float _pushing;
 
     public WorldView(Stage stage)
     {
@@ -61,10 +62,43 @@ public partial class WorldView : Control
         }
 
         _base = pane.PixelsPerMetre;
-        _scale = _base * _zoom;
+        _pushing = PushWeight();
+        _scale = _base * _zoom * Mathf.Lerp(1f, PushIn, _pushing);
         Chase(delta);
         QueueRedraw();
     }
+
+    /// <summary>
+    /// How far this camera is into its push on the round's big moment, if the moment is its.
+    /// </summary>
+    /// <remarks>
+    /// Only the camera watching the mole it happens to pushes in. The others carry on at their own
+    /// framing, slowed by the same clock, which is what a gallery does: everybody rolls, one camera
+    /// gets the shot.
+    ///
+    /// This is the one deliberate exception to the rule that a camera never re-frames mid-round.
+    /// That rule exists to stop the framing churning as moles wander; a single push onto the
+    /// climax and back is the opposite of churn, and is the reason to have a director at all.
+    /// </remarks>
+    private float PushWeight()
+    {
+        Climax climax = _stage.Climax;
+
+        if (_manual || _stage.Planning || _watching is null || !climax.Exists)
+        {
+            return 0f;
+        }
+
+        if (System.Array.IndexOf(_watching, climax.Slot) < 0)
+        {
+            return 0f;
+        }
+
+        return climax.Weight((float)_stage.Seconds.ToDecimal() * MatchSettings.TicksPerSecond);
+    }
+
+    /// <summary>How much closer the camera gets at the height of the moment.</summary>
+    private const float PushIn = 1.8f;
 
     private static bool SameSubjects(int[]? mine, int[]? theirs)
     {
@@ -196,7 +230,19 @@ public partial class WorldView : Control
     {
         if (_watching is not null)
         {
-            return Watched();
+            Vector2 group = Watched();
+
+            if (_pushing <= 0f || _stage.Recording is null)
+            {
+                return group;
+            }
+
+            // Off the middle of the group and onto whoever it is happening to. A mole that has
+            // already gone out is held at the spot it went out, which is where the pratfall plays.
+            Vector2 onto = ToPixels(
+                _stage.Recording.PositionAt(_stage.Seconds, _stage.Climax.Slot));
+
+            return group.Lerp(onto, _pushing);
         }
 
         if (_seat >= 0)

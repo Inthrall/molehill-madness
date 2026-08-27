@@ -27,6 +27,9 @@ public sealed class Stage
         Planners = System.Array.Empty<SeatPlanner>();
         ExitTick = System.Array.Empty<int>();
         HitTick = System.Array.Empty<int>();
+
+        // Explicitly, because a default Climax is tick zero of mole zero rather than nothing.
+        Climax = Climax.None;
     }
 
     public MoleMatch Match { get; }
@@ -58,6 +61,9 @@ public sealed class Stage
 
     /// <summary>When each hit landed. Indexed into the round's hit list.</summary>
     public int[] HitTick { get; set; }
+
+    /// <summary>The moment of this round the replay slows down and pushes in on.</summary>
+    public Climax Climax { get; set; }
 
     /// <summary>How long a damage number lives, at thirty ticks a second.</summary>
     public const int DamageNumberTicks = 45;

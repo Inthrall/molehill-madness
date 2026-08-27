@@ -560,6 +560,56 @@ public static class Glyphs
             ink, size * Stroke * 1.6f);
     }
 
+    /// <summary>
+    /// A flower, for whoever took the flowerbed.
+    /// </summary>
+    /// <remarks>
+    /// The moles are four platoons who each believe the flowerbed is rightfully theirs, so the
+    /// prize is the flower and nothing has to be written down to say who got it. Petals take the
+    /// platoon's colour and the eye stays cream, which reads on any of the four.
+    /// </remarks>
+    public static void Flower(CanvasItem into, Vector2 at, float size, Color ink)
+    {
+        float unit = size / 2f;
+
+        for (int petal = 0; petal < 6; petal++)
+        {
+            float angle = petal * Mathf.Tau / 6f;
+
+            into.DrawCircle(
+                at + (new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * unit * 0.58f),
+                unit * 0.42f, ink);
+        }
+
+        into.DrawCircle(at, unit * 0.34f, Palette.Paper);
+    }
+
+    /// <summary>An arrow pointing back the way you came.</summary>
+    public static void Back(CanvasItem into, Vector2 at, float size, Color ink)
+    {
+        float unit = size / 2f;
+
+        into.DrawLine(
+            at + new Vector2(-unit * 0.25f, 0),
+            at + new Vector2(unit * 0.72f, 0), ink, size * Stroke * 1.4f);
+
+        Polygon(into, ink,
+            at + new Vector2(-unit * 0.78f, 0),
+            at + new Vector2(-unit * 0.12f, -unit * 0.52f),
+            at + new Vector2(-unit * 0.12f, unit * 0.52f));
+    }
+
+    /// <summary>A play triangle. Start the match.</summary>
+    public static void Play(CanvasItem into, Vector2 at, float size, Color ink)
+    {
+        float unit = size / 2f;
+
+        Polygon(into, ink,
+            at + new Vector2(unit * 0.82f, 0),
+            at + new Vector2(-unit * 0.55f, -unit * 0.72f),
+            at + new Vector2(-unit * 0.55f, unit * 0.72f));
+    }
+
     // ---- Primitives -----------------------------------------------------------------
 
     private static void Arc(

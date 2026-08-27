@@ -38,9 +38,6 @@ public partial class MatchHud : Control
         /// <summary>Rounds resolved plus the one being planned.</summary>
         public int Round;
 
-        /// <summary>-2 while playing, -1 for a draw, otherwise the winning seat.</summary>
-        public int Winner;
-
         /// <summary>Where the spare grid cell is in a three-player split, if there is one.</summary>
         public Rect2 SpareCell;
 
@@ -83,7 +80,6 @@ public partial class MatchHud : Control
         DrawTally(viewport);
         DrawWind(viewport);
         DrawClock(viewport);
-        DrawOutcome(viewport);
     }
 
     /// <summary>
@@ -255,36 +251,6 @@ public partial class MatchHud : Control
             this, at, radius * 0.8f,
             pressing ? Palette.Damage : new Color(Palette.OnPanel, 0.75f));
     }
-
-    /// <summary>Who took the flowerbed, as their colour filling the centre.</summary>
-    private void DrawOutcome(Vector2 viewport)
-    {
-        if (_state.Winner == -2)
-        {
-            return;
-        }
-
-        Vector2 at = viewport / 2f;
-        float radius = Mathf.Min(viewport.X, viewport.Y) * 0.12f;
-
-        DrawCircle(at, radius, Palette.Panel);
-
-        if (_state.Winner < 0)
-        {
-            // Everybody went out together, which with simultaneous turns is a real result and
-            // not an error. Four snouts, no winner.
-            for (int seat = 0; seat < 4; seat++)
-            {
-                float angle = seat * Mathf.Tau / 4f;
-                Glyphs.Mole(
-                    this,
-                    at + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * radius * 0.5f,
-                    radius * 0.45f, new Color(Palette.Seat(seat), 0.5f));
-            }
-
-            return;
-        }
-
-        Glyphs.Mole(this, at, radius * 1.2f, Palette.Seat(_state.Winner));
-    }
 }
+
+    /// <summary>Who took the flowerbed, as their colour filling the centre.</summary>}
