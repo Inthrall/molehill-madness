@@ -43,6 +43,22 @@ namespace Molehill.Online
         private readonly HttpClient _http;
         private readonly bool _ownsHttp;
 
+        /// <summary>
+        /// What the last transport failure actually said, for somebody holding a phone.
+        /// </summary>
+        /// <remarks>
+        /// Kept because every transport failure comes back as one outcome, Unreachable, and on a
+        /// device the causes are not remotely alike. A phone in a tunnel, a relay that is not running,
+        /// a wrong address and Android refusing a cleartext HTTP request all look identical to a
+        /// player: dots that never stop. The last one in particular is a trap worth naming, since
+        /// Android blocks plain HTTP by default from API 28 and a build pointed at an http:// relay
+        /// fails every call before it leaves the device.
+        ///
+        /// Not shown to a player, who has no use for it. It is for a log, so somebody testing a build
+        /// on a phone can tell a network from a mistake.
+        /// </remarks>
+        public string Trouble { get; private set; } = string.Empty;
+
         public RelayClient(Uri relay)
             : this(new HttpClient { BaseAddress = relay, Timeout = Patience }, ownsHttp: true)
         {
@@ -276,14 +292,18 @@ namespace Molehill.Online
                 using HttpRequestMessage request = build();
                 response = await _http.SendAsync(request, cancel).ConfigureAwait(false);
             }
-            catch (HttpRequestException)
+            catch (HttpRequestException trouble)
             {
+                Trouble = trouble.Message;
+
                 return Reply.Bad<T>(RelayOutcome.Unreachable);
             }
             catch (TaskCanceledException)
             {
                 // Which covers both a timeout and the caller giving up, and the difference does not
                 // change what a client should do next.
+                Trouble = "The relay did not answer in time.";
+
                 return Reply.Bad<T>(RelayOutcome.Unreachable);
             }
 

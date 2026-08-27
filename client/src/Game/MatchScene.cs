@@ -123,6 +123,7 @@ public partial class MatchScene : Node2D
     private EmoteWheel? _wheel;
     private FirstGesture? _gesture;
     private bool _shownTheGesture;
+    private bool _saidWhy;
 
     /// <summary>How often the driver says something. Slower than the relay would allow.</summary>
     private const double SaySomethingEvery = 4.0;
@@ -896,6 +897,16 @@ public partial class MatchScene : Node2D
                 _saidCode = true;
                 GD.Print($"match {online.Code} seat {online.Seat} seed {online.Seed}");
             }
+        }
+
+        if (online.Struggling && !_saidWhy)
+        {
+            // Once, to the log. Every transport failure reaches the player as the same dots, and on a
+            // phone the causes are not alike: no signal, no relay, a wrong address, or Android
+            // refusing a cleartext HTTP request before it leaves the device. A tester needs to know
+            // which.
+            _saidWhy = true;
+            GD.Print($"relay unreachable at {Flags.Relay()}: {Online.Relay.Trouble}");
         }
 
         if (!online.Live)
