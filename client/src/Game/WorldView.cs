@@ -393,6 +393,7 @@ public partial class WorldView : Control
 
         DrawGround();
         DrawLava();
+        DrawPlacements();
         DrawCrates();
 
         if (!_stage.Planning && _stage.Recording is not null)
@@ -725,6 +726,94 @@ public partial class WorldView : Control
         DrawRect(new Rect2(right, 0, width - right, height), Palette.Lava);
     }
 
+    /// <summary>
+    /// Traps, snares and capped vents, as suspicious little mounds of fresh soil.
+    /// </summary>
+    /// <remarks>
+    /// These were invisible until now, which was not a cosmetic gap but a broken rule. The design
+    /// gives a trap a round's delay before it arms specifically so that it "sits there as a
+    /// suspicious mound for a whole round first and opponents get to decide whether to respect it
+    /// or test it". Against something nobody can see, the delay buys nothing and the trap is just a
+    /// random punishment for walking somewhere.
+    ///
+    /// One shape for all three, in the owner's colour, because what matters is that something is
+    /// there and whose it is. Which of the three it happens to be changes what it does to you but
+    /// not what you should do about it, and a mound is what the design calls it.
+    /// </remarks>
+    private void DrawPlacements()
+    {
+        foreach (Placement placement in _stage.Match.Placements)
+        {
+            if (placement.Spent || !PlantedYet(placement))
+            {
+                continue;
+            }
+
+            Draw(placement);
+        }
+    }
+
+    /// <summary>
+    /// Whether a placement has been put down as far as the viewer has seen.
+    /// </summary>
+    /// <remarks>
+    /// Anything from an earlier round has always been there. Anything from the round being watched
+    /// appears at the tick its mole planted it, rather than sitting on the map from the first frame
+    /// of a replay that has already resolved.
+    /// </remarks>
+    private bool PlantedYet(Placement placement)
+    {
+        RoundResult? result = _stage.Result;
+
+        if (_stage.Planning || result is null || placement.PlacedOnRound < result.Round)
+        {
+            return true;
+        }
+
+        return _stage.Tick >= placement.PlacedOnTick;
+    }
+
+    private void Draw(Placement placement)
+    {
+        Vector2 at = ToPixels(placement.Position);
+        float wide = MoleRadius() * 1.15f;
+        float tall = wide * 0.62f;
+        Color seat = Palette.Seat(placement.OwnerSeat);
+        bool armed = placement.IsArmed(_stage.Match.Round);
+
+        // Freshly disturbed soil, which is what the whole game is about looking for.
+        DrawColoredPolygon(
+            new[]
+            {
+                at + new Vector2(-wide, tall),
+                at + new Vector2(-wide * 0.55f, -tall * 0.55f),
+                at + new Vector2(0, -tall),
+                at + new Vector2(wide * 0.55f, -tall * 0.55f),
+                at + new Vector2(wide, tall),
+            },
+            Palette.Of(MoleSim.Terrain.Material.LooseSoil));
+
+        // Whose it is, and whether it can catch anybody yet. A mound that is not live yet is
+        // outlined; once it arms it gets a solid eye, which is the round the design gives everybody
+        // to decide whether to respect it or test it.
+        DrawPolyline(
+            new[]
+            {
+                at + new Vector2(-wide, tall),
+                at + new Vector2(-wide * 0.55f, -tall * 0.55f),
+                at + new Vector2(0, -tall),
+                at + new Vector2(wide * 0.55f, -tall * 0.55f),
+                at + new Vector2(wide, tall),
+            },
+            new Color(seat, armed ? 0.95f : 0.45f),
+            Mathf.Max(wide * 0.16f, 1.5f));
+
+        if (armed)
+        {
+            DrawCircle(at + new Vector2(0, -tall * 0.15f), wide * 0.22f, seat);
+        }
+    }
+
     private void DrawCrates()
     {
         float half = _scale * 0.3f;
@@ -1001,34 +1090,81 @@ public partial class WorldView : Control
     /// </summary>
     private void DrawAim(SeatPlanner planner)
     {
-        Vector2 muzzle = ToPixels(planner.PlannedPosition);
-        float radius = MoleRadius();
+        Vec2 heading = planner.AimHeading;
 
-        if (planner.Aiming)
-        {
-            DrawArc(muzzle, radius, 0, Mathf.Tau, 20, Palette.Aiming, radius * 0.16f);
-            DrawLine(muzzle, ToPixels(planner.AimAt), Palette.Aiming, radius * 0.2f);
-            DrawCircle(ToPixels(planner.AimAt), radius * 0.45f, Palette.Aiming);
-            return;
-        }
-
-        if (planner.Shot is null)
+        if (heading.LengthSquared() == Fix64.Zero)
         {
             return;
         }
 
-        Vec2 aim = planner.Shot.Value.AimDirection();
-        Vector2 direction = new Vector2((float)aim.X.ToDecimal(), (float)aim.Y.ToDecimal());
-        float length = _scale * 2.6f * (planner.Shot.Value.Power / 255f);
-        Vector2 tip = muzzle + (direction * length);
-        Vector2 across = new Vector2(-direction.Y, direction.X) * radius * 0.45f;
-
-        DrawArc(muzzle, radius, 0, Mathf.Tau, 20, Palette.Damage, radius * 0.16f);
-        DrawLine(muzzle, tip, Palette.Damage, radius * 0.2f);
-        DrawColoredPolygon(
-            new[] { tip + (direction * radius * 0.8f), tip + across, tip - across },
-            Palette.Damage);
+        ChargeArrow(
+            ToPixels(planner.PlannedPosition),
+            new Vector2((float)heading.X.ToDecimal(), (float)heading.Y.ToDecimal()),
+            (float)planner.AimCharge,
+            planner.Aiming ? Palette.Aiming : Palette.Damage);
     }
+
+    /// <summary>
+    /// The aim: an arrow of fixed length that fills up as the throw charges.
+    /// </summary>
+    /// <remarks>
+    /// Both halves of this used to scale the arrow's length by the power, which is the same mistake
+    /// the wind gauge made and was fixed for: a gauge scaled by its own value is unreadable exactly
+    /// where reading it matters, so a fifth-power shot drew a stub half a mole long and a player
+    /// could not tell a soft throw from a mis-click. The track is now the same length every time and
+    /// the charge is the fill, which is what a progress bar is for.
+    ///
+    /// It deliberately does not predict where the shell lands. The arc could be drawn honestly,
+    /// since the projectile solver is deterministic and would run against a terrain copy the way
+    /// the movement preview does, but an artillery game whose shots are pre-plotted is a different
+    /// game. Direction and charge are what the player chose; where it ends up is the round's answer.
+    /// </remarks>
+    private void ChargeArrow(Vector2 from, Vector2 direction, float charge, Color ink)
+    {
+        float radius = MoleRadius();
+        float length = Mathf.Max(_scale * ArrowMetres, 44f);
+        float thickness = Mathf.Max(radius * 0.44f, 4f);
+        Vector2 tip = from + (direction * length);
+        Vector2 across = new Vector2(-direction.Y, direction.X) * thickness * 1.5f;
+        bool full = charge >= 0.999f;
+
+        // The muzzle ring, so an arrow in the middle of a scrum plainly belongs to a mole.
+        DrawArc(from, radius, 0, Mathf.Tau, 20, ink, radius * 0.16f);
+
+        // The empty track first, then however much of it is charged. The track is what makes the
+        // fill legible: without it there is nothing for the fill to be a fraction of.
+        DrawLine(from, tip, new Color(ink, 0.2f), thickness);
+
+        if (charge > 0f)
+        {
+            DrawLine(from, from + (direction * length * charge), ink, thickness);
+        }
+
+        // The head fills in only at maximum, which is the one moment worth calling out: it is the
+        // difference between a hard throw and the hardest one available.
+        Vector2[] head =
+        {
+            tip + (direction * thickness * 2.1f),
+            tip + across,
+            tip - across,
+        };
+
+        if (full)
+        {
+            DrawColoredPolygon(head, ink);
+            return;
+        }
+
+        DrawColoredPolygon(head, new Color(ink, 0.2f));
+        DrawPolyline(
+            new[] { head[0], head[1], head[2], head[0] }, new Color(ink, 0.55f), 2f);
+    }
+
+    /// <summary>
+    /// How long the aim arrow is, in metres, whatever the charge. Long enough that a tenth of it
+    /// is visible, short enough not to cover the mole it is aimed at.
+    /// </summary>
+    private const float ArrowMetres = 3.4f;
 
     /// <summary>
     /// A border in the platoon's colour, so four views never get mistaken for each other.

@@ -135,6 +135,11 @@ public sealed class SeatPlanner
         _tickDebt = 0;
         _freeResetSpent = false;
 
+        // Whose turn it is, and there is no choosing about it. The simulation rotates through a
+        // platoon and skips whoever has gone out: Eligible hands back only moles still standing
+        // that have not had a go this cycle, and once they all have, the rotation starts again.
+        // Taking the first of them is the rotation. There was briefly a key to step past it, which
+        // is a decision nobody needs to be asked to make and one more thing to explain.
         foreach (Mole candidate in _match.Eligible(Seat))
         {
             Actor = candidate;
@@ -145,30 +150,6 @@ public sealed class SeatPlanner
         // round open waiting for a plan that cannot exist.
         Committed = Actor is null;
         StartWalk();
-    }
-
-    /// <summary>Steps to the next mole that has not had its turn this cycle.</summary>
-    public void CycleActor()
-    {
-        if (Actor is null || Committed)
-        {
-            return;
-        }
-
-        List<Mole> choices = new List<Mole>();
-
-        foreach (Mole candidate in _match.Eligible(Seat))
-        {
-            choices.Add(candidate);
-        }
-
-        if (choices.Count <= 1)
-        {
-            return;
-        }
-
-        Actor = choices[(choices.IndexOf(Actor) + 1) % choices.Count];
-        Discard();
     }
 
     /// <summary>
@@ -324,12 +305,49 @@ public sealed class SeatPlanner
             return;
         }
 
+        Shot = PlanAction.Fire(Now(), aim, PowerFor(aim));
+    }
+
+    /// <summary>
+    /// How hard a given drag throws, as the byte the plan will carry.
+    /// </summary>
+    /// <remarks>
+    /// Shared with <see cref="AimCharge"/> on purpose. The charge gauge is drawn from this rather
+    /// than from the raw drag length, so it cannot promise a throw the plan will not contain: the
+    /// clamp at either end is part of the answer, and a bar that ignored the floor would read as
+    /// empty for a shot that is about to go off at a fifth power anyway.
+    /// </remarks>
+    private static byte PowerFor(Vec2 aim)
+    {
         Fix64 reach = Fix64.Min(aim.Length(), FullPowerDrag);
         int power = Fix64.ToInt(reach / FullPowerDrag * Fix64.FromInt(byte.MaxValue));
 
-        Shot = PlanAction.Fire(
-            Now(), aim, (byte)(power < 20 ? 20 : power > byte.MaxValue ? byte.MaxValue : power));
+        return (byte)(power < WeakestThrow ? WeakestThrow
+            : power > byte.MaxValue ? byte.MaxValue : power);
     }
+
+    /// <summary>The softest a shot can be thrown. A dropped clod is still a throw.</summary>
+    private const int WeakestThrow = 20;
+
+    /// <summary>Which way the shot points, or nothing when there is no shot to point.</summary>
+    public Vec2 AimHeading
+    {
+        get
+        {
+            if (Aiming)
+            {
+                Vec2 aim = AimAt - PlannedPosition;
+
+                return aim.LengthSquared() == Fix64.Zero ? Vec2.Zero : aim.Normalised();
+            }
+
+            return Shot?.AimDirection() ?? Vec2.Zero;
+        }
+    }
+
+    /// <summary>How charged the shot is, from nothing to full.</summary>
+    public double AimCharge =>
+        (Aiming ? PowerFor(AimAt - PlannedPosition) : Shot?.Power ?? 0) / (double)byte.MaxValue;
 
     /// <summary>
     /// Plants the charge where the mole is standing, or picks it back up.

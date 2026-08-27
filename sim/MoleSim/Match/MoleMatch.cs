@@ -714,17 +714,20 @@ namespace MoleSim.Match
 
                 case WeaponId.SnapTrap:
                     _placements.Add(new Placement(
-                        weapon, actor.Seat, actor.Position, Round + MatchSettings.TrapArmDelay, int.MaxValue));
+                        weapon, actor.Seat, actor.Position, Round, action.Tick,
+                        Round + MatchSettings.TrapArmDelay, int.MaxValue));
                     break;
 
                 case WeaponId.RootSnare:
                     // Live at once and gone after this round, so it costs its victim
                     // exactly one turn.
-                    _placements.Add(new Placement(weapon, actor.Seat, actor.Position, Round, Round));
+                    _placements.Add(new Placement(
+                        weapon, actor.Seat, actor.Position, Round, action.Tick, Round, Round));
                     break;
 
                 case WeaponId.GeyserCap:
-                    _placements.Add(new Placement(weapon, actor.Seat, actor.Position, Round, int.MaxValue));
+                    _placements.Add(new Placement(
+                        weapon, actor.Seat, actor.Position, Round, action.Tick, Round, int.MaxValue));
                     break;
 
                 case WeaponId.TunnelTorpedo:

@@ -12,11 +12,20 @@ namespace MoleSim.Match
     /// </remarks>
     public sealed class Placement
     {
-        public Placement(WeaponId weapon, int ownerSeat, Vec2 position, int armsOnRound, int expiresAfterRound)
+        public Placement(
+            WeaponId weapon,
+            int ownerSeat,
+            Vec2 position,
+            int placedOnRound,
+            int placedOnTick,
+            int armsOnRound,
+            int expiresAfterRound)
         {
             Weapon = weapon;
             OwnerSeat = ownerSeat;
             Position = position;
+            PlacedOnRound = placedOnRound;
+            PlacedOnTick = placedOnTick;
             ArmsOnRound = armsOnRound;
             ExpiresAfterRound = expiresAfterRound;
         }
@@ -27,6 +36,19 @@ namespace MoleSim.Match
         public int OwnerSeat { get; }
 
         public Vec2 Position { get; }
+
+        /// <summary>
+        /// The round and the tick within it that this was put down.
+        /// </summary>
+        /// <remarks>
+        /// Recorded so a replay can show it appearing at the moment the mole planted it rather
+        /// than having it there from the first frame. A round resolves before anybody watches it,
+        /// so everything read from live state during playback gives the round away, and a trap
+        /// that exists before the mole reaches the spot is a small but real spoiler of that kind.
+        /// </remarks>
+        public int PlacedOnRound { get; }
+
+        public int PlacedOnTick { get; }
 
         /// <summary>
         /// The round from which this can catch somebody. A trap placed now arms next

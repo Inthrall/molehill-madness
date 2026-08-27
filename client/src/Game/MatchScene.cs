@@ -97,6 +97,11 @@ public partial class MatchScene : Node2D
         // point-sampled. Filtered, the soil turns to smudge and the cell grid stops reading.
         TextureFilter = TextureFilterEnum.Nearest;
 
+        // Anything the panes do not cover is painted rather than left to the engine's default,
+        // which is a blue-grey that reads as a rendering fault. A three-camera cut leaves the
+        // fourth cell of the grid empty, and it should look like a deliberate dark surround.
+        RenderingServer.SetDefaultClearColor(Palette.Ink);
+
         _players = Mathf.Clamp(
             MatchSetup.PlayerCount, MatchSetup.FewestPlayers, MatchSetup.MostPlayers);
 
@@ -1471,11 +1476,6 @@ public partial class MatchScene : Node2D
                 Click();
                 break;
 
-            case Key.Tab:
-                planner?.CycleActor();
-                Click();
-                break;
-
             case Key.F:
                 planner?.PlantCharge();
                 Click();
@@ -1826,9 +1826,14 @@ public partial class MatchScene : Node2D
 
     private MatchHud.State BuildHudState()
     {
-        SplitLayout.TrySpareCell(_players, Band(), out Rect2 spare);
         SplitLayout.Pane[] panes = Panes();
         bool splitting = panes.Length > 1;
+
+        // Keyed on how many panes there are rather than how many platoons. Three cameras leave the
+        // fourth cell of the grid empty whether that is because three people are playing or because
+        // the director cut the round three ways, and an empty quarter of the screen is a quarter of
+        // the screen either way.
+        SplitLayout.TrySpareCell(panes.Length, Band(), out Rect2 spare);
 
         return new MatchHud.State
         {
@@ -1844,7 +1849,7 @@ public partial class MatchScene : Node2D
             Wind = (float)_match.Wind.ToDecimal(),
             Round = _match.Round + (_beat == Beat.Planning ? 1 : 0),
             SpareCell = spare,
-            HasSpareCell = splitting && _players == 3,
+            HasSpareCell = splitting && panes.Length == 3,
             Split = splitting,
         };
     }
