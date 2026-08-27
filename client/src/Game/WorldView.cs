@@ -867,7 +867,48 @@ public partial class WorldView : Control
                 : ToPixels(mole.Position);
 
             DrawMole(at, mole.Seat, mole.Pluck, acting, Owns(mole.Seat));
+
+            // One bubble per platoon, not one per mole. A platoon has up to four of them and the
+            // first version put the same picture over every one, which read as four moles all
+            // saying the same thing at once rather than as a platoon saying it.
+            if (mole.Index == Speaker(mole.Seat))
+            {
+                DrawSaying(at, mole.Seat);
+            }
         }
+    }
+
+    /// <summary>
+    /// Which of a platoon's moles carries its bubble.
+    /// </summary>
+    /// <remarks>
+    /// The one taking the turn, because that is the one the player and everybody watching is already
+    /// looking at. Failing that the first still standing, so a platoon between turns still has a
+    /// mouth.
+    /// </remarks>
+    private int Speaker(int seat)
+    {
+        int first = -1;
+
+        foreach (Mole mole in _stage.Match.Moles)
+        {
+            if (mole.Seat != seat || mole.IsOffDuty)
+            {
+                continue;
+            }
+
+            if (IsActing(mole))
+            {
+                return mole.Index;
+            }
+
+            if (first < 0)
+            {
+                first = mole.Index;
+            }
+        }
+
+        return first;
     }
 
     private bool IsActing(Mole mole)
@@ -1007,6 +1048,48 @@ public partial class WorldView : Control
     /// is the tally, which counts who is still standing, and the damage numbers, which say what a
     /// shot did the moment it lands.
     /// </remarks>
+    /// <summary>
+    /// Whatever this platoon is currently saying, in a bubble over its mole.
+    /// </summary>
+    /// <remarks>
+    /// Read from the online session rather than from the simulation, because an emote is not in the
+    /// simulation and must never be: it arrives out of band, on this client's own clock, and changes
+    /// nothing. Drawing it from here is the whole of its effect on the game.
+    /// </remarks>
+    private void DrawSaying(Vector2 at, int seat)
+    {
+        if (Online.Match is not Molehill.Online.OnlineMatch online)
+        {
+            return;
+        }
+
+        if (online.Chat.From(seat, online.Elapsed) is not Molehill.Online.Said said)
+        {
+            return;
+        }
+
+        // Generous, because at gameplay zoom a mole is about forty pixels and a picture scaled to
+        // match it is a smudge. The bubble is the one thing on the map that has to be readable from
+        // across a room.
+        float size = Mathf.Max(_scale * 1.6f, 46f);
+        Vector2 bubble = at - new Vector2(0, (_scale * 0.9f) + (size * 0.62f));
+
+        DrawCircle(bubble, size * 0.62f, Palette.Panel);
+        DrawArc(bubble, size * 0.62f, 0, Mathf.Tau, 24, new Color(Palette.OnPanel, 0.5f), 2f);
+
+        // A tail, so a bubble over a crowd still belongs to one mole.
+        DrawColoredPolygon(
+            new[]
+            {
+                bubble + new Vector2(-size * 0.18f, size * 0.5f),
+                bubble + new Vector2(size * 0.18f, size * 0.5f),
+                at - new Vector2(0, _scale * 0.55f),
+            },
+            Palette.Panel);
+
+        Glyphs.Say(this, said.Emote, bubble, size * 0.85f, Palette.Seat(seat));
+    }
+
     private void DrawMole(Vector2 at, int seat, int pluck, bool highlight, bool ours)
     {
         float radius = MoleRadius();

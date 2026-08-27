@@ -147,6 +147,53 @@ namespace Molehill.Online
                 cancel);
 
         /// <summary>
+        /// Says something. An index into the wheel, and nothing else.
+        /// </summary>
+        /// <remarks>
+        /// A refusal is expected and unremarkable: the relay limits how often one seat may speak, and
+        /// a player who taps twice quickly has had the second tap dropped rather than anything having
+        /// gone wrong. The caller does not need to know which.
+        /// </remarks>
+        public Task<Reply<bool>> Say(
+            string code, string token, Emote emote, CancellationToken cancel = default) =>
+            Call(
+                () =>
+                {
+                    HttpRequestMessage request = Signed(
+                        HttpMethod.Post, $"/matches/{Tidy(code)}/emote", token);
+
+                    request.Content = Body(
+                        $"{{\"emote\":{((int)emote).ToString(CultureInfo.InvariantCulture)}}}");
+
+                    return request;
+                },
+                _ => true,
+                cancel,
+                emptyBodyMeansSuccess: true);
+
+        /// <summary>Everything said since a given point, and where to carry on from.</summary>
+        public Task<Reply<Chatter>> Listen(
+            string code, long since, CancellationToken cancel = default) =>
+            Call(
+                () => new HttpRequestMessage(
+                    HttpMethod.Get,
+                    $"/matches/{Tidy(code)}/emotes?since={since.ToString(CultureInfo.InvariantCulture)}"),
+                element =>
+                {
+                    List<(int Seat, Emote Emote)> said = new List<(int, Emote)>();
+
+                    foreach (JsonElement one in element.GetProperty("said").EnumerateArray())
+                    {
+                        said.Add((
+                            one.GetProperty("seat").GetInt32(),
+                            (Emote)one.GetProperty("emote").GetInt32()));
+                    }
+
+                    return new Chatter(element.GetProperty("since").GetInt64(), said);
+                },
+                cancel);
+
+        /// <summary>
         /// Tells the relay where to reach this player when a round comes round to them.
         /// </summary>
         /// <remarks>

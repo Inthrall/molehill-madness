@@ -77,6 +77,9 @@ public static class Agreement
             .ToArray();
 }
 
+/// <summary>One tap of the wheel.</summary>
+public sealed record SendEmote(int Emote);
+
 /// <summary>Where to reach a player when it is their turn.</summary>
 public sealed record RegisterDevice(string Token, string? Platform);
 

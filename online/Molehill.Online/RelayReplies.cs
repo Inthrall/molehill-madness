@@ -180,6 +180,24 @@ namespace Molehill.Online
         public int Round { get; }
     }
 
+    /// <summary>What has been said in a match, and where to carry on listening from.</summary>
+    /// <remarks>
+    /// The cursor comes back from the relay rather than being worked out here, so an empty reply
+    /// cannot reset it and replay the whole conversation from the beginning.
+    /// </remarks>
+    public sealed class Chatter
+    {
+        public Chatter(long since, IReadOnlyList<(int Seat, Emote Emote)> said)
+        {
+            Since = since;
+            Said = said;
+        }
+
+        public long Since { get; }
+
+        public IReadOnlyList<(int Seat, Emote Emote)> Said { get; }
+    }
+
     /// <summary>What the relay says after taking a plan.</summary>
     public sealed class Committed
     {

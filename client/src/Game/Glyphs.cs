@@ -698,6 +698,217 @@ public static class Glyphs
         }
     }
 
+    // ---- Things to say --------------------------------------------------------------
+
+    /// <summary>
+    /// The emote wheel, which is the only communication channel in the game.
+    /// </summary>
+    /// <remarks>
+    /// Pictures, because there are no words. The design lists the emote wheel among the load-bearing
+    /// glyph work next to the weapon objects and the four helmets, and it wants edge rather than
+    /// blandness: a pointed "nice shot" and a very sarcastic "after you" are both named outright.
+    /// </remarks>
+    public static void Say(CanvasItem into, Molehill.Online.Emote emote, Vector2 at, float size, Color ink)
+    {
+        switch (emote)
+        {
+            case Molehill.Online.Emote.WatchOut:
+                Alarm(into, at, size, ink);
+                return;
+
+            case Molehill.Online.Emote.NiceShot:
+                Applause(into, at, size, ink);
+                return;
+
+            case Molehill.Online.Emote.WellPlayed:
+                Paw(into, at, size, ink);
+                return;
+
+            case Molehill.Online.Emote.Laughing:
+                Laugh(into, at, size, ink);
+                return;
+
+            case Molehill.Online.Emote.AfterYou:
+                Bow(into, at, size, ink);
+                return;
+
+            case Molehill.Online.Emote.Oops:
+                Wince(into, at, size, ink);
+                return;
+
+            case Molehill.Online.Emote.Thinking:
+                Thought(into, at, size, ink);
+                return;
+
+            default:
+                Flag(into, at, size, ink);
+                return;
+        }
+    }
+
+    /// <summary>An exclamation in a triangle. The only emote that is ever urgent.</summary>
+    private static void Alarm(CanvasItem into, Vector2 at, float size, Color ink)
+    {
+        float unit = size / 2f;
+        float line = size * Stroke;
+
+        into.DrawPolyline(
+            new[]
+            {
+                at + new Vector2(0, -unit * 0.9f),
+                at + new Vector2(unit * 0.85f, unit * 0.7f),
+                at + new Vector2(-unit * 0.85f, unit * 0.7f),
+                at + new Vector2(0, -unit * 0.9f),
+            },
+            ink,
+            line);
+
+        into.DrawLine(
+            at + new Vector2(0, -unit * 0.35f), at + new Vector2(0, unit * 0.15f), ink, line * 1.3f);
+        into.DrawCircle(at + new Vector2(0, unit * 0.42f), line * 0.9f, ink);
+    }
+
+    /// <summary>Two paws clapping, with the motion that makes it applause rather than a pair of blobs.</summary>
+    private static void Applause(CanvasItem into, Vector2 at, float size, Color ink)
+    {
+        float unit = size / 2f;
+        float line = size * Stroke;
+
+        Oval(into, at + new Vector2(-unit * 0.34f, unit * 0.06f), unit * 0.4f, unit * 0.52f, ink);
+        Oval(into, at + new Vector2(unit * 0.34f, unit * 0.06f), unit * 0.4f, unit * 0.52f, ink);
+
+        for (int ray = -1; ray <= 1; ray++)
+        {
+            float angle = Mathf.DegToRad(-90f + (ray * 34f));
+
+            into.DrawLine(
+                at + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * unit * 0.68f,
+                at + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * unit * 1.0f,
+                ink,
+                line * 0.8f);
+        }
+    }
+
+    /// <summary>A raised paw. Well played, without the edge.</summary>
+    private static void Paw(CanvasItem into, Vector2 at, float size, Color ink)
+    {
+        float unit = size / 2f;
+
+        Oval(into, at + new Vector2(0, unit * 0.28f), unit * 0.46f, unit * 0.4f, ink);
+
+        for (int toe = -1; toe <= 1; toe++)
+        {
+            into.DrawCircle(
+                at + new Vector2(toe * unit * 0.36f, -unit * 0.22f), unit * 0.19f, ink);
+        }
+
+        into.DrawCircle(at + new Vector2(unit * 0.55f, unit * 0.12f), unit * 0.15f, ink);
+    }
+
+    /// <summary>A mole creased up. The one a comedy game cannot do without.</summary>
+    private static void Laugh(CanvasItem into, Vector2 at, float size, Color ink)
+    {
+        float unit = size / 2f;
+        float line = size * Stroke;
+
+        into.DrawCircle(at, unit * 0.7f, ink);
+        into.DrawCircle(at + new Vector2(-unit * 0.55f, -unit * 0.62f), unit * 0.26f, ink);
+        into.DrawCircle(at + new Vector2(unit * 0.55f, -unit * 0.62f), unit * 0.26f, ink);
+
+        // Eyes screwed shut and a wide open mouth, which is what separates laughing from a mole head.
+        for (int eye = -1; eye <= 1; eye += 2)
+        {
+            Arc(into, at + new Vector2(eye * unit * 0.26f, -unit * 0.16f), unit * 0.16f,
+                200, 340, Palette.Paper, line * 0.9f);
+        }
+
+        Oval(into, at + new Vector2(0, unit * 0.3f), unit * 0.26f, unit * 0.2f, Palette.Paper);
+    }
+
+    /// <summary>
+    /// A sweeping bow. The design's "very sarcastic 'after you'".
+    /// </summary>
+    /// <remarks>
+    /// A mole bent double with an arm thrown out. The sarcasm lives in the flourish: a small bow reads
+    /// as politeness, and an enormous one reads as what it is.
+    /// </remarks>
+    private static void Bow(CanvasItem into, Vector2 at, float size, Color ink)
+    {
+        float unit = size / 2f;
+        float line = size * Stroke;
+
+        // The bent mole, head down and low.
+        into.DrawCircle(at + new Vector2(-unit * 0.45f, unit * 0.34f), unit * 0.34f, ink);
+        Oval(into, at + new Vector2(-unit * 0.02f, unit * 0.1f), unit * 0.38f, unit * 0.28f, ink);
+
+        // The arm, sweeping right and up, far further than anybody means it.
+        Arc(into, at + new Vector2(unit * 0.2f, unit * 0.1f), unit * 0.78f, 250, 355, ink, line * 1.1f);
+        Polygon(into, ink,
+            at + new Vector2(unit * 0.95f, -unit * 0.42f),
+            at + new Vector2(unit * 0.5f, -unit * 0.52f),
+            at + new Vector2(unit * 0.86f, -unit * 0.88f));
+    }
+
+    /// <summary>A wince. Owning a mistake, which is most of this game.</summary>
+    private static void Wince(CanvasItem into, Vector2 at, float size, Color ink)
+    {
+        float unit = size / 2f;
+        float line = size * Stroke;
+
+        into.DrawCircle(at, unit * 0.7f, ink);
+        into.DrawCircle(at + new Vector2(-unit * 0.55f, -unit * 0.62f), unit * 0.26f, ink);
+        into.DrawCircle(at + new Vector2(unit * 0.55f, -unit * 0.62f), unit * 0.26f, ink);
+
+        // One eye shut, one open, and a crooked mouth. A symmetrical wince reads as a grimace.
+        into.DrawLine(
+            at + new Vector2(-unit * 0.42f, -unit * 0.16f),
+            at + new Vector2(-unit * 0.1f, -unit * 0.16f), Palette.Paper, line * 0.9f);
+        into.DrawCircle(at + new Vector2(unit * 0.26f, -unit * 0.16f), unit * 0.1f, Palette.Paper);
+        into.DrawLine(
+            at + new Vector2(-unit * 0.24f, unit * 0.34f),
+            at + new Vector2(unit * 0.3f, unit * 0.2f), Palette.Paper, line * 0.9f);
+    }
+
+    /// <summary>A thought bubble. Give me a moment.</summary>
+    private static void Thought(CanvasItem into, Vector2 at, float size, Color ink)
+    {
+        float unit = size / 2f;
+
+        Oval(into, at + new Vector2(0, -unit * 0.16f), unit * 0.82f, unit * 0.56f, ink);
+
+        into.DrawCircle(at + new Vector2(-unit * 0.4f, unit * 0.6f), unit * 0.16f, ink);
+        into.DrawCircle(at + new Vector2(-unit * 0.66f, unit * 0.86f), unit * 0.1f, ink);
+
+        for (int dot = -1; dot <= 1; dot++)
+        {
+            into.DrawCircle(
+                at + new Vector2(dot * unit * 0.34f, -unit * 0.16f), unit * 0.1f, Palette.Paper);
+        }
+    }
+
+    /// <summary>
+    /// A flag. Truce?
+    /// </summary>
+    /// <remarks>
+    /// Here to buy back something the design says cutting text chat costs: "no coordinating a
+    /// temporary alliance in a four-way match". A truce cannot be agreed without words, but it can be
+    /// proposed with a picture and accepted by not shooting somebody.
+    /// </remarks>
+    private static void Flag(CanvasItem into, Vector2 at, float size, Color ink)
+    {
+        float unit = size / 2f;
+        float line = size * Stroke;
+
+        into.DrawLine(
+            at + new Vector2(-unit * 0.5f, unit * 0.9f),
+            at + new Vector2(-unit * 0.5f, -unit * 0.9f), ink, line * 1.2f);
+
+        Polygon(into, ink,
+            at + new Vector2(-unit * 0.5f, -unit * 0.85f),
+            at + new Vector2(unit * 0.85f, -unit * 0.5f),
+            at + new Vector2(-unit * 0.5f, -unit * 0.1f));
+    }
+
     // ---- Primitives -----------------------------------------------------------------
 
     private static void Arc(

@@ -114,6 +114,13 @@ public partial class MatchScene : Node2D
 
     private Lobby? _lobby;
     private WaitingSign? _waiting;
+    private EmoteWheel? _wheel;
+
+    /// <summary>How often the driver says something. Slower than the relay would allow.</summary>
+    private const double SaySomethingEvery = 4.0;
+
+    private double _saidAt;
+    private int _saidNext;
     private bool _saidCode;
 
     /// <summary>Which platoon is this device's, or -1 on the couch where they all are.</summary>
@@ -199,6 +206,10 @@ public partial class MatchScene : Node2D
         {
             _waiting = new WaitingSign();
             overlay.AddChild(_waiting);
+
+            _wheel = new EmoteWheel();
+            overlay.AddChild(_wheel);
+            _wheel.Watch(Online.Match);
         }
 
         if (!Flags.Asked("--mute"))
@@ -706,6 +717,8 @@ public partial class MatchScene : Node2D
         // because a frame that blocks on a network call is a stutter every player sees.
         Online.Match?.Poll(delta);
 
+        ChatterIfDriven(delta);
+
         if (_beat == Beat.Arriving)
         {
             RunArriving();
@@ -870,6 +883,33 @@ public partial class MatchScene : Node2D
         Online.Match!.Commit(PlanCodec.Write(mine));
         _beat = Beat.Waiting;
         _stage.Planning = false;
+    }
+
+    /// <summary>
+    /// The driver says something now and then, so a demo run exercises the emote path end to end.
+    /// </summary>
+    /// <remarks>
+    /// Every frame rather than inside DriveIfAsked, which is gated behind a pause and only runs while
+    /// planning. Waiting is where an online match spends nearly all of its life and is exactly when a
+    /// player would be saying something, so a driver that only chattered while planning would leave
+    /// the interesting half untested.
+    /// </remarks>
+    private void ChatterIfDriven(double delta)
+    {
+        if (_autoPilot is null || Online.Match is not Molehill.Online.OnlineMatch online)
+        {
+            return;
+        }
+
+        _saidAt += delta;
+
+        if (_saidAt < SaySomethingEvery)
+        {
+            return;
+        }
+
+        _saidAt = 0;
+        online.Say(Molehill.Online.Wheel.Order[_saidNext++ % Molehill.Online.Wheel.Count]);
     }
 
     private void RunPlanning(double delta)
@@ -1193,6 +1233,14 @@ public partial class MatchScene : Node2D
             return;
         }
 
+        // The wheel gets first refusal, before anything reaches the map. The map is a Node2D reading
+        // raw events, so a Control sitting on top of it does not naturally win, and a tap that both
+        // opened the wheel and steered a mole is the kind of fault that only turns up in a playtest.
+        if (_wheel is not null && Pressing(@event, out Vector2 pressedAt) && _wheel.Pressed(pressedAt))
+        {
+            return;
+        }
+
         if (_touch is not null)
         {
             HandleTouch(@event);
@@ -1200,6 +1248,25 @@ public partial class MatchScene : Node2D
         }
 
         HandleMouse(@event);
+    }
+
+    /// <summary>Where a press landed, whichever kind of press it was.</summary>
+    private static bool Pressing(InputEvent @event, out Vector2 at)
+    {
+        switch (@event)
+        {
+            case InputEventScreenTouch { Pressed: true } touch:
+                at = touch.Position;
+                return true;
+
+            case InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left } click:
+                at = click.Position;
+                return true;
+
+            default:
+                at = Vector2.Zero;
+                return false;
+        }
     }
 
     /// <summary>

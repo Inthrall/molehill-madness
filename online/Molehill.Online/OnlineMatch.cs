@@ -74,6 +74,10 @@ namespace Molehill.Online
         private System.Threading.Tasks.Task<Reply<Committed>>? _sending;
         private System.Threading.Tasks.Task<Reply<RoundRelease>>? _asking;
 
+        private System.Threading.Tasks.Task<Reply<Chatter>>? _listening;
+        private long _heardUpTo;
+        private double _sinceHeard;
+
         private byte[]? _mine;
         private double _quiet;
         private List<Plan> _plans = new List<Plan>();
@@ -184,6 +188,9 @@ namespace Molehill.Online
         public void Poll(double seconds)
         {
             _quiet += seconds;
+            Elapsed += seconds;
+
+            Listen(seconds);
 
             switch (Stage)
             {
@@ -268,6 +275,44 @@ namespace Molehill.Online
         public void Leave()
         {
             Stage = OnlineStage.Done;
+        }
+
+        // ---- Saying something -------------------------------------------------------
+
+        /// <summary>What the other platoons are currently saying.</summary>
+        public Conversation Chat { get; } = new Conversation();
+
+        /// <summary>
+        /// Seconds since this session started, which is the clock emotes are timed on.
+        /// </summary>
+        /// <remarks>
+        /// A local clock rather than the relay's or the simulation's. How long a picture stays on
+        /// screen is a presentation decision, and hanging it off a shared clock would mean an emote
+        /// sent while somebody was in a tunnel arriving already expired.
+        /// </remarks>
+        public double Elapsed { get; private set; }
+
+        /// <summary>
+        /// Says something, and forgets about it.
+        /// </summary>
+        /// <remarks>
+        /// Not awaited and not retried. The relay limits how often a seat may speak, so a refusal is
+        /// an expected outcome of tapping twice rather than a failure, and a client that retried
+        /// chatter would be arguing with a rate limit on the player's behalf.
+        /// </remarks>
+        public void Say(Emote emote)
+        {
+            if (Seating is null)
+            {
+                return;
+            }
+
+            // Shown here at once rather than waiting for it to come back from the relay. A wheel that
+            // does not respond until a round trip completes feels broken, and this is the one part of
+            // the game where nothing depends on every client agreeing.
+            Chat.Heard(Seating.Seat, emote, Elapsed);
+
+            _ = _relay.Say(Seating.Code, Seating.Token, emote);
         }
 
         // ---- Stages -----------------------------------------------------------------
@@ -521,6 +566,66 @@ namespace Molehill.Online
             // The seat read rather than the lobby read, because it answers the same question and
             // returns the same shape, which keeps one harvesting path instead of two.
             return _relay.Resume(seating.Code, seating.Token);
+        }
+
+        /// <summary>
+        /// Picks up anything said since last time, on its own cadence and its own request.
+        /// </summary>
+        /// <remarks>
+        /// Separate from the round poll because the times a player most wants to say something are
+        /// while everybody is still planning, and the round is not being polled then. It is also the
+        /// one call in here whose failure is worth nothing: a lost emote is a lost emote.
+        ///
+        /// The cadence follows the pace like everything else, so an Anytime match is not asking after
+        /// chatter every second for a day.
+        /// </remarks>
+        private void Listen(double seconds)
+        {
+            if (Seating is null || !Live)
+            {
+                return;
+            }
+
+            _sinceHeard += seconds;
+
+            if (_listening is null)
+            {
+                if (_sinceHeard < Gap())
+                {
+                    return;
+                }
+
+                _sinceHeard = 0;
+                _listening = _relay.Listen(Seating.Code, _heardUpTo);
+                return;
+            }
+
+            if (!_listening.IsCompleted)
+            {
+                return;
+            }
+
+            Reply<Chatter> reply = Harvest(_listening);
+            _listening = null;
+
+            if (!reply.Ok || reply.Value is not Chatter chatter)
+            {
+                // Nothing to do about it and nothing to report. Chatter is the one thing here that is
+                // fine to lose.
+                return;
+            }
+
+            _heardUpTo = chatter.Since;
+
+            foreach ((int seat, Emote emote) in chatter.Said)
+            {
+                // Except this client's own, which was shown the moment the wheel was tapped and
+                // would otherwise restart its own timer when it came back round.
+                if (seat != Seating.Seat)
+                {
+                    Chat.Heard(seat, emote, Elapsed);
+                }
+            }
         }
 
         private double Gap() => Pace == MatchPace.Anytime ? AnytimeGap : LiveGap;

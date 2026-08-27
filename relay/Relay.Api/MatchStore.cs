@@ -124,6 +124,19 @@ public sealed class MatchStore : IDisposable
                 PRIMARY KEY (code, seat, round)
             );
 
+            -- The only communication channel in the game. An autoincrementing id rather than a
+            -- timestamp for the cursor, because two emotes in the same millisecond are entirely
+            -- possible and a client that polled "everything after this time" would lose one.
+            CREATE TABLE IF NOT EXISTS emotes (
+                id    INTEGER PRIMARY KEY AUTOINCREMENT,
+                code  TEXT NOT NULL,
+                seat  INTEGER NOT NULL,
+                emote INTEGER NOT NULL,
+                at    TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS emotes_by_match ON emotes (code, id);
+
             CREATE TABLE IF NOT EXISTS hashes (
                 code  TEXT NOT NULL,
                 round INTEGER NOT NULL,
@@ -386,6 +399,76 @@ public sealed class MatchStore : IDisposable
                     row.GetInt32(0),
                     (byte[])row["payload"],
                     DateTimeOffset.Parse(row.GetString(2), CultureInfo.InvariantCulture)));
+            }
+
+            return found;
+        }
+    }
+
+    // ---- Emotes ---------------------------------------------------------------------
+
+    /// <summary>
+    /// Says something, unless this seat said something too recently.
+    /// </summary>
+    /// <remarks>
+    /// The check and the insert happen under the one lock, which is the point of taking it at the
+    /// public method: two taps arriving together must not both find an empty recent history and both
+    /// get through, because that is precisely the burst the limit exists to stop.
+    /// </remarks>
+    public bool Emote(string code, int seat, int emote, DateTimeOffset now, TimeSpan gap)
+    {
+        lock (_gate)
+        {
+            using SqliteCommand recent = _connection.CreateCommand();
+            recent.CommandText =
+                "SELECT MAX(at) FROM emotes WHERE code = $code AND seat = $seat;";
+            recent.Parameters.AddWithValue("$code", code);
+            recent.Parameters.AddWithValue("$seat", seat);
+
+            if (recent.ExecuteScalar() is string last && last.Length > 0
+                && now - DateTimeOffset.Parse(last, CultureInfo.InvariantCulture) < gap)
+            {
+                return false;
+            }
+
+            Execute(
+                """
+                INSERT INTO emotes (code, seat, emote, at)
+                VALUES ($code, $seat, $emote, $at);
+                """,
+                ("$code", code), ("$seat", seat), ("$emote", emote), ("$at", Stamp(now)));
+
+            return true;
+        }
+    }
+
+    /// <summary>Everything said in a match after a given id, oldest first.</summary>
+    public IReadOnlyList<Emoted> Emotes(string code, long after, int most = 32)
+    {
+        lock (_gate)
+        {
+            List<Emoted> found = new List<Emoted>();
+
+            using SqliteCommand read = _connection.CreateCommand();
+            read.CommandText =
+                """
+                SELECT id, seat, emote, at FROM emotes
+                WHERE code = $code AND id > $after ORDER BY id LIMIT $most;
+                """;
+            read.Parameters.AddWithValue("$code", code);
+            read.Parameters.AddWithValue("$after", after);
+            read.Parameters.AddWithValue("$most", most);
+
+            using SqliteDataReader row = read.ExecuteReader();
+
+            while (row.Read())
+            {
+                found.Add(new Emoted(
+                    row.GetInt64(0),
+                    code,
+                    row.GetInt32(1),
+                    row.GetInt32(2),
+                    DateTimeOffset.Parse(row.GetString(3), CultureInfo.InvariantCulture)));
             }
 
             return found;

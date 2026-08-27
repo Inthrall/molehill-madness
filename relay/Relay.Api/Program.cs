@@ -227,6 +227,57 @@ app.MapGet("/matches/{code}/rounds/{round:int}", (
     });
 });
 
+// ---- Saying something -----------------------------------------------------------------
+
+// The only communication channel in the game. What travels is an index into a fixed wheel, which is
+// the whole of the design's safety argument: there is no string here for anybody to put a phone
+// number in, and the set of things that can be said is decided at build time.
+app.MapPost("/matches/{code}/emote", (
+    string code, SendEmote request, HttpRequest http, MatchStore store, TimeProvider clock) =>
+{
+    if (GameCode.Parse(code) is not string tidy || store.Find(tidy) is not Match _)
+    {
+        return Results.NotFound(new { error = "No such game code." });
+    }
+
+    if (store.SeatOf(tidy, http.Headers["X-Seat-Token"].ToString()) is not int seat)
+    {
+        return Results.Unauthorized();
+    }
+
+    if (!EmoteRate.OnIt(request.Emote))
+    {
+        return Results.BadRequest(new { error = "That is not on the wheel." });
+    }
+
+    // Refused rather than queued. A rate limit that delayed emotes would deliver the whole burst a
+    // few seconds later, which is the same harassment arriving on a timer.
+    if (!store.Emote(tidy, seat, request.Emote, clock.GetUtcNow(), EmoteRate.Gap))
+    {
+        return Results.StatusCode(StatusCodes.Status429TooManyRequests);
+    }
+
+    return Results.NoContent();
+});
+
+app.MapGet("/matches/{code}/emotes", (string code, long since, MatchStore store) =>
+{
+    if (GameCode.Parse(code) is not string tidy || store.Find(tidy) is not Match _)
+    {
+        return Results.NotFound(new { error = "No such game code." });
+    }
+
+    IReadOnlyList<Emoted> said = store.Emotes(tidy, since);
+
+    return Results.Ok(new
+    {
+        // Where to carry on from. Sent back rather than left to the client to work out, so an empty
+        // reply does not reset a cursor and replay the whole conversation.
+        since = said.Count > 0 ? said[^1].Id : since,
+        said = said.Select(one => new { seat = one.Seat, emote = one.Emote }),
+    });
+});
+
 // ---- Being told it is your turn -------------------------------------------------------
 
 // Where to reach this player when a round comes round to them. One device per seat, latest wins,
