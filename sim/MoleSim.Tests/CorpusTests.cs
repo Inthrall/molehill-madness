@@ -55,6 +55,16 @@ namespace MoleSim.Tests;
 /// Planning nothing still braces in place; there is simply nothing to press for it. No behavioural
 /// test moved, which is the interesting part: every one of these five pins shifted purely because
 /// the braced flag came out of the state hash, and nothing else about any match changed.
+///
+/// Updated a sixth time when the map became a cave system. The surface moved from a quarter of the
+/// way down to a third, so two thirds of the map is now underground rather than half of it being
+/// strata nobody reached, and the underground is hollowed out into caves by interpolated noise
+/// instead of being solid. Every route used to be over the top; now most of the map is somewhere to
+/// go. Different ground from the first tick means different everything after it, which is the same
+/// class of movement as the crater change: no rule about what a mole or a shell does was touched,
+/// only the field they do it on. The caves stay buried under a roof of solid ground, which is what
+/// keeps the spawn points where they were, and <see cref="MapMakerTests"/> defends that rather than
+/// leaving it to these pins to notice.
 /// </remarks>
 [TestFixture]
 public sealed class CorpusTests
@@ -133,19 +143,19 @@ public sealed class CorpusTests
     [Test]
     public void TwoPlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 2, seed: 1UL, rounds: 12), Is.EqualTo(0x41C7A60C89A49FD4UL));
+        Assert.That(Play(playerCount: 2, seed: 1UL, rounds: 12), Is.EqualTo(0xF84B98EE055E5BEEUL));
     }
 
     [Test]
     public void ThreePlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 3, seed: 20260826UL, rounds: 14), Is.EqualTo(0x82C51E45A0684DC5UL));
+        Assert.That(Play(playerCount: 3, seed: 20260826UL, rounds: 14), Is.EqualTo(0x38B0CF81163F79C8UL));
     }
 
     [Test]
     public void FourPlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 4, seed: 4242UL, rounds: 16), Is.EqualTo(0xAB46AF8FFC2ADD05UL));
+        Assert.That(Play(playerCount: 4, seed: 4242UL, rounds: 16), Is.EqualTo(0x0507C551EC9B527AUL));
     }
 
     [Test]
@@ -153,7 +163,7 @@ public sealed class CorpusTests
     {
         // Past Boiling Point, so the rise, the closing sides and the three-strike rule are
         // all in the hash rather than only the early game.
-        Assert.That(Play(playerCount: 4, seed: 777UL, rounds: 26), Is.EqualTo(0x18693C47D80B1221UL));
+        Assert.That(Play(playerCount: 4, seed: 777UL, rounds: 26), Is.EqualTo(0xA16F7AECC252C2A4UL));
     }
 
     [Test]
@@ -161,7 +171,7 @@ public sealed class CorpusTests
     {
         Assert.That(
             Play(playerCount: 2, seed: 31337UL, rounds: 24, widthCells: 600, heightCells: 320),
-            Is.EqualTo(0x50B9D4464F73FAE8UL));
+            Is.EqualTo(0x6C73D356AFE37DB1UL));
     }
 
     [Test]

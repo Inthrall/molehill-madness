@@ -50,6 +50,24 @@ public static class Palette
         _ => new Color(1f, 0f, 1f),
     };
 
+    /// <summary>
+    /// Ground, all of it the same colour whatever it is made of.
+    /// </summary>
+    /// <remarks>
+    /// The terrain used to be painted a shade per material, which reads as five kinds of stripe and
+    /// says nothing a player can act on at a glance. What matters about a cell is which side of the
+    /// edge it is on, so the ground is one flat fill and the edge does the work. The materials are
+    /// still there in the simulation, where they decide what digging costs; they are simply not what
+    /// the picture is about.
+    /// </remarks>
+    public static readonly Color Ground = new Color(0.827f, 0.729f, 0.573f);
+
+    /// <summary>The line where ground meets air, which is the only detail the terrain draws.</summary>
+    public static readonly Color Edge = new Color(0.34f, 0.27f, 0.19f);
+
+    /// <summary>Nothing at all, so a pane's painted sky shows through the air.</summary>
+    public static readonly Color Nothing = new Color(0f, 0f, 0f, 0f);
+
     // ---- Platoons --------------------------------------------------------------------
 
     private static readonly Color[] Seats =
