@@ -23,4 +23,30 @@ public static class MatchSetup
     public static int PlayerCount { get; set; } = MostPlayers;
 
     public static ulong Seed { get; set; } = DrivenSeed;
+
+    /// <summary>
+    /// How the match is being played: everybody here, or everybody apart.
+    /// </summary>
+    /// <remarks>
+    /// The distinction the menu draws is not offline versus online, which is a word about plumbing.
+    /// It is "all of us round one screen" versus "us in different places", and those are different
+    /// games: on the couch every platoon plans on this device, and apart only one of them does.
+    /// </remarks>
+    public static Table Where { get; set; } = Table.Couch;
+
+    /// <summary>Which pace a hosted match runs at. Ignored on the couch.</summary>
+    public static Molehill.Online.MatchPace Pace { get; set; } =
+        Molehill.Online.MatchPace.Live;
+
+    public enum Table
+    {
+        /// <summary>One device, everybody round it, every platoon planning here.</summary>
+        Couch = 0,
+
+        /// <summary>This device opened the lobby and holds seat zero.</summary>
+        Hosting = 1,
+
+        /// <summary>This device took a seat in somebody else's lobby.</summary>
+        Joining = 2,
+    }
 }

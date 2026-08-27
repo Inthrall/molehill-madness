@@ -597,6 +597,107 @@ public static class Glyphs
             at + new Vector2(-unit * 0.55f, unit * 0.72f));
     }
 
+    // ---- Playing together, and playing apart ----------------------------------------
+
+    /// <summary>
+    /// One screen with everybody round it. Playing on the couch.
+    /// </summary>
+    /// <remarks>
+    /// The distinction the menu has to draw is not "offline versus online", which is a word about
+    /// plumbing, but "all of us here" versus "us in different places". So this is a device with
+    /// several moles inside it and the online ones are a mole with something travelling away.
+    /// </remarks>
+    public static void Couch(CanvasItem into, Vector2 at, float size, Color ink)
+    {
+        float unit = size / 2f;
+        float line = size * Stroke;
+
+        into.DrawRect(
+            new Rect2(at - new Vector2(unit * 0.9f, unit * 0.68f), new Vector2(unit * 1.8f, unit * 1.24f)),
+            ink, false, line);
+
+        for (int mole = 0; mole < 3; mole++)
+        {
+            Mole(into, at + new Vector2((mole - 1) * unit * 0.58f, -unit * 0.04f), unit * 0.52f, ink);
+        }
+    }
+
+    /// <summary>
+    /// A molehill sending something out. Opening a lobby for other people to find.
+    /// </summary>
+    public static void Broadcast(CanvasItem into, Vector2 at, float size, Color ink)
+    {
+        float unit = size / 2f;
+        float line = size * Stroke;
+
+        // The hill, which is the game's own silhouette and keeps this from being a generic aerial.
+        Polygon(into, ink,
+            at + new Vector2(-unit * 0.85f, unit * 0.82f),
+            at + new Vector2(0, unit * 0.06f),
+            at + new Vector2(unit * 0.85f, unit * 0.82f));
+
+        Mole(into, at + new Vector2(0, unit * 0.16f), unit * 0.5f, Palette.Paper);
+
+        // Going out, rather than coming in, which is the difference between hosting and joining.
+        for (int ring = 1; ring <= 3; ring++)
+        {
+            Arc(into, at + new Vector2(0, unit * 0.2f), unit * (0.42f + (ring * 0.28f)),
+                205, 335, new Color(ink, 1f - (ring * 0.22f)), line * 0.85f);
+        }
+    }
+
+    /// <summary>
+    /// Five empty tiles. A code to type in, which is the only way into somebody else's game.
+    /// </summary>
+    public static void Tiles(CanvasItem into, Vector2 at, float size, Color ink)
+    {
+        float unit = size / 2f;
+        float line = size * Stroke * 0.8f;
+        float wide = unit * 0.3f;
+        float tall = unit * 0.46f;
+
+        for (int tile = 0; tile < 5; tile++)
+        {
+            into.DrawRect(
+                new Rect2(
+                    at + new Vector2(((tile - 2) * wide * 1.22f) - (wide / 2f), -tall / 2f),
+                    new Vector2(wide, tall)),
+                ink, false, line);
+        }
+    }
+
+    /// <summary>
+    /// A moon. The Anytime pace, where a round window is measured in hours and the answer to
+    /// "when do I play" is "whenever", including after everybody has gone to bed.
+    /// </summary>
+    public static void Moon(CanvasItem into, Vector2 at, float size, Color ink)
+    {
+        float unit = size / 2f;
+
+        into.DrawCircle(at, unit * 0.78f, ink);
+
+        // Bitten out rather than drawn as a crescent, because a crescent from primitives at this
+        // size reads as a banana.
+        into.DrawCircle(at + new Vector2(unit * 0.42f, -unit * 0.26f), unit * 0.62f, Palette.Panel);
+    }
+
+    /// <summary>
+    /// Ears listening. Waiting for the other platoons to commit, which is where an online match
+    /// spends nearly all of its life.
+    /// </summary>
+    public static void Waiting(CanvasItem into, Vector2 at, float size, int howMany, Color ink)
+    {
+        float unit = size / 2f;
+
+        for (int dot = 0; dot < Mathf.Max(1, howMany); dot++)
+        {
+            into.DrawCircle(
+                at + new Vector2((dot - ((Mathf.Max(1, howMany) - 1) / 2f)) * unit * 0.62f, 0),
+                unit * 0.2f,
+                ink);
+        }
+    }
+
     // ---- Primitives -----------------------------------------------------------------
 
     private static void Arc(

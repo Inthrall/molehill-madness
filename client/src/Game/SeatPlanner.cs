@@ -512,11 +512,37 @@ public sealed class SeatPlanner
     /// </summary>
     public void Commit()
     {
+        Plan? plan = Seal();
+
+        if (plan is not null)
+        {
+            _match.SubmitPlan(plan);
+        }
+    }
+
+    /// <summary>
+    /// Seals the plan and hands it back without submitting it anywhere.
+    /// </summary>
+    /// <remarks>
+    /// Online, the plan goes to the relay and comes back with everybody else's, and the simulation
+    /// is fed from those bytes rather than from this object. That is the whole determinism argument:
+    /// if this client submitted the object it built while the others submitted what they received,
+    /// four simulations would be eating from sources that are only supposed to be identical, and any
+    /// imperfection in the codec would surface as a desync in the field instead of a failing test.
+    ///
+    /// Returns null when this platoon has nothing to plan with, which the caller has to turn into
+    /// something anyway: the relay releases a round only when every seat has committed, so a
+    /// wiped-out platoon still owes an answer.
+    /// </remarks>
+    public Plan? Seal()
+    {
         if (Actor is null || Committed)
         {
             Committed = true;
-            return;
+            return null;
         }
+
+        Committed = true;
 
         List<Vec2> waypoints = Walk?.Waypoints() ?? new List<Vec2>();
         RoutePoint[] route = new RoutePoint[waypoints.Count];
@@ -539,8 +565,7 @@ public sealed class SeatPlanner
             actions.Add(Shot.Value);
         }
 
-        _match.SubmitPlan(new Plan(Seat, Actor.Index, Weapon, route, actions.ToArray()));
-        Committed = true;
+        return new Plan(Seat, Actor.Index, Weapon, route, actions.ToArray());
     }
 }
 

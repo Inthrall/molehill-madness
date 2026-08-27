@@ -82,6 +82,15 @@ public sealed class MatchStore : IDisposable
                 at      TEXT NOT NULL,
                 PRIMARY KEY (code, round, seat)
             );
+
+            CREATE TABLE IF NOT EXISTS hashes (
+                code  TEXT NOT NULL,
+                round INTEGER NOT NULL,
+                seat  INTEGER NOT NULL,
+                hash  TEXT NOT NULL,
+                at    TEXT NOT NULL,
+                PRIMARY KEY (code, round, seat)
+            );
             """);
     }
 
@@ -310,6 +319,75 @@ public sealed class MatchStore : IDisposable
                     row.GetInt32(0),
                     (byte[])row["payload"],
                     DateTimeOffset.Parse(row.GetString(2), CultureInfo.InvariantCulture)));
+            }
+
+            return found;
+        }
+    }
+
+    // ---- Determinism reports --------------------------------------------------------
+
+    /// <summary>
+    /// Records what one client thought the world looked like at the end of a round.
+    /// </summary>
+    /// <remarks>
+    /// This is the field telemetry the plan asks for, and it is the one thing the relay stores that
+    /// is not needed to play the game. Every participant simulates the same round from the same
+    /// inputs, so their state hashes must match; if they do not, that is a determinism bug on real
+    /// hardware, and the match is its own reproduction because the seed and every plan are already
+    /// sitting in the other two tables.
+    ///
+    /// Per round rather than per match, which the plan describes as the cheap version. A hash is
+    /// eight bytes, so recording one each round costs nothing and narrows a divergence to the round
+    /// it started in rather than to a whole afternoon, which is the difference between a bisector
+    /// having a lead and having a haystack.
+    ///
+    /// The relay records and does not arbitrate. It has no idea which client is right and cannot
+    /// acquire one without simulating, so a disagreement is reported rather than resolved.
+    /// </remarks>
+    public bool ReportHash(string code, int round, int seat, ulong hash, DateTimeOffset now)
+    {
+        lock (_gate)
+        {
+            using SqliteCommand insert = _connection.CreateCommand();
+            insert.CommandText =
+                """
+                INSERT OR IGNORE INTO hashes (code, round, seat, hash, at)
+                VALUES ($code, $round, $seat, $hash, $at);
+                """;
+            insert.Parameters.AddWithValue("$code", code);
+            insert.Parameters.AddWithValue("$round", round);
+            insert.Parameters.AddWithValue("$seat", seat);
+            insert.Parameters.AddWithValue("$hash", hash.ToString(CultureInfo.InvariantCulture));
+            insert.Parameters.AddWithValue("$at", Stamp(now));
+
+            return insert.ExecuteNonQuery() > 0;
+        }
+    }
+
+    /// <summary>Every hash reported for a match, oldest round first.</summary>
+    public IReadOnlyList<ReportedHash> Hashes(string code)
+    {
+        lock (_gate)
+        {
+            List<ReportedHash> found = new List<ReportedHash>();
+
+            using SqliteCommand read = _connection.CreateCommand();
+            read.CommandText =
+                """
+                SELECT round, seat, hash FROM hashes
+                WHERE code = $code ORDER BY round, seat;
+                """;
+            read.Parameters.AddWithValue("$code", code);
+
+            using SqliteDataReader row = read.ExecuteReader();
+
+            while (row.Read())
+            {
+                found.Add(new ReportedHash(
+                    row.GetInt32(0),
+                    row.GetInt32(1),
+                    ulong.Parse(row.GetString(2), CultureInfo.InvariantCulture)));
             }
 
             return found;

@@ -1,25 +1,35 @@
 using Godot;
+using Molehill.Online;
 
 /// <summary>
-/// The lobby: how many platoons are sitting down, and a button to start.
+/// The lobby: where the match is being played, how many platoons, and a button to start.
 /// </summary>
 /// <remarks>
 /// The design's couch model is that whoever opens the lobby picks the player count up front, two,
-/// three or four, with four the default and a hard ceiling rather than a first step. That is all
-/// this is. There is no online code to type in yet, no pace to choose and no AI to play against,
-/// because the design rules out opponent AI everywhere.
+/// three or four, with four the default and a hard ceiling rather than a first step. That is still
+/// the spine of this screen; online adds one row above it.
 ///
-/// Wordless like the rest of it. The count is shown as that many platoon-coloured moles rather
-/// than as a numeral, because the design spends its one numeral on damage, and a row of moles says
-/// "this many of you" more directly than a digit would anyway.
+/// The row is not "offline versus online", which is a word about plumbing. It is all of us round one
+/// screen, us in different places with me opening the lobby, or me joining somebody else's, and
+/// those are three genuinely different games rather than a setting. A joiner does not pick a player
+/// count or a pace, because the host already did and the code is the only thing they contribute.
 ///
-/// It exists because there was no way back from a finished match except to close the application,
-/// and the phase gate is worded "four humans laughing and asking for a rematch".
+/// Wordless like the rest of it. The count is shown as that many platoon-coloured moles rather than
+/// as a numeral, because the design spends its one numeral on damage, and a row of moles says "this
+/// many of you" more directly than a digit would anyway.
 /// </remarks>
 public partial class MenuScene : Control
 {
     private int _players = MatchSetup.MostPlayers;
+    private MatchSetup.Table _where = MatchSetup.Table.Couch;
+    private MatchPace _pace = MatchPace.Live;
+
     private readonly Rect2[] _choices = new Rect2[MatchSetup.MostPlayers - MatchSetup.FewestPlayers + 1];
+    private readonly Rect2[] _tables = new Rect2[3];
+    private readonly Rect2[] _paces = new Rect2[2];
+    private Rect2 _resume;
+    private bool _canResume;
+
     private Vector2 _play;
     private float _button;
     private bool _startAtOnce;
@@ -32,7 +42,25 @@ public partial class MenuScene : Control
         // The driver has nobody to press anything, so it walks straight through. Deferred by a
         // frame rather than done here, because changing scene from inside _Ready tears down the
         // tree that is still being built.
-        _startAtOnce = Flags.Driven();
+        _startAtOnce = Flags.Driven() || Flags.Host() || Flags.Join() is not null;
+
+        if (Flags.Host())
+        {
+            _where = MatchSetup.Table.Hosting;
+        }
+        else if (Flags.Join() is not null)
+        {
+            _where = MatchSetup.Table.Joining;
+        }
+
+        if (Flags.Players() is int asked)
+        {
+            _players = Mathf.Clamp(asked, MatchSetup.FewestPlayers, MatchSetup.MostPlayers);
+        }
+
+        // A match this device is already in outranks starting a new one, and the player has to be
+        // able to get back to it without remembering a code they were told once.
+        _canResume = Online.Remembers();
 
         if (Flags.WantsTouch())
         {
@@ -96,6 +124,16 @@ public partial class MenuScene : Control
                 Choose(_players + 1);
                 break;
 
+            case Key.Up:
+            case Key.W:
+                Sit((MatchSetup.Table)Mathf.PosMod((int)_where - 1, _tables.Length));
+                break;
+
+            case Key.Down:
+            case Key.S:
+                Sit((MatchSetup.Table)Mathf.PosMod((int)_where + 1, _tables.Length));
+                break;
+
             // Typing the number is input rather than reading it, so the wordless rule is intact.
             case Key.Key2:
                 Choose(2);
@@ -116,21 +154,59 @@ public partial class MenuScene : Control
 
     private void HandlePress(Vector2 at)
     {
+        // Resume first. Once both buttons are on screen their generous touch targets overlap in the
+        // middle, and the one that would win by accident should not be the one that abandons a match
+        // in progress.
+        if (_canResume && _resume.HasPoint(at))
+        {
+            Continue();
+            return;
+        }
+
         if (at.DistanceTo(_play) <= _button * 1.35f)
         {
             Start();
             return;
         }
 
-        for (int index = 0; index < _choices.Length; index++)
+        for (int index = 0; index < _tables.Length; index++)
         {
-            if (_choices[index].HasPoint(at))
+            if (_tables[index].HasPoint(at))
             {
-                Choose(MatchSetup.FewestPlayers + index);
+                Sit((MatchSetup.Table)index);
                 return;
             }
         }
+
+        if (_where == MatchSetup.Table.Hosting)
+        {
+            for (int index = 0; index < _paces.Length; index++)
+            {
+                if (_paces[index].HasPoint(at))
+                {
+                    _pace = (MatchPace)index;
+                    QueueRedraw();
+                    return;
+                }
+            }
+        }
+
+        if (Picks())
+        {
+            for (int index = 0; index < _choices.Length; index++)
+            {
+                if (_choices[index].HasPoint(at))
+                {
+                    Choose(MatchSetup.FewestPlayers + index);
+                    return;
+                }
+            }
+        }
     }
+
+    /// <summary>Whether this table lets the player choose how many are playing.</summary>
+    /// <remarks>A joiner does not: the host already decided, and the lobby says so.</remarks>
+    private bool Picks() => _where != MatchSetup.Table.Joining;
 
     private void Choose(int players)
     {
@@ -138,17 +214,63 @@ public partial class MenuScene : Control
         QueueRedraw();
     }
 
+    private void Sit(MatchSetup.Table table)
+    {
+        _where = table;
+        QueueRedraw();
+    }
+
     private void Start()
     {
         MatchSetup.PlayerCount = _players;
+        MatchSetup.Where = _where;
+        MatchSetup.Pace = _pace;
+
+        switch (_where)
+        {
+            case MatchSetup.Table.Hosting:
+                Online.Host(_players, _pace);
+                break;
+
+            case MatchSetup.Table.Joining when Flags.Join() is string prefilled:
+                // A share link, or two clients on one desk. Skips the code screen entirely.
+                Online.Join(prefilled);
+                break;
+
+            case MatchSetup.Table.Joining:
+                GetTree().CallDeferred(
+                    SceneTree.MethodName.ChangeSceneToFile, "res://scenes/Code.tscn");
+                return;
+
+            default:
+                Online.Forget();
+                break;
+        }
 
         // A rematch should be a different garden, so the seed moves. Under the driver it does not,
         // because a match that changed every run would break every comparison the render checks
-        // are built on, and a named seed beats both.
+        // are built on, and a named seed beats both. Online, the relay draws it: every client has
+        // to be digging the same ground, and the relay is the only thing they all talk to.
         MatchSetup.Seed = Flags.Seed()
             ?? (Flags.Driven()
                 ? MatchSetup.DrivenSeed
                 : (ulong)(Time.GetUnixTimeFromSystem() * 1000d));
+
+        GetTree().CallDeferred(
+            SceneTree.MethodName.ChangeSceneToFile, "res://scenes/Match.tscn");
+    }
+
+    /// <summary>Goes back into the match this device was already in.</summary>
+    private void Continue()
+    {
+        if (!Online.Resume())
+        {
+            _canResume = false;
+            QueueRedraw();
+            return;
+        }
+
+        MatchSetup.Where = MatchSetup.Table.Joining;
 
         GetTree().CallDeferred(
             SceneTree.MethodName.ChangeSceneToFile, "res://scenes/Match.tscn");
@@ -161,60 +283,15 @@ public partial class MenuScene : Control
         Vector2 viewport = Size;
 
         DrawRect(new Rect2(Vector2.Zero, viewport), Palette.Paper);
-        DrawHill(viewport);
+        MenuHill.Draw(this, viewport);
 
         _button = Mathf.Clamp(Mathf.Min(viewport.X, viewport.Y) * 0.075f, 30f, 64f);
 
         DrawBadge(viewport);
-        DrawChoices(viewport);
+        DrawTables(viewport);
+        DrawSecondRow(viewport);
         DrawPlay(viewport);
     }
-
-    /// <summary>
-    /// A hillside along the bottom, so the menu is standing somewhere rather than floating.
-    /// </summary>
-    /// <remarks>
-    /// Drawn from the same two soil colours the map uses, out of a handful of cosine terms rather
-    /// than a texture, which keeps the menu on the same no-assets footing as everything else.
-    /// </remarks>
-    private void DrawHill(Vector2 viewport)
-    {
-        const int steps = 48;
-        Vector2[] surface = new Vector2[steps + 3];
-
-        for (int step = 0; step <= steps; step++)
-        {
-            float across = step / (float)steps;
-
-            surface[step] = new Vector2(across * viewport.X, SurfaceAt(across, viewport));
-        }
-
-        surface[steps + 1] = new Vector2(viewport.X, viewport.Y);
-        surface[steps + 2] = new Vector2(0, viewport.Y);
-
-        DrawColoredPolygon(surface, Palette.Of(MoleSim.Terrain.Material.LooseSoil));
-
-        // The turf line on top, which is what makes it read as ground rather than as a shape.
-        Vector2[] turf = new Vector2[steps + 1];
-
-        for (int step = 0; step <= steps; step++)
-        {
-            turf[step] = surface[step];
-        }
-
-        DrawPolyline(turf, Palette.Of(MoleSim.Terrain.Material.Turf), viewport.Y * 0.012f);
-    }
-
-    /// <summary>Where the hillside is at a given point across the screen.</summary>
-    /// <remarks>
-    /// Shared by the hill and the moles standing on it. The first version drew a spoil heap at a
-    /// fixed height and the hill somewhere else, and the heap floated in the sky with the moles
-    /// balanced on it, which is a funny picture but not the intended one.
-    /// </remarks>
-    private static float SurfaceAt(float across, Vector2 viewport) =>
-        (viewport.Y * 0.42f)
-            + (Mathf.Cos(across * 7.1f) * viewport.Y * 0.045f)
-            + (Mathf.Cos((across * 2.7f) + 1.4f) * viewport.Y * 0.03f);
 
     /// <summary>
     /// Four platoons coming up out of the hill. As close to a title as a wordless game gets.
@@ -227,7 +304,7 @@ public partial class MenuScene : Control
         for (int seat = 0; seat < MatchSetup.MostPlayers; seat++)
         {
             float across = 0.5f + ((seat - 1.5f) * size * 0.95f / viewport.X);
-            float ground = SurfaceAt(across, viewport);
+            float ground = MenuHill.SurfaceAt(across, viewport);
             Vector2 at = new Vector2(across * viewport.X, ground - (size * 0.34f));
 
             // Each one out of its own molehill, which is the game's whole silhouette.
@@ -241,6 +318,63 @@ public partial class MenuScene : Control
                 soil);
 
             Glyphs.Mole(this, at, size * 0.62f, Palette.Seat(seat));
+        }
+    }
+
+    /// <summary>Here together, hosting, or joining.</summary>
+    private void DrawTables(Vector2 viewport)
+    {
+        float height = _button * 1.4f;
+        float width = _button * 2.1f;
+        float gap = _button * 0.42f;
+        float left = (viewport.X - ((width * _tables.Length) + (gap * (_tables.Length - 1)))) / 2f;
+        float top = viewport.Y * 0.44f;
+
+        for (int index = 0; index < _tables.Length; index++)
+        {
+            bool chosen = (int)_where == index;
+
+            _tables[index] = new Rect2(left, top, width, height);
+            Panel(_tables[index], chosen);
+
+            Vector2 middle = _tables[index].Position + (_tables[index].Size / 2f);
+            Color ink = chosen ? Palette.OnPanel : new Color(Palette.OnPanel, 0.4f);
+
+            switch ((MatchSetup.Table)index)
+            {
+                case MatchSetup.Table.Couch:
+                    Glyphs.Couch(this, middle, height * 0.72f, ink);
+                    break;
+
+                case MatchSetup.Table.Hosting:
+                    Glyphs.Broadcast(this, middle, height * 0.72f, ink);
+                    break;
+
+                default:
+                    Glyphs.Tiles(this, middle, height * 0.86f, ink);
+                    break;
+            }
+
+            left += width + gap;
+        }
+
+    }
+
+    /// <summary>
+    /// Either how many are playing, or how fast a hosted match runs. A joiner gets neither.
+    /// </summary>
+    private void DrawSecondRow(Vector2 viewport)
+    {
+        if (_where == MatchSetup.Table.Joining)
+        {
+            return;
+        }
+
+        DrawChoices(viewport);
+
+        if (_where == MatchSetup.Table.Hosting)
+        {
+            DrawPaces(viewport);
         }
     }
 
@@ -260,7 +394,7 @@ public partial class MenuScene : Control
         }
 
         float left = (viewport.X - total + gap) / 2f;
-        float top = viewport.Y * 0.55f;
+        float top = viewport.Y * 0.585f;
 
         for (int index = 0; index < _choices.Length; index++)
         {
@@ -268,14 +402,7 @@ public partial class MenuScene : Control
             bool chosen = players == _players;
 
             _choices[index] = new Rect2(left, top, widths[index], height);
-
-            // Both states are panels. The unselected ones were a fifteen percent wash over soil to
-            // begin with, which on a tan hillside is not a control at all.
-            DrawRect(_choices[index], chosen ? Palette.Panel : new Color(Palette.Ink, 0.5f));
-            DrawRect(
-                _choices[index],
-                chosen ? Palette.OnPanel : new Color(Palette.OnPanel, 0.25f), false,
-                chosen ? 3f : 1.5f);
+            Panel(_choices[index], chosen);
 
             for (int seat = 0; seat < players; seat++)
             {
@@ -292,12 +419,91 @@ public partial class MenuScene : Control
         }
     }
 
+    /// <summary>An hourglass for a match played now, a moon for one played over days.</summary>
+    private void DrawPaces(Vector2 viewport)
+    {
+        float height = _button * 1.15f;
+        float width = _button * 1.5f;
+        float gap = _button * 0.4f;
+        float left = (viewport.X - ((width * 2) + gap)) / 2f;
+        float top = viewport.Y * 0.585f + (_button * 1.5f) + (_button * 0.3f);
+
+        for (int index = 0; index < _paces.Length; index++)
+        {
+            bool chosen = (int)_pace == index;
+
+            _paces[index] = new Rect2(left, top, width, height);
+            Panel(_paces[index], chosen);
+
+            Vector2 middle = _paces[index].Position + (_paces[index].Size / 2f);
+            Color ink = chosen ? Palette.OnPanel : new Color(Palette.OnPanel, 0.4f);
+
+            if ((MatchPace)index == MatchPace.Live)
+            {
+                Glyphs.Time(this, middle, height * 0.66f, ink);
+            }
+            else
+            {
+                Glyphs.Moon(this, middle, height * 0.72f, ink);
+            }
+
+            left += width + gap;
+        }
+    }
+
+    /// <summary>
+    /// Start a match, and beside it the match already going, if there is one.
+    /// </summary>
+    /// <remarks>
+    /// Resume sits next to play rather than up with the three tables, because it is not a kind of
+    /// match to choose between. It is the one already being played, so it belongs with the button
+    /// that starts things and not with the ones that describe them. It also had to move: drawn above
+    /// the table row it landed squarely on the badge and hid two of the four moles.
+    /// </remarks>
     private void DrawPlay(Vector2 viewport)
     {
-        _play = new Vector2(viewport.X / 2f, viewport.Y * 0.81f);
+        float middle = viewport.Y * 0.83f;
+
+        // Shifted off centre only when there are two buttons, so a fresh install has its play
+        // button where it has always been.
+        float nudge = _canResume ? _button * 1.35f : 0f;
+
+        _play = new Vector2((viewport.X / 2f) + nudge, middle);
 
         DrawCircle(_play, _button, Palette.Panel);
         DrawArc(_play, _button, 0, Mathf.Tau, 40, new Color(Palette.OnPanel, 0.55f), 3f);
         Glyphs.Play(this, _play + new Vector2(_button * 0.06f, 0), _button * 1.1f, Palette.OnPanel);
+
+        if (!_canResume)
+        {
+            return;
+        }
+
+        Vector2 back = new Vector2((viewport.X / 2f) - nudge, middle);
+
+        _resume = new Rect2(back - new Vector2(_button, _button), Vector2.One * _button * 2f);
+
+        DrawCircle(back, _button, Palette.Panel);
+        DrawArc(back, _button, 0, Mathf.Tau, 40, new Color(Palette.OnPanel, 0.55f), 3f);
+
+        // The match you are in is an online one by definition, so the same glyph the hosting table
+        // uses says which button this is without needing a word for "continue".
+        Glyphs.Broadcast(this, back, _button * 0.95f, Palette.OnPanel);
+    }
+
+    /// <summary>
+    /// A control, chosen or not.
+    /// </summary>
+    /// <remarks>
+    /// Both states are panels. The unselected ones were a fifteen percent wash over soil to begin
+    /// with, which on a tan hillside is not a control at all.
+    /// </remarks>
+    private void Panel(Rect2 where, bool chosen)
+    {
+        DrawRect(where, chosen ? Palette.Panel : new Color(Palette.Ink, 0.5f));
+        DrawRect(
+            where,
+            chosen ? Palette.OnPanel : new Color(Palette.OnPanel, 0.25f), false,
+            chosen ? 3f : 1.5f);
     }
 }

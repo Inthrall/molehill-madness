@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Godot;
+using Molehill.Online;
 using MoleSim;
 using MoleSim.Match;
 using MoleSim.Numerics;
@@ -40,6 +41,20 @@ public partial class MatchScene : Node2D
         Resolving,
         Aftermath,
         Finished,
+
+        /// <summary>Online only: waiting for the relay to say which world this is.</summary>
+        Arriving,
+
+        /// <summary>
+        /// Online only: this platoon has committed and the others have not.
+        /// </summary>
+        /// <remarks>
+        /// Where an online match spends nearly all of its life, and in Anytime pace possibly the
+        /// better part of a day. It is a beat rather than a flag on Planning because nothing about
+        /// planning is happening: no input is wanted, no clock is running, and the screen has a
+        /// different job.
+        /// </remarks>
+        Waiting,
     }
 
     /// <summary>What a platoon plans with.</summary>
@@ -53,6 +68,12 @@ public partial class MatchScene : Node2D
 
         /// <summary>A gamepad, by index.</summary>
         Gamepad = 2,
+
+        /// <summary>
+        /// Somebody else's phone. Nothing on this device plans for it and nothing here may commit
+        /// on its behalf, because its plan arrives from the relay.
+        /// </summary>
+        Elsewhere = 3,
     }
 
     private MoleMatch _match = null!;
@@ -91,6 +112,12 @@ public partial class MatchScene : Node2D
     private int[] _outAtRound = System.Array.Empty<int>();
     private double _finishedFor;
 
+    private Lobby? _lobby;
+    private bool _saidCode;
+
+    /// <summary>Which platoon is this device's, or -1 on the couch where they all are.</summary>
+    private int _ours = -1;
+
     public override void _Ready()
     {
         // The terrain is one pixel per cell blown up several times over, so it has to be
@@ -102,6 +129,36 @@ public partial class MatchScene : Node2D
         // fourth cell of the grid empty, and it should look like a deliberate dark surround.
         RenderingServer.SetDefaultClearColor(Palette.Ink);
 
+        // Online, the world cannot be built yet. The seed and the player count both come from the
+        // relay, because every client has to be digging the same ground and the relay is the only
+        // thing they all talk to, so the match is built in Build once the seat has arrived.
+        if (Online.Playing)
+        {
+            // Under a CanvasLayer like the rest of the interface. A Control parented straight to a
+            // Node2D has no rect to anchor against, so it lays itself out at zero size and draws
+            // nothing, which looks exactly like a scene that failed to load.
+            CanvasLayer waiting = new CanvasLayer();
+            AddChild(waiting);
+
+            _lobby = new Lobby();
+            waiting.AddChild(_lobby);
+
+            _beat = Beat.Arriving;
+            return;
+        }
+
+        Build();
+    }
+
+    /// <summary>
+    /// Builds the world and everything that draws it.
+    /// </summary>
+    /// <remarks>
+    /// Split out of <c>_Ready</c> for one reason: online, none of this can happen until the relay
+    /// has said what seed to grow and how many platoons are in it.
+    /// </remarks>
+    private void Build()
+    {
         _players = Mathf.Clamp(
             MatchSetup.PlayerCount, MatchSetup.FewestPlayers, MatchSetup.MostPlayers);
 
@@ -197,6 +254,20 @@ public partial class MatchScene : Node2D
     {
         _devices = new Device[_players];
         _gamepad = new int[_players];
+
+        // Online there is exactly one platoon on this device, and it is not necessarily seat zero.
+        // Every other seat belongs to somebody else's phone, and nothing here may plan or commit for
+        // them: their plans arrive from the relay, and inventing one locally would be a desync.
+        if (Online.Playing)
+        {
+            for (int seat = 0; seat < _players; seat++)
+            {
+                _devices[seat] = seat == _ours ? Device.Pointer : Device.Elsewhere;
+            }
+
+            return;
+        }
+
         Godot.Collections.Array<int> pads = Input.GetConnectedJoypads();
 
         _devices[0] = Device.Pointer;
@@ -270,7 +341,7 @@ public partial class MatchScene : Node2D
     {
         for (int seat = from; seat < _players; seat++)
         {
-            if (_devices[seat] == Device.Gamepad)
+            if (_devices[seat] == Device.Gamepad || _devices[seat] == Device.Elsewhere)
             {
                 continue;
             }
@@ -287,11 +358,24 @@ public partial class MatchScene : Node2D
     private SeatPlanner? Pointed() =>
         _pointerSeat >= 0 && _planners[_pointerSeat].IsPlanning ? _planners[_pointerSeat] : null;
 
+    /// <summary>
+    /// Whether every platoon this device is responsible for has committed.
+    /// </summary>
+    /// <remarks>
+    /// Online that is one platoon, and the others are none of this device's business: they are
+    /// planning on their own phones and the relay is what knows whether they have finished. Counting
+    /// them here would leave a match waiting forever for a planner nobody is driving.
+    /// </remarks>
     private bool EverybodyIsIn()
     {
-        foreach (SeatPlanner planner in _planners)
+        for (int seat = 0; seat < _players; seat++)
         {
-            if (planner.IsPlanning)
+            if (_devices[seat] == Device.Elsewhere)
+            {
+                continue;
+            }
+
+            if (_planners[seat].IsPlanning)
             {
                 return false;
             }
@@ -302,9 +386,14 @@ public partial class MatchScene : Node2D
 
     private void Resolve()
     {
-        foreach (SeatPlanner planner in _planners)
+        // Online the plans are already in, read back off the wire, and committing the planners here
+        // would submit this device's idea of the other platoons' turns over the top of them.
+        if (!Online.Playing)
         {
-            planner.Commit();
+            foreach (SeatPlanner planner in _planners)
+            {
+                planner.Commit();
+            }
         }
 
         _result = _match.ResolveRound(record: true);
@@ -606,6 +695,16 @@ public partial class MatchScene : Node2D
 
     public override void _Process(double delta)
     {
+        // The relay is asked every frame and answers whenever it answers. Nothing here waits on it,
+        // because a frame that blocks on a network call is a stutter every player sees.
+        Online.Match?.Poll(delta);
+
+        if (_beat == Beat.Arriving)
+        {
+            RunArriving();
+            return;
+        }
+
         switch (_beat)
         {
             case Beat.Planning:
@@ -614,6 +713,10 @@ public partial class MatchScene : Node2D
 
             case Beat.Resolving:
                 RunReplay(delta);
+                break;
+
+            case Beat.Waiting:
+                RunWaiting();
                 break;
 
             case Beat.Finished:
@@ -640,6 +743,124 @@ public partial class MatchScene : Node2D
             _touch.Planner = Pointed();
             _touch.QueueRedraw();
         }
+    }
+
+    // ---- Playing apart ---------------------------------------------------------------
+
+    /// <summary>
+    /// Waiting on the relay for a seat, a seed and a full lobby, with nothing built yet.
+    /// </summary>
+    /// <remarks>
+    /// The lobby is drawn from here rather than as its own scene, because the thing a host is
+    /// waiting for and the thing they need on screen, the code to read out, both live on the
+    /// OnlineMatch this scene already owns. A separate scene would have to be handed the same
+    /// session and would then have to hand it back.
+    /// </remarks>
+    private void RunArriving()
+    {
+        OnlineMatch online = Online.Match!;
+
+        _lobby!.Show(online);
+
+        // The token arrives with the seat and cannot be reissued, so it is written down the moment
+        // it exists rather than when the match ends. A player who loses it has lost their seat with
+        // no way to prove it was theirs.
+        if (online.Seating is not null)
+        {
+            Online.Remember();
+
+            if (!_saidCode)
+            {
+                // Once, to the log. A code is the only handle anybody has on a match, so it is worth
+                // being able to find one afterwards, and it is how two clients on one desk are
+                // pointed at each other during development.
+                _saidCode = true;
+                GD.Print($"match {online.Code} seat {online.Seat} seed {online.Seed}");
+            }
+        }
+
+        if (!online.Live)
+        {
+            // A wrong code, a full lobby, or a relay that is not there. Back to the menu, which is
+            // the only screen that can do anything about any of them.
+            Online.Forget();
+            GetTree().CallDeferred(
+                SceneTree.MethodName.ChangeSceneToFile, "res://scenes/Menu.tscn");
+            return;
+        }
+
+        if (online.Stage != OnlineStage.Planning)
+        {
+            return;
+        }
+
+        // Everybody is seated. The relay's numbers win over anything the menu guessed.
+        MatchSetup.PlayerCount = online.PlayerCount;
+        MatchSetup.Seed = online.Seed;
+        _ours = online.Seat;
+
+        _lobby.Visible = false;
+        Build();
+    }
+
+    /// <summary>
+    /// This platoon has committed. Nothing to do but ask the relay whether the others have.
+    /// </summary>
+    private void RunWaiting()
+    {
+        OnlineMatch online = Online.Match!;
+
+        if (!online.Live)
+        {
+            Online.Forget();
+            GetTree().CallDeferred(
+                SceneTree.MethodName.ChangeSceneToFile, "res://scenes/Menu.tscn");
+            return;
+        }
+
+        if (online.Stage != OnlineStage.RoundReady)
+        {
+            return;
+        }
+
+        // Every plan, mine included, read back from the bytes the relay released rather than from
+        // the objects this device built. That is the determinism argument: four clients feeding
+        // their simulations from one source cannot drift apart, and four feeding from four sources
+        // that are only supposed to match can.
+        //
+        // An illegal plan is dropped rather than thrown, identically on every client, which is the
+        // whole of the anti-cheat story: a cheat costs the cheat its turn and nobody desyncs.
+        RoundFeeder.Feed(_match, online.Plans);
+
+        int round = online.Round;
+
+        Resolve();
+
+        // What this client thought the world looked like, so a determinism bug on real hardware
+        // arrives as a bug report with a perfect reproduction attached.
+        online.ReportHash(round, _match.StateHash());
+        online.RoundTaken();
+    }
+
+    /// <summary>
+    /// Hands this platoon's plan to the relay and stops asking for input.
+    /// </summary>
+    /// <remarks>
+    /// A platoon with nothing left to plan with still owes an answer, because the relay releases a
+    /// round only when every seat has committed. An empty plan is that answer, and it is what a
+    /// wiped-out platoon would have done anyway.
+    /// </remarks>
+    private void SendPlan()
+    {
+        Plan? mine = _ours >= 0 ? _planners[_ours].Seal() : null;
+
+        mine ??= new Plan(
+            System.Math.Max(_ours, 0), 0, WeaponId.None,
+            System.Array.Empty<RoutePoint>(), System.Array.Empty<PlanAction>());
+
+        Online.Match!.Commit(PlanCodec.Write(mine));
+        _beat = Beat.Waiting;
+        _stage.Planning = false;
     }
 
     private void RunPlanning(double delta)
@@ -672,12 +893,20 @@ public partial class MatchScene : Node2D
             }
         }
 
-        if (EverybodyIsIn() || _clock <= 0)
+        if (!EverybodyIsIn() && _clock > 0)
         {
-            // Out of time commits whatever is on the paper, which is the whole reason the
-            // clock is worth watching.
-            Resolve();
+            return;
         }
+
+        // Out of time commits whatever is on the paper, which is the whole reason the clock is
+        // worth watching.
+        if (Online.Playing)
+        {
+            SendPlan();
+            return;
+        }
+
+        Resolve();
     }
 
     private void RunReplay(double delta)
@@ -1741,6 +1970,13 @@ public partial class MatchScene : Node2D
                 continue;
             }
 
+            // Never a platoon on somebody else's phone. Their plan is coming from the relay, and
+            // one invented here would be submitted over the top of it.
+            if (_devices[planner.Seat] == Device.Elsewhere)
+            {
+                continue;
+            }
+
             // A notch of the wheel each turn, so the driver works its way through the arsenal
             // and the holdings it is spending from actually run down.
             planner.CycleWeapon(1);
@@ -1765,6 +2001,15 @@ public partial class MatchScene : Node2D
 
         if (walked)
         {
+            return;
+        }
+
+        // Online, committing means handing one plan to the relay and waiting, not sealing four
+        // planners and resolving. Going the local route here would resolve a round this device made
+        // up on its own while the other players were still thinking.
+        if (Online.Playing)
+        {
+            SendPlan();
             return;
         }
 

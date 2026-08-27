@@ -24,6 +24,7 @@
   -->
   <ItemGroup>
     <InternalsVisibleTo Include="Relay.Tests" />
+    <InternalsVisibleTo Include="Molehill.Online.Tests" />
   </ItemGroup>
 
   <!--

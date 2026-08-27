@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      net9.0 to match the Godot client exactly, which is what makes HttpClient and
+      System.Text.Json in-box and this project's package list empty. MoleSim stays on
+      netstandard2.1 because the whole point of it is that any engine can pick it up; this
+      one only ever has to run where the game runs.
+    -->
+    <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>12</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>Molehill.Online</RootNamespace>
+
+    <!-- A desync is the worst bug this layer can cause. Warnings are defects. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+  </PropertyGroup>
+
+  <!--
+    The simulation, for Plan and PlanCodec. Nothing else: no engine types, so the whole online
+    flow can be tested without booting Godot, and the same code runs under the test host and on
+    a phone.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\sim\MoleSim\MoleSim.csproj" />
+  </ItemGroup>
+
+</Project>

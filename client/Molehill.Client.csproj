@@ -21,6 +21,12 @@
   -->
   <ItemGroup>
     <ProjectReference Include="..\sim\MoleSim\MoleSim.csproj" />
+    <!--
+      The online flow, which has no engine types in it precisely so that it can be tested against
+      a real relay without booting Godot. The client supplies the screens; that project supplies
+      everything that could desync a match.
+    -->
+    <ProjectReference Include="..\online\Molehill.Online\Molehill.Online.csproj" />
   </ItemGroup>
 
 </Project>

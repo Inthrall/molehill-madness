@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json.Serialization;
 using Relay.Api;
 
@@ -74,6 +75,28 @@ app.MapGet("/lobbies/{code}", (string code, MatchStore store) =>
         started = match.Started,
         round = match.Round,
     });
+});
+
+// A player coming back to a match they are already in, which is not the same as joining one.
+// Joining would hand them a second seat or refuse them as full, and neither is what somebody
+// reopening the game after their phone put it to sleep wants. They kept their token; this gives
+// them back the seat it owns and the seed the world grows from.
+app.MapGet("/matches/{code}/seat", (string code, HttpRequest http, MatchStore store) =>
+{
+    if (GameCode.Parse(code) is not string tidy || store.Find(tidy) is not Match match)
+    {
+        return Results.NotFound(new { error = "No such game code." });
+    }
+
+    if (store.SeatOf(tidy, http.Headers["X-Seat-Token"].ToString()) is not int number)
+    {
+        return Results.Unauthorized();
+    }
+
+    string token = http.Headers["X-Seat-Token"].ToString();
+
+    return Results.Ok(Joined.From(
+        match, new Seat(tidy, number, token, match.OpenedAt), store.SeatsTaken(tidy)));
 });
 
 // ---- Rounds ---------------------------------------------------------------------------
@@ -158,6 +181,56 @@ app.MapGet("/matches/{code}/rounds/{round:int}", (string code, int round, MatchS
         complete = true,
         seed = match.Seed.ToString(System.Globalization.CultureInfo.InvariantCulture),
         plans = submissions.Select(s => new { seat = s.Seat, payload = Convert.ToBase64String(s.Payload) }),
+    });
+});
+
+// ---- Determinism reports --------------------------------------------------------------
+
+// Every participant simulated the same round from the same inputs, so their state hashes have to
+// match. Collecting them is what turns a determinism bug on a stranger's phone into a bug report
+// with a perfect reproduction attached, because the seed and every plan are already stored here.
+app.MapPost("/matches/{code}/rounds/{round:int}/hash", (
+    string code, int round, ReportHash report, HttpRequest http, MatchStore store) =>
+{
+    if (GameCode.Parse(code) is not string tidy || store.Find(tidy) is not Match _)
+    {
+        return Results.NotFound(new { error = "No such game code." });
+    }
+
+    if (store.SeatOf(tidy, http.Headers["X-Seat-Token"].ToString()) is not int seat)
+    {
+        return Results.Unauthorized();
+    }
+
+    if (!ulong.TryParse(report.Hash, NumberStyles.None, CultureInfo.InvariantCulture, out ulong hash))
+    {
+        return Results.BadRequest(new { error = "A hash is an unsigned 64-bit number as a string." });
+    }
+
+    // First report for a seat and round stands. A client that reports twice has restarted or
+    // retried, and quietly replacing the first answer would erase exactly the disagreement this
+    // exists to catch.
+    store.ReportHash(tidy, round, seat, hash, DateTimeOffset.UtcNow);
+
+    return Results.Accepted();
+});
+
+app.MapGet("/matches/{code}/hashes", (string code, MatchStore store) =>
+{
+    if (GameCode.Parse(code) is not string tidy || store.Find(tidy) is not Match match)
+    {
+        return Results.NotFound(new { error = "No such game code." });
+    }
+
+    IReadOnlyList<RoundAgreement> rounds = Agreement.Of(store.Hashes(tidy));
+
+    return Results.Ok(new
+    {
+        code = tidy,
+        playerCount = match.PlayerCount,
+        // The headline: did anybody's simulation disagree with anybody else's, ever.
+        diverged = rounds.Any(round => !round.Agreed),
+        rounds,
     });
 });
 
