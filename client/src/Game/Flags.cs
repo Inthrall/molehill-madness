@@ -123,6 +123,16 @@ public static class Flags
         return null;
     }
 
+    /// <summary>
+    /// Whether to make a clip of the match when it finishes, as <c>--clip</c>.
+    /// </summary>
+    /// <remarks>
+    /// A development switch. The player-facing flow is a share button on the scoreboard, which needs the
+    /// encoders and the share sheet the plan puts alongside them; this is how the pipeline underneath
+    /// gets exercised in the meantime, and it writes the result somewhere a person can open it.
+    /// </remarks>
+    public static bool Clip() => Asked("--clip");
+
     /// <summary>Whether to open a lobby at once, as <c>--host</c>.</summary>
     public static bool Host() => Asked("--host");
 

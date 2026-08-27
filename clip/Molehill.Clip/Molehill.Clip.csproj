@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- net9.0 to match the Godot client, so ZLibStream is in-box and the package list is empty. -->
+    <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>12</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>Molehill.Clip</RootNamespace>
+
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+  </PropertyGroup>
+
+  <!--
+    The simulation, because a clip is a round replayed and the scorer reads what happened in one.
+    No engine types, so the scorer and the encoder can both be tested without booting Godot: the
+    client's only job is to hand over pixels.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\sim\MoleSim\MoleSim.csproj" />
+  </ItemGroup>
+
+</Project>

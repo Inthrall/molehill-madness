@@ -112,6 +112,12 @@ public partial class MatchScene : Node2D
     private int[] _outAtRound = System.Array.Empty<int>();
     private double _finishedFor;
 
+    /// <summary>Every round's plans, so a clip can replay the match up to any moment.</summary>
+    private readonly List<Plan[]> _played = new List<Plan[]>();
+
+    /// <summary>Every round's result, so the drama scorer has a match to look at.</summary>
+    private readonly List<RoundResult> _rounds = new List<RoundResult>();
+
     private Lobby? _lobby;
     private WaitingSign? _waiting;
     private EmoteWheel? _wheel;
@@ -404,17 +410,33 @@ public partial class MatchScene : Node2D
 
     private void Resolve()
     {
+        List<Plan> played = new List<Plan>(_players);
+
         // Online the plans are already in, read back off the wire, and committing the planners here
         // would submit this device's idea of the other platoons' turns over the top of them.
-        if (!Online.Playing)
+        if (Online.Playing)
+        {
+            played.AddRange(Online.Match!.Plans);
+        }
+        else
         {
             foreach (SeatPlanner planner in _planners)
             {
-                planner.Commit();
+                if (planner.Seal() is Plan plan)
+                {
+                    _match.SubmitPlan(plan);
+                    played.Add(plan);
+                }
             }
         }
 
+        // Kept, because a clip is the round played again and replaying round five needs rounds one
+        // to five. The whole history of a match is a seed and this list, which is the same fact the
+        // relay is built on and is what makes a clip cheap rather than a screen recording.
+        _played.Add(played.ToArray());
+
         _result = _match.ResolveRound(record: true);
+        _rounds.Add(_result);
         _stage.Result = _result;
         _stage.Recording = _result.Recording;
         _stage.Planning = false;
@@ -982,6 +1004,65 @@ public partial class MatchScene : Node2D
         _beat = Beat.Finished;
         _finishedFor = 0;
         _scoreboard?.Show(FinalStandings());
+
+        if (Flags.Clip())
+        {
+            _ = MakeAClip();
+        }
+    }
+
+    /// <summary>
+    /// Picks the match's best moment and re-simulates it into a shareable animation.
+    /// </summary>
+    /// <remarks>
+    /// Not awaited, because this happens as the scoreboard comes up and a player looking at a result
+    /// should not be waiting on a renderer. The clip appears when it appears, which is what the
+    /// design's one-press share flow will want anyway: the button offers what has already been made
+    /// rather than starting the work.
+    /// </remarks>
+    private async System.Threading.Tasks.Task MakeAClip()
+    {
+        Molehill.Clip.Moment moment = Molehill.Clip.Drama.Best(_rounds);
+
+        if (!moment.Exists)
+        {
+            GD.Print("clip: nothing in this match was worth one");
+            return;
+        }
+
+        ClipMaker maker = new ClipMaker();
+        AddChild(maker);
+
+        byte[]? clip = await maker.Make(
+            MatchSetup.Seed, _players, MapWidthCells, MapHeightCells, _played, moment);
+
+        maker.QueueFree();
+
+        if (clip is null)
+        {
+            GD.Print("clip: the moment could not be replayed");
+            return;
+        }
+
+        string path = $"user://clip-round{moment.Round}.png";
+
+        using (FileAccess file = FileAccess.Open(path, FileAccess.ModeFlags.Write))
+        {
+            file?.StoreBuffer(clip);
+        }
+
+        // Loaded straight back through Godot's own PNG decoder, which is a decoder nobody here wrote.
+        // An animated PNG's first frame is an ordinary PNG, so anything that can read one at all
+        // should read this, and if it cannot then the file is wrong however good the chunk layout
+        // looked.
+        Image check = new Image();
+        Error read = check.LoadPngFromBuffer(clip);
+
+        GD.Print(
+            $"clip: {moment.Kind} round {moment.Round} tick {moment.Tick} score {moment.Score}, "
+            + $"{clip.Length} bytes, {ClipMaker.Frames} frames, "
+            + $"reload {read} {check.GetWidth()}x{check.GetHeight()}, "
+            + $"at {ProjectSettings.GlobalizePath(path)}");
     }
 
     /// <summary>

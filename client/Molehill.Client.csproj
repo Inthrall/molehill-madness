@@ -27,6 +27,11 @@
       everything that could desync a match.
     -->
     <ProjectReference Include="..\online\Molehill.Online\Molehill.Online.csproj" />
+    <!--
+      The clip pipeline: the drama scorer and the animated PNG writer, both engine-free so both can
+      be tested without booting Godot. The client's only job here is to supply pixels.
+    -->
+    <ProjectReference Include="..\clip\Molehill.Clip\Molehill.Clip.csproj" />
   </ItemGroup>
 
 </Project>

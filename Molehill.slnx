@@ -3,6 +3,10 @@
     <Project Path="sim/MoleSim.Tests/MoleSim.Tests.csproj" />
     <Project Path="sim/MoleSim/MoleSim.csproj" />
   </Folder>
+  <Folder Name="/clip/">
+    <Project Path="clip/Molehill.Clip/Molehill.Clip.csproj" />
+    <Project Path="clip/Molehill.Clip.Tests/Molehill.Clip.Tests.csproj" />
+  </Folder>
   <Folder Name="/online/">
     <Project Path="online/Molehill.Online/Molehill.Online.csproj" />
     <Project Path="online/Molehill.Online.Tests/Molehill.Online.Tests.csproj" />
