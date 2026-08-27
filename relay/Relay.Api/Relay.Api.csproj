@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Relay.Api</RootNamespace>
+
+    <!-- The relay is boring on purpose. Warnings are defects here too. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
+  </ItemGroup>
+
+  <!--
+    Top-level statements put the entry point in an internal Program class, and WebApplicationFactory
+    needs to name it to boot the real application in-process. Testing the endpoints against the real
+    pipeline rather than calling the handlers directly is the only way the routing, the model binding
+    and the raw-body read are covered at all.
+  -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Relay.Tests" />
+  </ItemGroup>
+
+  <!--
+    No reference to MoleSim, deliberately, and it should stay that way. The relay stores a seed and
+    opaque payloads and never simulates, so the moment it can see a Plan type it becomes possible
+    for it to start having opinions about one.
+  -->
+
+</Project>
