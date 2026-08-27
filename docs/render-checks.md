@@ -9,6 +9,17 @@ godot --path client --position 9000,9000 --resolution 1280x720 \
 
 `--position 9000,9000` puts the window off-screen so a run does not steal focus from whatever you were doing. `--headless` does not work with `--write-movie` here: the terrain shader needs a rendering device and the canvas item silently falls back to a plain texture draw without one, which is worse than a crash because the frames look almost right.
 
+## Import the art first, or the ground is missing
+
+The terrain textures and the garden decor are ordinary Godot resources, so they need importing before anything can load them, and a run that cannot load them prints one error line and draws a grey square. Two steps, and only after the art has changed:
+
+```
+pwsh tools/scripts/import-art.ps1 -Source art
+godot --path client --headless --import
+```
+
+Run the importer with `-Report` first if the source art itself is new. It prints the panorama's horizon fraction and how much of the watermark is left in each patched rectangle, and both of those are numbers the client has hard-coded against the art it was written for.
+
 ## Render at 16:9, always
 
 The project is 1280x720 with `stretch/mode="canvas_items"` and `stretch/aspect="expand"`. Expand means the canvas grows in whichever dimension the window has spare, so a 900x600 window (3:2) does not letterbox: it gives the game a 1280x853 canvas. `--write-movie` then captures 1280x720 of it, cropping about 66 pixels off the top and the same off the bottom.

@@ -33,6 +33,7 @@ public partial class WorldView : Control
     private float _pushing;
 
     private readonly TerrainSkin _skin;
+    private readonly Garden _garden;
 
     public WorldView(Stage stage)
     {
@@ -40,8 +41,13 @@ public partial class WorldView : Control
         ClipContents = true;
         MouseFilter = MouseFilterEnum.Ignore;
 
+        // Both behind this node's own drawing, and the garden after the skin, so the order down
+        // the screen is ground, then what is standing on it, then everything that moves.
         _skin = new TerrainSkin(stage);
         AddChild(_skin);
+
+        _garden = new Garden(stage);
+        AddChild(_garden);
     }
 
     /// <summary>Which platoon this view belongs to, or -1 when everybody is sharing it.</summary>
@@ -388,9 +394,11 @@ public partial class WorldView : Control
 
     public override void _Draw()
     {
-        // The ground and the sky are drawn by the skin, which sits behind this node so that its
-        // shader does not get applied to sixteen moles and a HUD as well.
+        // The ground and the backdrop are drawn by the skin, which sits behind this node so that
+        // its shader does not get applied to sixteen moles and a HUD as well. The garden sits
+        // between the two for the same sort of reason: it wants a texture filter this node does not.
         _skin.Cover(MapOnPane());
+        _garden.Cover(Offset(), _scale);
 
         // Everything below is in world pixels; the transform puts them on the pane, and
         // ClipContents keeps them inside it.

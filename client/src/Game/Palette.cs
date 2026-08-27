@@ -51,18 +51,16 @@ public static class Palette
     };
 
     /// <summary>
-    /// Ground, all of it the same colour whatever it is made of.
+    /// The line where ground meets air.
     /// </summary>
     /// <remarks>
-    /// The terrain used to be painted a shade per material, which reads as five kinds of stripe and
-    /// says nothing a player can act on at a glance. What matters about a cell is which side of the
-    /// edge it is on, so the ground is one flat fill and the edge does the work. The materials are
-    /// still there in the simulation, where they decide what digging costs; they are simply not what
+    /// All that is left of the terrain's own colours. The ground was a flat fill here until the art
+    /// arrived, and a shade per material before that, which read as five kinds of stripe and said
+    /// nothing a player could act on at a glance. It is textures now, in <see cref="Art"/>, and the
+    /// outline is the only part of the picture the palette still has a say in. The materials are
+    /// still there in the simulation, where they decide what digging costs; they are still not what
     /// the picture is about.
     /// </remarks>
-    public static readonly Color Ground = new Color(0.827f, 0.729f, 0.573f);
-
-    /// <summary>The line where ground meets air, which is the only detail the terrain draws.</summary>
     public static readonly Color Edge = new Color(0.34f, 0.27f, 0.19f);
 
 

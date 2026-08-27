@@ -182,7 +182,13 @@ public partial class MatchScene : Node2D
         _match = MoleMatch.Create(_players, MatchSetup.Seed, MapWidthCells, MapHeightCells);
         _shadow = _match.Terrain.Clone();
         _terrain = new TerrainView(_shadow);
-        _stage = new Stage(_match, _terrain.Texture, MapWidthCells, MapHeightCells);
+
+        // Frozen here, off the untouched map, and never worked out again. What is above ground and
+        // what is below it is a fact about where the ground started; deriving it later from a map
+        // full of craters and shafts would turn every tunnel into a canyon.
+        _stage = new Stage(
+            _match, _shadow, _terrain.Texture,
+            Backdrop.Freeze(_match.Terrain, MatchSetup.Seed), MapWidthCells, MapHeightCells);
 
         _shoulderHeldUp = new bool[_players];
         _shoulderHeldDown = new bool[_players];

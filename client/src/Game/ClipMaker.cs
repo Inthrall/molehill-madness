@@ -80,6 +80,12 @@ public partial class ClipMaker : Node
         // The world from scratch, and every round up to the one being clipped replayed into it. This
         // is the part that would be impossible with a screen recording and is nearly free here.
         MoleMatch match = MoleMatch.Create(playerCount, seed, mapWidthCells, mapHeightCells);
+
+        // Before any of those rounds are replayed into it, because that is the only moment the map
+        // still says where the ground started. A clip made off a chewed-up map would put sky behind
+        // every tunnel the match had dug by then.
+        Backdrop backdrop = Backdrop.Freeze(match.Terrain, seed);
+
         RoundResult? wanted = null;
 
         for (int round = 0; round < moment.Round; round++)
@@ -120,7 +126,8 @@ public partial class ClipMaker : Node
         TerrainView terrain = new TerrainView(shadow);
         IReadOnlyList<MoleSim.Terrain.TerrainChange> digging = wanted.Recording.TerrainChanges;
         int applied = 0;
-        Stage stage = new Stage(match, terrain.Texture, mapWidthCells, mapHeightCells)
+        Stage stage = new Stage(
+            match, shadow, terrain.Texture, backdrop, mapWidthCells, mapHeightCells)
         {
             Result = wanted,
             Recording = wanted.Recording,

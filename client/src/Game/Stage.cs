@@ -1,6 +1,7 @@
 using Godot;
 using MoleSim.Match;
 using MoleSim.Numerics;
+using MoleSim.Terrain;
 
 /// <summary>
 /// Everything the views need to draw a frame, written once by the scene and read by all of
@@ -18,10 +19,14 @@ using MoleSim.Numerics;
 /// </remarks>
 public sealed class Stage
 {
-    public Stage(MoleMatch match, Texture2D terrain, int mapWidthCells, int mapHeightCells)
+    public Stage(
+        MoleMatch match, TerrainGrid ground, Texture2D terrain,
+        Backdrop backdrop, int mapWidthCells, int mapHeightCells)
     {
         Match = match;
+        Ground = ground;
         Terrain = terrain;
+        Backdrop = backdrop;
         MapWidthCells = mapWidthCells;
         MapHeightCells = mapHeightCells;
         Planners = System.Array.Empty<SeatPlanner>();
@@ -36,6 +41,22 @@ public sealed class Stage
 
     /// <summary>The map as the viewer has seen it so far, which lags the real one during a replay.</summary>
     public Texture2D Terrain { get; }
+
+    /// <summary>
+    /// The same map as cells, which is what <see cref="Terrain"/> is a picture of.
+    /// </summary>
+    /// <remarks>
+    /// Here so that something drawn on top of the ground can ask whether the ground is still
+    /// there. It is the lagged copy rather than the simulation's own, deliberately: a decoration
+    /// has to disappear on the frame the crater that took it appears, not several seconds earlier
+    /// when the round actually resolved.
+    /// </remarks>
+    public TerrainGrid Ground { get; }
+
+    /// <summary>
+    /// What is behind the ground, and the dressing standing on it. Settled before round one.
+    /// </summary>
+    public Backdrop Backdrop { get; }
 
     public int MapWidthCells { get; }
 
