@@ -137,9 +137,14 @@ public partial class MatchScene : Node2D
 
     public override void _Ready()
     {
-        // The terrain is one pixel per cell blown up several times over, so it has to be
-        // point-sampled. Filtered, the soil turns to smudge and the cell grid stops reading.
-        TextureFilter = TextureFilterEnum.Nearest;
+        // Smoothed and mipmapped, which is the opposite of what this was and of the reason it was
+        // that. It point-sampled because the terrain used to be a texture of one pixel per cell
+        // blown up several times over, and filtered, the soil turned to smudge. That stopped being
+        // true when the shader took the terrain over: it samples the cell field through its own
+        // filter hint and has done since, so the setting here has only been deciding how everything
+        // else looks. Everything else is now artwork drawn smaller than it is stored, and
+        // point-sampled a mole's outline comes out as a dotted line.
+        TextureFilter = TextureFilterEnum.LinearWithMipmaps;
 
         // Anything the panes do not cover is painted rather than left to the engine's default,
         // which is a blue-grey that reads as a rendering fault. A three-camera cut leaves the

@@ -4,11 +4,9 @@ using Godot;
 /// The dressing standing on the surface: tufts of grass, spoil heaps, flowers, a stone.
 /// </summary>
 /// <remarks>
-/// A node of its own for the same reason <see cref="TerrainSkin"/> is one, and a different one.
-/// The skin needs to be separate because a canvas shader would otherwise apply to the whole view;
-/// this needs to be separate because a texture filter would. The scene point-samples everything, so
-/// that the terrain field reads as cells rather than as smudge, and a grass tuft shrunk from a
-/// hundred and sixty pixels to sixty with point sampling loses half its blades to aliasing.
+/// A node of its own for the same reason <see cref="TerrainSkin"/> is one: a canvas shader applies
+/// to everything a node draws, and this has to be in front of the ground that shader paints and
+/// behind everything the view draws itself.
 ///
 /// It sits at the same negative <see cref="CanvasItem.ZIndex"/> as the skin and is added after it,
 /// which puts it in front of the ground and behind everything the view draws itself. That is where
@@ -29,10 +27,9 @@ public partial class Garden : Control
         // In front of the ground, behind the view's own drawing.
         ZIndex = -1;
 
-        // Smoothed and mipmapped, unlike the rest of the scene. These are pictures rather than a
-        // cell field, they are always drawn smaller than they are stored, and a thin blade of grass
-        // minified without mipmaps either aliases into dashes or costs a texture cache miss a
-        // fragment. The imported sprites have mipmaps/generate=true to match.
+        // Said again rather than inherited, because it is load-bearing here and cheap to state: a
+        // blade of grass shrunk from a hundred and sixty pixels to sixty without mipmaps either
+        // aliases into dashes or costs a texture cache miss a fragment.
         TextureFilter = TextureFilterEnum.LinearWithMipmaps;
     }
 

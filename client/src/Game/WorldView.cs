@@ -874,7 +874,22 @@ public partial class WorldView : Control
                 ? ToPixels(_stage.Planners[mole.Seat].PlannedPosition)
                 : ToPixels(mole.Position);
 
-            DrawMole(at, mole.Seat, mole.Pluck, acting, Owns(mole.Seat));
+            // Everything about the pose comes off the mole, so there is nothing here the
+            // simulation does not already say. A steered mole is drawn at the position its owner
+            // has walked it to, so the pose is read from the same place: whether that position is
+            // under ground rather than whether the mole's own is.
+            Vec2 where = acting ? _stage.Planners[mole.Seat].PlannedPosition : mole.Position;
+            bool left = (float)mole.Facing.X.ToDecimal() < 0f;
+
+            string pose = Moles.Pose(
+                mole.IsSnared,
+                mole.IsAirborne,
+                Moles.Underground(where, _stage.Ground),
+                mole.DiggingIsCheap);
+
+            DrawMole(
+                at, mole.Seat, mole.Pluck, acting, Owns(mole.Seat),
+                pose, Moles.Frame(pose, Beat(), left), left);
 
             // One bubble per platoon, not one per mole. A platoon has up to four of them and the
             // first version put the same picture over every one, which read as four moles all
@@ -959,13 +974,27 @@ public partial class WorldView : Control
             }
 
             int seat = _stage.Match.Moles[slot].Seat;
+            Vec2 where = recording.PositionAt(_stage.Seconds, slot);
+            Vec2 velocity = recording.VelocityOf(_stage.Tick, slot);
+
+            // The recording keeps positions, velocities and pluck, so the poses it can tell apart
+            // are the ones those three imply. Snared and clawed are not among them, which is why a
+            // replay shows a mole digging where the live view would show it digging with claws.
+            bool left = Moles.FacingLeft(velocity, wasLeft: false);
+            bool airborne = Mathf.Abs((float)velocity.Y.ToDecimal()) > 1f;
+
+            string pose = Moles.Pose(
+                snared: false, airborne, Moles.Underground(where, _stage.Ground), clawed: false);
 
             DrawMole(
-                ToPixels(recording.PositionAt(_stage.Seconds, slot)),
+                ToPixels(where),
                 seat,
                 recording.PluckOf(_stage.Tick, slot),
                 highlight: false,
-                ours: Owns(seat));
+                ours: Owns(seat),
+                pose,
+                Moles.Frame(pose, _stage.Tick, left),
+                left);
         }
 
         float shotRadius = Mathf.Max((float)Projectile.Radius.ToDecimal() * _scale, 3f);
@@ -1046,6 +1075,14 @@ public partial class WorldView : Control
 
     private float MoleRadius() => (float)MatchSettings.Radius.ToDecimal() * _scale;
 
+    /// <summary>A thirty-a-second counter, for cycling a pose while nothing is playing back.</summary>
+    /// <remarks>
+    /// Off the engine clock rather than the simulation's, because during planning there is no tick
+    /// to count: the round has not run yet. Nothing depends on this agreeing between panes or
+    /// between clients, since all it decides is which frame of a digging mole is on screen.
+    /// </remarks>
+    private static int Beat() => (int)(Time.GetTicksMsec() / 33UL);
+
     /// <summary>
     /// One mole, with a pluck bar over its head only if it is one of this pane's own.
     /// </summary>
@@ -1098,7 +1135,9 @@ public partial class WorldView : Control
         Glyphs.Say(this, said.Emote, bubble, size * 0.85f, Palette.Seat(seat));
     }
 
-    private void DrawMole(Vector2 at, int seat, int pluck, bool highlight, bool ours)
+    private void DrawMole(
+        Vector2 at, int seat, int pluck, bool highlight, bool ours,
+        string pose, int frame, bool facingLeft)
     {
         float radius = MoleRadius();
         Color colour = Palette.Seat(seat);
@@ -1108,10 +1147,11 @@ public partial class WorldView : Control
             DrawCircle(at, radius * 1.6f, new Color(colour, 0.3f));
         }
 
-        DrawCircle(at, radius, colour);
-        DrawCircle(at + new Vector2(-radius * 0.45f, -radius * 0.8f), radius * 0.34f, colour);
-        DrawCircle(at + new Vector2(radius * 0.45f, -radius * 0.8f), radius * 0.34f, colour);
-        DrawCircle(at + new Vector2(0, radius * 0.34f), radius * 0.34f, Palette.Snout);
+        // Which platoon a mole belongs to used to be the whole of what its picture said, because
+        // three circles in a platoon's colour is all a shape language can say about an animal.
+        // The artwork says which animal and what it is doing; the trunks say whose it is, and the
+        // highlight ring under it says which one is being steered.
+        Moles.Draw(this, at, _scale, seat, pose, frame, facingLeft);
 
         if (!ours)
         {

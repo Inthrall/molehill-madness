@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Godot;
 
 /// <summary>
@@ -85,6 +86,114 @@ public static class Art
         Load("decor/stone.png"),
         Load("decor/worm.png"),
     };
+
+    /// <summary>
+    /// How many pixels of a mole sprite make a metre.
+    /// </summary>
+    /// <remarks>
+    /// One number for every pose, because the importer scaled each sheet so a mole comes out the
+    /// same size whichever sheet its pose came from. Two hundred puts the standing mole at about
+    /// four fifths of a metre across, which is a little wider than the three quarters of a metre
+    /// its collision circle is, because the artwork's claws stick out past its body.
+    /// </remarks>
+    public const float MolePixelsPerMetre = 200f;
+
+    /// <summary>
+    /// The mole's poses, and how many frames each of them has.
+    /// </summary>
+    /// <remarks>
+    /// The counts live here rather than in the file names because they are a fact about the
+    /// artwork, and a name that has to be parsed to be used is a name that will be got wrong. They
+    /// have to agree with the manifest in <c>import-art.ps1</c>: a count too low silently plays a
+    /// shorter animation, and a count too high draws a sliver of the next frame.
+    ///
+    /// Airborne is eight rather than four because the artist drew the mirror as well, so a tumbling
+    /// mole facing left uses the second four rather than a flipped copy of the first four.
+    /// </remarks>
+    public static readonly IReadOnlyDictionary<string, int> MoleFrames =
+        new Dictionary<string, int>
+        {
+            { "stand", 1 },
+            { "ko", 1 },
+            { "aim", 5 },
+            { "airborne", 8 },
+            { "dig", 6 },
+            { "hit", 3 },
+            { "claws", 6 },
+            { "rooted", 8 },
+        };
+
+    /// <summary>The eight exits, by the name <see cref="MoleSim.Match.KnockoutExit"/> knows.</summary>
+    public static readonly IReadOnlyDictionary<string, int> ExitFrames =
+        new Dictionary<string, int>
+        {
+            { "poof", 6 },
+            { "stretcher", 6 },
+            { "birds", 6 },
+            { "balloon", 8 },
+            { "hole", 6 },
+            { "helmet", 6 },
+            { "sink", 6 },
+            { "steam", 7 },
+            { "launch", 6 },
+        };
+
+    /// <summary>Effects that are not attached to a mole.</summary>
+    public static readonly IReadOnlyDictionary<string, int> EffectFrames =
+        new Dictionary<string, int>
+        {
+            { "blast", 8 },
+            { "ring", 8 },
+            { "geyser", 5 },
+            { "drill", 6 },
+        };
+
+    /// <summary>Platoon colours in seat order, which is how the importer named the files.</summary>
+    private static readonly string[] Seats = { "green", "orange", "blue", "red" };
+
+    private static readonly Dictionary<string, Strip> Strips = new Dictionary<string, Strip>();
+
+    /// <summary>A mole pose in a platoon's colour.</summary>
+    public static Strip Mole(int seat, string pose) =>
+        Held($"mole/{Seats[Mathf.Clamp(seat, 0, Seats.Length - 1)]}-{pose}.png", MoleFrames[pose]);
+
+    /// <summary>A knockout exit in a platoon's colour.</summary>
+    public static Strip Exit(int seat, string exit) =>
+        Held($"exit/{Seats[Mathf.Clamp(seat, 0, Seats.Length - 1)]}-{exit}.png", ExitFrames[exit]);
+
+    public static Strip Effect(string effect) =>
+        Held($"effect/{effect}.png", EffectFrames[effect]);
+
+    /// <summary>A thing in the world: a projectile, a trap, a crate.</summary>
+    public static Texture2D Object(string name) => Held($"object/{name}.png", 1).Art;
+
+    /// <summary>
+    /// A weapon's glyph, by the id the simulation already has.
+    /// </summary>
+    /// <remarks>
+    /// Numbered rather than named because the artist drew all fifteen in
+    /// <see cref="MoleSim.Match.WeaponId"/> order across three sheets, so there is nothing to map.
+    /// White, so it can be tinted to a platoon's colour on the way out, which is the property the
+    /// glyphs drawn from primitives had and the reason it was safe to replace them.
+    /// </remarks>
+    public static Texture2D Weapon(MoleSim.Match.WeaponId weapon) =>
+        Held($"glyph/weapon-{(int)weapon:00}.png", 1).Art;
+
+    /// <summary>An interface glyph, white, to be tinted.</summary>
+    public static Texture2D Glyph(string name) => Held($"glyph/{name}.png", 1).Art;
+
+    private static Strip Held(string name, int frames)
+    {
+        if (Strips.TryGetValue(name, out Strip? held))
+        {
+            return held;
+        }
+
+        Strip made = new Strip(Load(name), frames);
+        Strips[name] = made;
+
+        return made;
+    }
 
     private static Texture2D Load(string name)
     {
