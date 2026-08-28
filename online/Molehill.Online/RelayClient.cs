@@ -183,6 +183,67 @@ namespace Molehill.Online
                 emptyBodyMeansSuccess: true);
 
         /// <summary>
+        /// Presents a platform's signed statement that a grown-up approved this account.
+        /// </summary>
+        /// <remarks>
+        /// The grant comes from a store, not from here and not from the player. Nothing in this
+        /// client can make one, which is the point: an approval a client could mint would be a hole
+        /// in the age gate wearing the name of a safeguard.
+        /// </remarks>
+        public Task<Reply<bool>> Approve(
+            AccountKey account, string grant, CancellationToken cancel = default) =>
+            Call(
+                () => Owned(
+                    new HttpRequestMessage(HttpMethod.Post, "/accounts/approval")
+                    {
+                        Content = Body($"{{\"grant\":{Quoted(grant)}}}"),
+                    },
+                    account),
+                _ => true,
+                cancel,
+                emptyBodyMeansSuccess: true);
+
+        /// <summary>
+        /// Asks for a code to be posted to an address, so it can be linked to this account.
+        /// </summary>
+        /// <remarks>
+        /// Adults only, and refused by the relay rather than only by the screen that offers it: the
+        /// design gives under-threshold accounts no email collection at all. The refusal arrives as
+        /// TooYoung, the same outcome the pool uses, since it is the same rule.
+        ///
+        /// The address is escaped through the serializer rather than dropped into a string. It is
+        /// typed by a person and this code has no business assuming what is in it.
+        /// </remarks>
+        public Task<Reply<bool>> ClaimEmail(
+            AccountKey account, string address, CancellationToken cancel = default) =>
+            Call(
+                () => Owned(
+                    new HttpRequestMessage(HttpMethod.Post, "/accounts/email")
+                    {
+                        Content = Body($"{{\"email\":{Quoted(address)}}}"),
+                    },
+                    account),
+                _ => true,
+                cancel,
+                // The relay says 409 when the address already belongs to somebody, which is the one
+                // conflict this call has.
+                conflictMeans: RelayOutcome.Taken);
+
+        /// <summary>Hands back the code that came out of the inbox.</summary>
+        public Task<Reply<bool>> ProveEmail(
+            AccountKey account, string code, CancellationToken cancel = default) =>
+            Call(
+                () => Owned(
+                    new HttpRequestMessage(HttpMethod.Put, "/accounts/email")
+                    {
+                        Content = Body($"{{\"code\":{Quoted(code)}}}"),
+                    },
+                    account),
+                _ => true,
+                cancel,
+                emptyBodyMeansSuccess: true);
+
+        /// <summary>
         /// Joins the pool, and hands back the ticket to ask about it with.
         /// </summary>
         /// <remarks>

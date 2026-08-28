@@ -108,11 +108,45 @@ The runtime image is the ordinary one rather than a chiselled or Alpine build. S
 
 **This has never been built.** Docker is installed on the machine it was written on and its engine will not start, so what can be said about it is exactly this much: the publish step is the same command run outside a container, and it produces `Relay.Api.dll`; that binary was then started with the container's own configuration, answered `/health`, opened a lobby and wrote its SQLite file to the path the image sets. Everything in the file above that is not the image layering has been run. The layering has not. That is a weaker claim than this repository usually makes and it is written down rather than left to be discovered.
 
+## Parental approval
+
+| | |
+| --- | --- |
+| `POST /accounts/approval` | `{"grant":"<payload>.<signature>"}` with the account headers. |
+
+The design lets an under-threshold account into the pool "with platform-level parental approval", and the two words carrying the weight are platform-level. This is not a setting, not a box a player ticks and not a field a client fills in: it is a statement made by a store, about one named account, signed with a key the store holds and the relay only has the public half of.
+
+That shape is the whole feature. An approval accepted on a client's word would be a hole in the age gate wearing the name of a safeguard, and worse than no approval at all, because it would read as protection to anybody auditing the list. A signature makes the claim exactly as good as the platform that made it and useless to everybody else, the player it is about included.
+
+Everything that can make a grant worthless is checked, and each check is a way one would be misused: an unverifiable signature is a forgery, an unconfigured platform is a stranger, a grant naming a different account is one lifted from somewhere else, and an old or future-dated one is a replay or a stretched clock. All of them come back as the same refusal, deliberately and without saying which, because the caller's answer is the same in every case and a reply that told them apart would be a way to ask this relay questions about grants it never issued.
+
+Configure a platform's public key as `Relay:Approvals:<platform>`, in PEM, ECDSA P-256. Read once at startup so a mistyped one stops the process rather than failing the first time a child tries to play. **With no keys configured, nothing can be approved**, which is the correct default and the state this ships in: the mechanism is real and there is nobody yet entitled to use it.
+
+An approval buys the stranger pool. It does not buy an address: the design gives under-threshold accounts no email collection, and reading an approval about playing with strangers as covering that too would be inventing consent from an adjacent sentence.
+
+## Linking an address
+
+| | |
+| --- | --- |
+| `POST /accounts/email` | `{"email":"..."}` with the account headers. Sends a six-character code. |
+| `PUT /accounts/email` | `{"code":"..."}`. Attaches the address once the code comes back. |
+
+Adults only, refused here rather than only on the device. Not collection with a consent box, not collection deleted later, and not collection with a parental approval attached.
+
+The rest of the rules exist because a verification endpoint is one of the classic ways to make a service into somebody else's problem. Anybody who can call it can cause mail to be sent to an address they do not own, so an account gets one code a minute, a code lasts half an hour, five wrong guesses end the claim, and an address already attached to an account is refused rather than moved, since an address is how an account is recovered and moving one would be letting somebody take an account over.
+
+Point the relay at a mail server and it sends; leave it unset and the codes go to the log, which during development answers the only question worth asking.
+
+```
+Relay__Smtp__Host=smtp.example.com Relay__Smtp__User=... Relay__Smtp__Password=... \
+  Relay__Smtp__From=moles@example.com dotnet run --project relay/Relay.Api
+```
+
+SMTP rather than one provider's HTTP API, and that is not laziness. Every provider hands out SMTP credentials, so this picks no vendor and needs no package, and unlike the push notifications it can be tested against a real server: the tests stand one up in the process and read the bytes as they arrive. There is nothing to hedge about here in the way there is about Firebase.
+
 ## What is not here yet
 
-The email link. An account is anonymous and stays on one device, so a player who reinstalls is a new player, and the design's "lightweight account (email or platform sign-in)" is what eventually carries one between a phone and a desktop. It is not here because it needs something that can send mail and be seen to have sent it, which cannot be verified from the machine this was written on, and because an under-threshold account must never be asked for one: the feature is half a gate as well as half a login, and half of it built is worse than none.
-
-Platform-level parental approval. The design lets an under-threshold account into the pool with it, and it is not a parameter here because nothing can set it truthfully: a store hands it to us, a player cannot tick it, and a flag this service accepted on somebody's word would be a hole in the gate wearing the name of a safeguard. When a platform can assert it, it arrives as a second field on the account and the rule becomes an or.
+Nothing about accounts. What remains is a decision rather than a gap: an account is still per-device unless an address is linked to it, and there is no flow yet for using that address to recover one on a new device, because recovery is a second set of abuse questions and it wants its own pass rather than being tacked onto the end of this one.
 
 ## Tests
 

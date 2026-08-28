@@ -104,12 +104,30 @@ public sealed class MatchStore : IDisposable
             -- name, no email, no handle, nothing anybody could be found by. The design asks for "no
             -- discoverable social graph", and the cheapest way to have none is to store nothing one
             -- could be built out of.
+            -- The approval is a fact about a signed statement a platform made, not a preference:
+            -- which platform said so is kept because an approval nobody can attribute is one nobody
+            -- can withdraw. The email is null for almost every account and must stay null for every
+            -- under-threshold one.
             CREATE TABLE IF NOT EXISTS accounts (
-                id         TEXT PRIMARY KEY,
-                secret     TEXT NOT NULL,
-                band       INTEGER NOT NULL,
-                created_at TEXT NOT NULL,
-                seen_at    TEXT NOT NULL
+                id          TEXT PRIMARY KEY,
+                secret      TEXT NOT NULL,
+                band        INTEGER NOT NULL,
+                created_at  TEXT NOT NULL,
+                seen_at     TEXT NOT NULL,
+                approved_by TEXT NULL,
+                approved_at TEXT NULL,
+                email       TEXT NULL
+            );
+
+            -- An email waiting to be proved. One row per account at most, so asking again replaces
+            -- the last attempt rather than leaving several codes alive at once.
+            CREATE TABLE IF NOT EXISTS email_claims (
+                account   TEXT PRIMARY KEY,
+                email     TEXT NOT NULL,
+                code      TEXT NOT NULL,
+                asked_at  TEXT NOT NULL,
+                expires   TEXT NOT NULL,
+                tries     INTEGER NOT NULL DEFAULT 0
             );
 
             -- The matchmaking pool. One row per waiting player, and the same row carries the seat
@@ -549,11 +567,16 @@ public sealed class MatchStore : IDisposable
         {
             AgeBand band;
             DateTimeOffset created;
+            bool approved;
+            string? email;
 
             using (SqliteCommand read = _connection.CreateCommand())
             {
                 read.CommandText =
-                    "SELECT band, created_at FROM accounts WHERE id = $id AND secret = $secret;";
+                    """
+                    SELECT band, created_at, approved_by, email
+                    FROM accounts WHERE id = $id AND secret = $secret;
+                    """;
                 read.Parameters.AddWithValue("$id", id);
                 read.Parameters.AddWithValue("$secret", secret);
 
@@ -566,13 +589,15 @@ public sealed class MatchStore : IDisposable
 
                 band = (AgeBand)row.GetInt32(0);
                 created = When(row.GetString(1));
+                approved = !row.IsDBNull(2);
+                email = row.IsDBNull(3) ? null : row.GetString(3);
             }
 
             Execute(
                 "UPDATE accounts SET seen_at = $now WHERE id = $id;",
                 ("$id", id), ("$now", Stamp(now)));
 
-            return new Account(id, band, created, now);
+            return new Account(id, band, created, now, approved, email);
         }
     }
 
@@ -601,6 +626,146 @@ public sealed class MatchStore : IDisposable
             update.Parameters.AddWithValue("$now", Stamp(now));
 
             return update.ExecuteNonQuery() > 0;
+        }
+    }
+
+    /// <summary>
+    /// Records that a platform approved this account, and which one said so.
+    /// </summary>
+    /// <remarks>
+    /// The platform is stored rather than a bare yes, because an approval nobody can attribute is
+    /// one nobody can withdraw: if a store turns out to have been issuing them wrongly, the answer is
+    /// to find every account it approved, and that is only possible if the answer was written down.
+    /// </remarks>
+    public bool Approve(string id, string secret, string platform, DateTimeOffset now)
+    {
+        lock (_gate)
+        {
+            using SqliteCommand update = _connection.CreateCommand();
+            update.CommandText =
+                """
+                UPDATE accounts SET approved_by = $platform, approved_at = $now, seen_at = $now
+                WHERE id = $id AND secret = $secret;
+                """;
+            update.Parameters.AddWithValue("$id", id);
+            update.Parameters.AddWithValue("$secret", secret);
+            update.Parameters.AddWithValue("$platform", platform);
+            update.Parameters.AddWithValue("$now", Stamp(now));
+
+            return update.ExecuteNonQuery() > 0;
+        }
+    }
+
+    // ---- Email ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// Starts an email claim, replacing whatever was outstanding.
+    /// </summary>
+    /// <remarks>
+    /// One claim per account, so asking again cancels the last attempt rather than leaving several
+    /// codes alive at once. A player who mistypes an address and asks again should not leave a live
+    /// code sitting in a stranger's inbox.
+    /// </remarks>
+    public void ClaimEmail(
+        string account, string email, string code, DateTimeOffset now, DateTimeOffset expires)
+    {
+        lock (_gate)
+        {
+            Execute(
+                """
+                INSERT INTO email_claims (account, email, code, asked_at, expires, tries)
+                VALUES ($account, $email, $code, $now, $expires, 0)
+                ON CONFLICT (account) DO UPDATE SET
+                    email = excluded.email, code = excluded.code,
+                    asked_at = excluded.asked_at, expires = excluded.expires, tries = 0;
+                """,
+                ("$account", account), ("$email", email), ("$code", code),
+                ("$now", Stamp(now)), ("$expires", Stamp(expires)));
+        }
+    }
+
+    /// <summary>The claim an account is waiting on, if any.</summary>
+    public EmailClaim? Claimed(string account)
+    {
+        lock (_gate)
+        {
+            using SqliteCommand read = _connection.CreateCommand();
+            read.CommandText =
+                """
+                SELECT email, code, asked_at, expires, tries
+                FROM email_claims WHERE account = $account;
+                """;
+            read.Parameters.AddWithValue("$account", account);
+
+            using SqliteDataReader row = read.ExecuteReader();
+
+            return row.Read()
+                ? new EmailClaim(
+                    account,
+                    row.GetString(0),
+                    row.GetString(1),
+                    When(row.GetString(2)),
+                    When(row.GetString(3)),
+                    row.GetInt32(4))
+                : null;
+        }
+    }
+
+    /// <summary>Counts a wrong code against a claim, and says how many there have been.</summary>
+    public int Missed(string account)
+    {
+        lock (_gate)
+        {
+            Execute(
+                "UPDATE email_claims SET tries = tries + 1 WHERE account = $account;",
+                ("$account", account));
+
+            return Claimed(account)?.Tries ?? 0;
+        }
+    }
+
+    /// <summary>Attaches the proved address to the account and clears the claim.</summary>
+    public void LinkEmail(string account, string email, DateTimeOffset now)
+    {
+        lock (_gate)
+        {
+            Execute(
+                "UPDATE accounts SET email = $email, seen_at = $now WHERE id = $account;",
+                ("$account", account), ("$email", email), ("$now", Stamp(now)));
+
+            Execute(
+                "DELETE FROM email_claims WHERE account = $account;",
+                ("$account", account));
+        }
+    }
+
+    /// <summary>Gives up on a claim, whether it expired or ran out of tries.</summary>
+    public void DropClaim(string account)
+    {
+        lock (_gate)
+        {
+            Execute("DELETE FROM email_claims WHERE account = $account;", ("$account", account));
+        }
+    }
+
+    /// <summary>
+    /// The account an address belongs to, if it belongs to one.
+    /// </summary>
+    /// <remarks>
+    /// The one query in the whole relay that could turn a person into a lookup, and it exists so
+    /// that an address cannot be linked to two accounts at once. It is not reachable from any
+    /// endpoint and must not become so: the design's "no discoverable social graph" means nobody,
+    /// including a player who knows an address, gets to ask the relay who somebody is.
+    /// </remarks>
+    public string? WhoseEmail(string email)
+    {
+        lock (_gate)
+        {
+            using SqliteCommand read = _connection.CreateCommand();
+            read.CommandText = "SELECT id FROM accounts WHERE email = $email;";
+            read.Parameters.AddWithValue("$email", email);
+
+            return read.ExecuteScalar() as string;
         }
     }
 

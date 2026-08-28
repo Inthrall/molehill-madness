@@ -19,6 +19,16 @@ public partial class Lobby : Control
     private OnlineMatch? _online;
     private double _spun;
 
+    /// <summary>
+    /// Where the other pace is being offered, or nothing.
+    /// </summary>
+    /// <remarks>
+    /// Reported rather than handled, because this control ignores the mouse and the scene owns every
+    /// press in the match. One place decides what a click means, which is why a press on the pause
+    /// menu and a press on the map cannot both happen.
+    /// </remarks>
+    public Rect2 Offer { get; private set; }
+
     public override void _Ready()
     {
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
@@ -50,9 +60,103 @@ public partial class Lobby : Control
         DrawRect(new Rect2(Vector2.Zero, viewport), Palette.Paper);
         MenuHill.Draw(this, viewport);
 
+        if (_online.Stage == OnlineStage.Queueing)
+        {
+            DrawPool(viewport);
+            DrawPulse(viewport);
+            return;
+        }
+
+        Offer = new Rect2();
+
         DrawCode(viewport);
         DrawArrivals(viewport);
         DrawPulse(viewport);
+    }
+
+    /// <summary>
+    /// Waiting in the pool: what was asked for, and the other clock once the queue is thin.
+    /// </summary>
+    /// <remarks>
+    /// There is no code here, because nobody is going to read one out: a matchmade lobby does not
+    /// exist until the pool makes one. What there is instead is the thing that was asked for, drawn
+    /// the same way the menu drew it a moment ago, so the screen is visibly the answer to the button
+    /// that was pressed rather than a different screen that happens to be spinning.
+    ///
+    /// And, once the relay says the queue is slow, the other clock as something to press. That is
+    /// the design's answer to a thin pool, and the reason it is a press rather than an automatic
+    /// switch is that somebody who asked for a game right now has not agreed to one that takes a
+    /// fortnight. Offered, in the design's own word.
+    /// </remarks>
+    private void DrawPool(Vector2 viewport)
+    {
+        OnlineMatch online = _online!;
+
+        float glyph = Mathf.Clamp(Mathf.Min(viewport.X, viewport.Y) * 0.16f, 64f, 180f);
+        Vector2 middle = new Vector2(viewport.X / 2f, viewport.Y * 0.30f);
+
+        // On a panel, because that is where every glyph in this game lives and the reason is not
+        // taste. The glyph set is drawn in the panel ink, which is nearly the colour of the sky, and
+        // the moles inside the hills are cut out in the paper colour: put on the sky with no panel
+        // behind it, the whole thing came out as a white ghost with two red specks where the noses
+        // were. Rendered before anybody would have noticed it in a playtest.
+        Vector2 plate = new Vector2(glyph * 1.5f, glyph * 1.2f);
+        Rect2 panel = new Rect2(middle - (plate / 2f), plate);
+
+        DrawRect(panel, Palette.Panel);
+        DrawRect(panel, new Color(Palette.OnPanel, 0.35f), false, 3f);
+
+        Glyphs.Strangers(this, middle, glyph, Palette.OnPanel);
+
+        // How many are being looked for, in the same row of seats the lobby uses when they start
+        // filling. Hung off the panel rather than off a fraction of the screen: at 16:9 a fraction
+        // put them exactly on the skyline, where a pale ring on the grass line is half a ring.
+        int seats = Mathf.Max(online.PlayerCount, MatchSetup.PlayerCount);
+        float mole = Mathf.Clamp(viewport.X * 0.045f, 22f, 54f);
+        float gap = mole * 1.35f;
+        float left = (viewport.X - (gap * (seats - 1))) / 2f;
+        float row = panel.End.Y + (mole * 1.1f);
+
+        for (int seat = 0; seat < seats; seat++)
+        {
+            DrawArc(
+                new Vector2(left + (seat * gap), row), mole * 0.42f, 0, Mathf.Tau, 28,
+                new Color(Palette.Ink, 0.4f), 3f);
+        }
+
+        if (!online.PoolIsSlow)
+        {
+            Offer = new Rect2();
+
+            return;
+        }
+
+        // The other clock, as a panel to press. Drawn only once the relay says so, because an offer
+        // that was there from the first second would read as a choice somebody got wrong rather than
+        // as the game admitting nobody is about.
+        float wide = Mathf.Clamp(viewport.X * 0.22f, 120f, 320f);
+        float tall = wide * 0.44f;
+
+        // Sat above the pulse rather than on it. At 0.68 the panel's bottom half was exactly where
+        // the sweeping bar lives, so the bar ran through the middle of the offer and came out the
+        // other side, which reads as a loading bar filling a button rather than as two things.
+        Offer = new Rect2((viewport.X - wide) / 2f, viewport.Y * 0.55f, wide, tall);
+
+        DrawRect(Offer, Palette.Panel);
+        DrawRect(Offer, Palette.OnPanel, false, 3f);
+
+        Vector2 heart = Offer.Position + (Offer.Size / 2f);
+
+        // Whichever one is not being waited for. The pace glyphs are the menu's, so the offer is
+        // recognisable as the other one of the two things chosen a moment ago.
+        if (online.AskedFor == MatchPace.Live)
+        {
+            Glyphs.Moon(this, heart, tall * 0.62f, Palette.OnPanel);
+        }
+        else
+        {
+            Glyphs.Time(this, heart, tall * 0.62f, Palette.OnPanel);
+        }
     }
 
     /// <summary>

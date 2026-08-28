@@ -45,7 +45,13 @@ public enum AgeBand
 /// after that it only ever travels inward: the relay checks it and never repeats it, so an account
 /// read cannot leak the credential that owns it. The same shape a seat token has.
 /// </remarks>
-public sealed record Account(string Id, AgeBand Band, DateTimeOffset CreatedAt, DateTimeOffset SeenAt);
+public sealed record Account(
+    string Id,
+    AgeBand Band,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset SeenAt,
+    bool Approved = false,
+    string? Email = null);
 
 /// <summary>
 /// What an account of a given band is allowed to do here.
@@ -72,16 +78,34 @@ public static class Allowed
     /// exists to enforce, and everything that pairs a player with somebody they did not invite comes
     /// through here.
     ///
-    /// Platform-level parental approval is not a parameter, because nothing can set it truthfully
-    /// yet. It is something a store hands us, not something a player can tick, and a flag this
-    /// service accepted on somebody's word would be a gate with a hole in it wearing the name of a
-    /// safeguard. When a platform can actually assert it, it arrives here as a second field on the
-    /// account and this becomes an or.
+    /// The approval is a parameter and not a claim. It is only ever true because a platform signed a
+    /// statement saying so and this relay held the public half of the key that checked it: a player
+    /// cannot set it, a client cannot send it, and with no platform keys configured nothing can be
+    /// approved at all. See <see cref="Approvals"/>, where the argument for that shape lives.
     ///
-    /// Never on an unasked account. One that has not been through the gate has not been cleared for
-    /// anything, and treating silence as consent is the whole failure.
+    /// Never on an unasked account, approved or not. One that has not been through the gate has not
+    /// been cleared for anything, an approval about a band nobody has established is an approval of
+    /// nothing, and treating silence as consent is the whole failure.
     /// </remarks>
-    public static bool Matchmaking(AgeBand band) => band == AgeBand.Adult;
+    public static bool Matchmaking(AgeBand band, bool approved = false) =>
+        band switch
+        {
+            AgeBand.Adult => true,
+            AgeBand.Child => approved,
+            _ => false,
+        };
+
+    /// <summary>
+    /// Whether an email address may be asked for or kept.
+    /// </summary>
+    /// <remarks>
+    /// The design: under-threshold accounts get "no email collection". Not collection with a consent
+    /// box, not collection we delete later, and not collection with parental approval either. None.
+    /// The approval the design describes buys a child the stranger pool and the store; it says
+    /// nothing about handing us their email address, and reading it as though it did would be
+    /// inventing consent from an adjacent sentence.
+    /// </remarks>
+    public static bool EmailCollection(AgeBand band) => band == AgeBand.Adult;
 
     /// <summary>
     /// Whether a match can be joined by code.

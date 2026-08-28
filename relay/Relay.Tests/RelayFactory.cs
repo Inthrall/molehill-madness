@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Relay.Api;
@@ -19,14 +20,35 @@ namespace Relay.Tests;
 internal sealed class RelayFactory : WebApplicationFactory<Program>
 {
     private readonly string _databaseName;
+    private readonly Dictionary<string, string?> _settings;
+    private readonly Action<IServiceCollection>? _services;
 
-    public RelayFactory(string databaseName) => _databaseName = databaseName;
+    public RelayFactory(
+        string databaseName,
+        Dictionary<string, string?>? settings = null,
+        Action<IServiceCollection>? services = null)
+    {
+        _databaseName = databaseName;
+        _settings = settings ?? new Dictionary<string, string?>(StringComparer.Ordinal);
+        _services = services;
+    }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        // Registered after the application's own, so this is the one that gets resolved.
+        // Configuration before services, because some of what the relay reads is read while it is
+        // being built rather than resolved from the container afterwards: the platform approval keys
+        // are looked at once at startup so a mistyped one stops the process, which means a test that
+        // wants one has to have set it before then.
+        builder.ConfigureAppConfiguration(configuration =>
+            configuration.AddInMemoryCollection(_settings));
+
+        // Registered after the application's own, so these are the ones that get resolved.
         builder.ConfigureServices(services =>
-            services.AddSingleton(MatchStore.InMemory(_databaseName)));
+        {
+            services.AddSingleton(MatchStore.InMemory(_databaseName));
+
+            _services?.Invoke(services);
+        });
     }
 }
 

@@ -102,7 +102,8 @@ namespace Molehill.Online
 
         private readonly AgeBand _band;
         private readonly int _wanted;
-        private readonly MatchPace _wantedPace;
+
+        private MatchPace _wantedPace;
         private readonly Action<AccountKey>? _remember;
 
         private AccountKey? _account;
@@ -478,6 +479,48 @@ namespace Molehill.Online
 
         /// <summary>How long this player has been in the pool, in seconds.</summary>
         public int Waited { get; private set; }
+
+        /// <summary>
+        /// Which clock this session is currently in the pool for.
+        /// </summary>
+        /// <remarks>
+        /// Not always the one it started with, since a slow queue can be answered by asking for the
+        /// other one. Whoever is drawing the waiting screen needs to know which of the two to offer,
+        /// and asking the session beats remembering what was pressed a minute ago.
+        /// </remarks>
+        public MatchPace AskedFor => _wantedPace;
+
+        /// <summary>
+        /// Asks the pool for the other clock instead, without leaving it.
+        /// </summary>
+        /// <remarks>
+        /// The design's answer to a thin pool: Anytime "is the default offered to anyone whose Live
+        /// queue is slow". Offered, not applied, which is why this is a call somebody makes rather
+        /// than something the relay does on their behalf. Somebody who pressed the button for a
+        /// game right now has not agreed to one that takes a fortnight.
+        ///
+        /// The place in the queue is given back first. Two tickets for one account is a state the
+        /// pool refuses anyway, and leaving the old one behind would have the sweep seat this player
+        /// into a Live match they had just said they did not want.
+        /// </remarks>
+        public void Requeue(MatchPace pace)
+        {
+            if (Stage != OnlineStage.Queueing || pace == _wantedPace)
+            {
+                return;
+            }
+
+            if (_ticket is not null)
+            {
+                _ = _relay.LeavePool(_ticket);
+                _ticket = null;
+            }
+
+            _wantedPace = pace;
+            Waited = 0;
+            PoolIsSlow = false;
+            _quiet = double.MaxValue;
+        }
 
         /// <summary>
         /// Whether the pool is thin enough that the other pace is worth offering.

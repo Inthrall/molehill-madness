@@ -105,6 +105,15 @@ public sealed record SetBand(AgeBand Band);
 /// </remarks>
 public sealed record JoinPool(int PlayerCount, Pace Pace);
 
+/// <summary>A signed statement from a platform that a grown-up approved this account.</summary>
+public sealed record Approve(string Grant);
+
+/// <summary>An address a player would like to link, before anybody knows it is theirs.</summary>
+public sealed record ClaimEmail(string Email);
+
+/// <summary>The code that came back out of the inbox.</summary>
+public sealed record ProveEmail(string Code);
+
 /// <summary>Where to reach a player when it is their turn.</summary>
 public sealed record RegisterDevice(string Token, string? Platform);
 

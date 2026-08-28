@@ -58,7 +58,31 @@ builder.Services.AddHostedService<LiveWatcher>();
 // The matchmaking pool. Empty most of the time and cheap to sweep when it is not.
 builder.Services.AddHostedService<PoolFiller>();
 
+// Codes for linking an address. A mail server if one is configured, the log if not, on the same
+// argument the notifications use: during development the question is whether the right code reached
+// the right claim, and a log line answers it as well as an inbox would.
+if (SmtpSettings.Configured(builder.Configuration) is SmtpSettings smtp)
+{
+    builder.Services.AddSingleton(smtp);
+    builder.Services.AddSingleton<IEmailSender, SmtpEmailSender>();
+}
+else
+{
+    builder.Services.AddSingleton<IEmailSender, LoggingEmailSender>();
+}
+
 WebApplication app = builder.Build();
+
+// The platforms whose word this relay takes about parental approval, read once so a mistyped key
+// stops the process while somebody is watching rather than the first time a child tries to play.
+// Empty unless one has been configured, and empty means no account can ever be approved, which is
+// the correct default and the state this ships in.
+//
+// Read off the built application rather than off the builder, unlike the Firebase and SMTP settings
+// above. Those choose which service to register and so have to be read before the container is
+// built; this one only needs a value, and reading it after means it sees every configuration source
+// the host has, including ones added by whoever is hosting it. That difference cost an afternoon.
+IReadOnlyDictionary<string, string> approvalKeys = Approvals.Configured(app.Configuration);
 
 // Sockets have to be turned on before anything can be upgraded onto one. The keepalive is the
 // framework's own protocol-level ping, which is what stops a phone's network dropping an idle
@@ -189,6 +213,141 @@ app.MapPut("/accounts/band", (
         : Results.Unauthorized();
 });
 
+// A platform saying a grown-up has approved this account. Not a setting and not a claim: the grant
+// is signed by a store with a key this relay only has the public half of, so a player cannot issue
+// one about themselves and a client cannot invent one. With no platform keys configured, nothing can
+// be approved at all, which is the state this relay ships in.
+app.MapPost("/accounts/approval", (
+    Approve request, HttpRequest http, MatchStore store, TimeProvider clock) =>
+{
+    DateTimeOffset now = clock.GetUtcNow();
+
+    string id = http.Headers["X-Account"].ToString();
+    string secret = http.Headers["X-Account-Secret"].ToString();
+
+    if (store.Who(id, secret, now) is null)
+    {
+        return Results.Unauthorized();
+    }
+
+    if (Approvals.Read(request.Grant, approvalKeys, id, now) is not Grant grant)
+    {
+        // Deliberately one answer for a forgery, an unknown platform, a grant about somebody else
+        // and an expired one alike. The caller does the same thing in every case, and a reply that
+        // told them apart would be a way to ask this relay questions about grants it never issued.
+        return Results.StatusCode(StatusCodes.Status403Forbidden);
+    }
+
+    store.Approve(id, secret, grant.Platform, now);
+
+    return Results.NoContent();
+});
+
+// ---- Linking an address ---------------------------------------------------------------
+
+// Adults only, refused here rather than on the device. The design gives under-threshold accounts "no
+// email collection", and that is not collection with a consent box, nor collection deleted later,
+// nor collection with a parental approval attached: an approval about playing with strangers says
+// nothing at all about handing us an address.
+app.MapPost("/accounts/email", async (
+    ClaimEmail request,
+    HttpRequest http,
+    MatchStore store,
+    IEmailSender post,
+    TimeProvider clock) =>
+{
+    DateTimeOffset now = clock.GetUtcNow();
+
+    string id = http.Headers["X-Account"].ToString();
+    string secret = http.Headers["X-Account-Secret"].ToString();
+
+    if (store.Who(id, secret, now) is not Account account)
+    {
+        return Results.Unauthorized();
+    }
+
+    if (!Allowed.EmailCollection(account.Band))
+    {
+        return Results.StatusCode(StatusCodes.Status403Forbidden);
+    }
+
+    if (!Emails.Plausible(request.Email))
+    {
+        return Results.BadRequest(new { error = "That is not an address." });
+    }
+
+    string address = Emails.Tidy(request.Email);
+
+    // Refused rather than moved. An address is how an account is recovered, so letting a second one
+    // claim it would be letting somebody take the first one over.
+    if (store.WhoseEmail(address) is string owner && owner != id)
+    {
+        return Results.Conflict(new { error = "That address is already linked." });
+    }
+
+    // Anybody who can call this can cause mail to be sent to an address they do not own, so an
+    // account gets one of these a minute. Without it this endpoint is a button that posts mail to
+    // anywhere as fast as it can be called, and the relay is the tool rather than the target.
+    if (Emails.TooSoon(store.Claimed(id), now))
+    {
+        return Results.StatusCode(StatusCodes.Status429TooManyRequests);
+    }
+
+    string code = Emails.Code();
+
+    store.ClaimEmail(id, address, code, now, now + Emails.Lasts);
+
+    // Sent after the claim is written, so a code that reaches somebody always has a claim behind it.
+    // The other order gives out codes that cannot be typed in.
+    await post.Send(address, code);
+
+    return Results.Accepted($"/accounts/email", new { sent = true });
+});
+
+app.MapPut("/accounts/email", (
+    ProveEmail request, HttpRequest http, MatchStore store, TimeProvider clock) =>
+{
+    DateTimeOffset now = clock.GetUtcNow();
+
+    string id = http.Headers["X-Account"].ToString();
+    string secret = http.Headers["X-Account-Secret"].ToString();
+
+    if (store.Who(id, secret, now) is not Account account)
+    {
+        return Results.Unauthorized();
+    }
+
+    if (!Allowed.EmailCollection(account.Band))
+    {
+        return Results.StatusCode(StatusCodes.Status403Forbidden);
+    }
+
+    EmailClaim? claim = store.Claimed(id);
+
+    if (!Emails.Live(claim, now))
+    {
+        // Expired, or out of guesses, or never asked for. Cleared out either way, so the next
+        // attempt starts from a fresh code rather than from a dead one.
+        store.DropClaim(id);
+
+        return Results.NotFound(new { error = "Ask for a code first." });
+    }
+
+    if (!Emails.Matches(claim!, request.Code))
+    {
+        if (store.Missed(id) >= Emails.Guesses)
+        {
+            store.DropClaim(id);
+        }
+
+        return Results.StatusCode(StatusCodes.Status403Forbidden);
+    }
+
+    store.LinkEmail(id, claim!.Email, now);
+
+    return Results.NoContent();
+});
+
 // ---- The pool -------------------------------------------------------------------------
 
 app.MapPost("/queue", (
@@ -212,7 +371,7 @@ app.MapPost("/queue", (
     // The whole reason the age gate exists, enforced at the one place that can enforce it. The
     // client has the same rule written down and the client's copy is not a gate: it decides whether
     // the button is offered, and it runs on a machine the player owns.
-    if (!Allowed.Matchmaking(account.Band))
+    if (!Allowed.Matchmaking(account.Band, account.Approved))
     {
         return Results.StatusCode(StatusCodes.Status403Forbidden);
     }

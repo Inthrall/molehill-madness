@@ -48,5 +48,15 @@ public static class MatchSetup
 
         /// <summary>This device took a seat in somebody else's lobby.</summary>
         Joining = 2,
+
+        /// <summary>
+        /// This device asked to be put with whoever else was asking.
+        /// </summary>
+        /// <remarks>
+        /// The only one of the four that needs an account, because it is the only one that puts a
+        /// player with somebody they did not invite. Couch play needs nothing, and a code arrives
+        /// from somebody you already know.
+        /// </remarks>
+        Strangers = 3,
     }
 }

@@ -52,6 +52,17 @@ namespace Molehill.Online
         /// look broken to exactly the person it is protecting.
         /// </remarks>
         TooYoung = 8,
+
+        /// <summary>
+        /// That address already belongs to an account.
+        /// </summary>
+        /// <remarks>
+        /// Refused rather than moved, because an address is how an account is recovered and letting
+        /// a second one claim it would be letting somebody take the first over. Its own outcome
+        /// because it is the one refusal here a player can do something about, by using the other
+        /// address or by recovering the account they already have.
+        /// </remarks>
+        Taken = 9,
     }
 
     /// <summary>

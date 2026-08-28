@@ -1561,6 +1561,25 @@ public partial class MatchScene : Node2D
             return;
         }
 
+        // The offer of the other clock, while this device is in the pool. Above the guard below for
+        // the same reason escape is: there is no match yet, and this is the one thing a player
+        // waiting on one can usefully do.
+        if (Online.Match is Molehill.Online.OnlineMatch queueing
+            && queueing.Stage == Molehill.Online.OnlineStage.Queueing
+            && _lobby is not null
+            && _lobby.Offer.Size.X > 0
+            && Pressing(@event, out Vector2 onOffer)
+            && _lobby.Offer.HasPoint(onOffer))
+        {
+            queueing.Requeue(
+                queueing.AskedFor == Molehill.Online.MatchPace.Live
+                    ? Molehill.Online.MatchPace.Anytime
+                    : Molehill.Online.MatchPace.Live);
+
+            Click();
+            return;
+        }
+
         // Nothing below this point has a match to act on until one has been built. Escape is above
         // it deliberately: a player waiting on a relay that is never going to answer needs the one
         // door out of the room to work.

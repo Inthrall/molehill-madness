@@ -25,7 +25,7 @@ public partial class MenuScene : Control
     private MatchPace _pace = MatchPace.Live;
 
     private readonly Rect2[] _choices = new Rect2[MatchSetup.MostPlayers - MatchSetup.FewestPlayers + 1];
-    private readonly Rect2[] _tables = new Rect2[3];
+    private readonly Rect2[] _tables = new Rect2[4];
     private readonly Rect2[] _paces = new Rect2[2];
     private Rect2 _resume;
     private bool _canResume;
@@ -49,6 +49,10 @@ public partial class MenuScene : Control
         if (Flags.Host())
         {
             _where = MatchSetup.Table.Hosting;
+        }
+        else if (Flags.Matchmake())
+        {
+            _where = MatchSetup.Table.Strangers;
         }
         else if (Flags.Join() is not null)
         {
@@ -142,12 +146,12 @@ public partial class MenuScene : Control
 
             case Key.Up:
             case Key.W:
-                Sit((MatchSetup.Table)Mathf.PosMod((int)_where - 1, _tables.Length));
+                Sit(Along(-1));
                 break;
 
             case Key.Down:
             case Key.S:
-                Sit((MatchSetup.Table)Mathf.PosMod((int)_where + 1, _tables.Length));
+                Sit(Along(1));
                 break;
 
             // Typing the number is input rather than reading it, so the wordless rule is intact.
@@ -194,7 +198,7 @@ public partial class MenuScene : Control
             }
         }
 
-        if (_where == MatchSetup.Table.Hosting)
+        if (Paces())
         {
             for (int index = 0; index < _paces.Length; index++)
             {
@@ -224,6 +228,46 @@ public partial class MenuScene : Control
     /// <remarks>A joiner does not: the host already decided, and the lobby says so.</remarks>
     private bool Picks() => _where != MatchSetup.Table.Joining;
 
+    /// <summary>Whether this table also lets them choose the clock.</summary>
+    /// <remarks>
+    /// Hosting and strangers both do, and for the same reason: in each case this device is asking
+    /// for a match to be made rather than joining one that exists, so the pace is still open. A
+    /// joiner takes whatever the host chose, and a couch has no clock to choose.
+    /// </remarks>
+    private bool Paces() =>
+        _where is MatchSetup.Table.Hosting or MatchSetup.Table.Strangers;
+
+    /// <summary>
+    /// Whether this device may sit at a table at all.
+    /// </summary>
+    /// <remarks>
+    /// Only ever false for strangers, and only for an account under the threshold. The design is
+    /// explicit that "nothing is taken away by that gate except strangers": the couch is open to
+    /// everybody and needs no account, and a game code is open to every age because it arrives from
+    /// somebody the player already knows.
+    /// </remarks>
+    private static bool Allows(MatchSetup.Table table) =>
+        table != MatchSetup.Table.Strangers || Online.CanMeetStrangers;
+
+    /// <summary>The next table along that this device may actually sit at.</summary>
+    private MatchSetup.Table Along(int step)
+    {
+        MatchSetup.Table next = _where;
+
+        // At most one lap, so a build where nothing is allowed cannot spin here for ever.
+        for (int tried = 0; tried < _tables.Length; tried++)
+        {
+            next = (MatchSetup.Table)Mathf.PosMod((int)next + step, _tables.Length);
+
+            if (Allows(next))
+            {
+                return next;
+            }
+        }
+
+        return _where;
+    }
+
     private void Choose(int players)
     {
         _players = Mathf.Clamp(players, MatchSetup.FewestPlayers, MatchSetup.MostPlayers);
@@ -232,6 +276,14 @@ public partial class MenuScene : Control
 
     private void Sit(MatchSetup.Table table)
     {
+        if (!Allows(table))
+        {
+            // Refused rather than selected and then failed at the play button. A dimmed panel that
+            // does nothing when pressed says "not this one" where a bright panel and a dead play
+            // button says the game is broken.
+            return;
+        }
+
         _where = table;
         QueueRedraw();
     }
@@ -242,22 +294,14 @@ public partial class MenuScene : Control
         MatchSetup.Where = _where;
         MatchSetup.Pace = _pace;
 
-        if (Flags.Matchmake())
-        {
-            // Into the pool rather than into a lobby. There is no table for this yet because there
-            // is no button for it yet: the menu's three tables are couch, hosting and joining, and a
-            // fourth wants a glyph and a waiting screen of its own rather than a corner of this one.
-            Online.Matchmake(_players, _pace);
-
-            GetTree().CallDeferred(
-                SceneTree.MethodName.ChangeSceneToFile, "res://scenes/Match.tscn");
-            return;
-        }
-
         switch (_where)
         {
             case MatchSetup.Table.Hosting:
                 Online.Host(_players, _pace, Flags.Window() ?? 0);
+                break;
+
+            case MatchSetup.Table.Strangers:
+                Online.Matchmake(_players, _pace);
                 break;
 
             case MatchSetup.Table.Joining when Flags.Join() is string prefilled:
@@ -408,12 +452,19 @@ public partial class MenuScene : Control
         for (int index = 0; index < _tables.Length; index++)
         {
             bool chosen = (int)_where == index;
+            bool allowed = Allows((MatchSetup.Table)index);
 
             _tables[index] = new Rect2(left, top, width, height);
             Panel(_tables[index], chosen);
 
             Vector2 middle = _tables[index].Position + (_tables[index].Size / 2f);
-            Color ink = chosen ? Palette.OnPanel : new Color(Palette.OnPanel, 0.4f);
+
+            // Dimmed rather than missing, the same way the dynamite button is when it is spent. An
+            // option that vanishes reads as a layout that moved; one that is visibly there and
+            // visibly unavailable reads as a rule, which is what it is.
+            Color ink = allowed
+                ? (chosen ? Palette.OnPanel : new Color(Palette.OnPanel, 0.4f))
+                : new Color(Palette.OnPanel, 0.16f);
 
             switch ((MatchSetup.Table)index)
             {
@@ -423,6 +474,10 @@ public partial class MenuScene : Control
 
                 case MatchSetup.Table.Hosting:
                     Glyphs.Broadcast(this, middle, height * 0.72f, ink);
+                    break;
+
+                case MatchSetup.Table.Strangers:
+                    Glyphs.Strangers(this, middle, height * 0.78f, ink);
                     break;
 
                 default:
@@ -447,7 +502,7 @@ public partial class MenuScene : Control
 
         DrawChoices(viewport);
 
-        if (_where == MatchSetup.Table.Hosting)
+        if (Paces())
         {
             DrawPaces(viewport);
         }

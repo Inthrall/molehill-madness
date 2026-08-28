@@ -566,6 +566,49 @@ public static class Glyphs
     }
 
     /// <summary>
+    /// Two molehills a long way apart, joined. A match with somebody nobody here knows.
+    /// </summary>
+    /// <remarks>
+    /// Two hills rather than one, because what separates this from hosting is not what you do, it is
+    /// who is at the other end: hosting sends something out and waits for the people you told, and
+    /// this reaches somebody who was doing the same thing somewhere else.
+    ///
+    /// Deliberately not dice and deliberately not a shuffle arrow, which are the two obvious ways to
+    /// draw "random" and are both wrong here. The design rules out anything that looks like gambling,
+    /// and it rules it out on the store page as firmly as in the shop: a die on the front menu of an
+    /// all-ages game is a conversation with a ratings board nobody needs to have.
+    /// </remarks>
+    public static void Strangers(CanvasItem into, Vector2 at, float size, Color ink)
+    {
+        float unit = size / 2f;
+        float line = size * Stroke;
+        float apart = unit * 0.56f;
+        float floor = unit * 0.78f;
+
+        // Sized against the couch and the tiles beside it rather than against the box it is given.
+        // The first attempt used the box, came out as two faint bumps, and read as a smudge next to
+        // three glyphs that read as objects. A glyph is only as good as the weakest one in the row.
+        for (int side = -1; side <= 1; side += 2)
+        {
+            Vector2 hill = at + new Vector2(side * apart, 0f);
+
+            Polygon(into, ink,
+                hill + new Vector2(-unit * 0.62f, floor),
+                hill + new Vector2(0, -unit * 0.30f),
+                hill + new Vector2(unit * 0.62f, floor));
+
+            Mole(into, hill + new Vector2(0, unit * 0.26f), unit * 0.44f, Palette.Paper);
+        }
+
+        // The distance between them, as the arc something has to cross rather than as a line. A
+        // straight one drawn between two hills reads as the ground they are both standing on, and
+        // it has to clear both peaks or it reads as a rope somebody has slung through them.
+        Arc(
+            into, at + new Vector2(0, -unit * 0.18f), apart * 1.02f,
+            200, 340, ink, line * 0.9f);
+    }
+
+    /// <summary>
     /// Five empty tiles. A code to type in, which is the only way into somebody else's game.
     /// </summary>
     public static void Tiles(CanvasItem into, Vector2 at, float size, Color ink)

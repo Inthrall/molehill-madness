@@ -1,4 +1,6 @@
+using Microsoft.Extensions.DependencyInjection;
 using Molehill.Online;
+using Relay.Api;
 
 namespace Molehill.Online.Tests;
 
@@ -259,6 +261,51 @@ public sealed class PoolTests
 
         Assert.That(match.Stage, Is.EqualTo(OnlineStage.Done));
         Assert.That(match.Trouble, Is.EqualTo(RelayOutcome.TooYoung));
+    }
+
+    /// <summary>
+    /// Somebody who has been told the queue is thin can ask for the other clock without leaving it.
+    /// </summary>
+    /// <remarks>
+    /// Offered rather than applied, which is the whole reason this is a call somebody makes: a
+    /// player who pressed the button for a game right now has not agreed to one that takes a
+    /// fortnight. The old place is given back first, because two tickets for one account is a state
+    /// the pool refuses and a stale one would seat them into the match they had just declined.
+    /// </remarks>
+    [Test]
+    public async Task ASlowQueueCanBeSwappedForTheOtherClock()
+    {
+        Clock clock = new Clock(Whenever);
+
+        using TestRelay relay = new TestRelay($"pool-swap-{Guid.NewGuid():N}", clock);
+        using RelayClient client = relay.Client();
+
+        AccountKey account = await Account(client, AgeBand.Adult);
+
+        OnlineMatch match = OnlineMatch.Matchmaking(
+            client, account, AgeBand.Adult, 4, MatchPace.Live);
+
+        await Pump(() => match.Queued, match, seconds: 3);
+
+        clock.Pass(TimeSpan.FromSeconds(60));
+
+        await Pump(() => match.PoolIsSlow, match);
+
+        match.Requeue(MatchPace.Anytime);
+
+        Assert.That(match.AskedFor, Is.EqualTo(MatchPace.Anytime));
+        Assert.That(match.PoolIsSlow, Is.False, "A fresh place is not a slow one.");
+
+        await Pump(() => match.Queued, match, seconds: 4);
+
+        Assert.That(match.Stage, Is.EqualTo(OnlineStage.Queueing));
+
+        // And there is one place in the pool rather than two, so nothing can seat this player into
+        // the Live match they just walked away from.
+        Assert.That(
+            relay.Services.GetRequiredService<MatchStore>().Queue(), Has.Count.EqualTo(1));
+
+        match.Leave();
     }
 
     // ---- Helpers ------------------------------------------------------------------------
