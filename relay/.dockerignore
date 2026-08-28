@@ -1,0 +1,11 @@
+# The build stage restores and publishes inside the image, so anything built out here is at best
+# wasted upload and at worst a stale binary shadowing a fresh one.
+**/bin/
+**/obj/
+
+# Tests are not in the image and their project would drag the ASP.NET testing packages in with it.
+Relay.Tests/
+
+Dockerfile
+.dockerignore
+README.md

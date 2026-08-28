@@ -60,11 +60,24 @@ Relay__Firebase__ServiceAccount=/var/lib/molehill/firebase.json dotnet run --pro
 
 What the sender cannot claim is that Google likes the bytes, because there is no Firebase project behind this repository to send to. Everything up to the socket is tested against a stub: a real key signs a real assertion which is verified the way Google verifies it, the bearer is minted and cached and dropped a minute early and thrown away when it is refused, and each documented error is put in front of it to see which of four answers it gives. Those four are the part worth being careful about. Sent and deferred and dropped and unregistered are not a boolean, and a boolean was going to start lying: an outbox that retries a dead phone spins for ever, and one that gives up on a busy service loses the round.
 
+## The image
+
+```
+docker build -t molehill-relay relay/
+docker run --rm -p 8080:8080 -v molehill:/data molehill-relay
+```
+
+The build context is this directory rather than the repository root, which is a guard rather than a convenience. The relay has no project reference to MoleSim on purpose, because the moment it can see a `Plan` type it becomes possible for it to start having opinions about one, and a context that cannot reach the simulation means adding that reference breaks the image build instead of passing quietly.
+
+The runtime image is the ordinary one rather than a chiselled or Alpine build. SQLite arrives as a native library through SQLitePCLRaw, and the small images are where that stops being somebody else's problem: musl wants a different build of it, and finding that out from a container that starts and then throws on the first query is a bad afternoon. The database goes on a volume, since the whole point of Anytime pace is that a match outlives the process. There is no `HEALTHCHECK` line: the image carries no curl, adding one is a package and an attack surface for something every host does better itself, and `/health` is there for the platform to probe.
+
+**This has never been built.** Docker is installed on the machine it was written on and its engine will not start, so what can be said about it is exactly this much: the publish step is the same command run outside a container, and it produces `Relay.Api.dll`; that binary was then started with the container's own configuration, answered `/health`, opened a lobby and wrote its SQLite file to the path the image sets. Everything in the file above that is not the image layering has been run. The layering has not. That is a weaker claim than this repository usually makes and it is written down rather than left to be discovered.
+
 ## What is not here yet
 
 Accounts and the age gate are task 4.4 and are not here.
 
-Hosting is a small container app plus, eventually, managed Postgres. There is no Dockerfile in here yet because there is nowhere to verify one builds from this machine, and an unverified deployment file is worse than an absent one.
+Hosting is a small container app plus, eventually, managed Postgres.
 
 ## Tests
 
