@@ -36,6 +36,7 @@ namespace MoleSim.Match
             _plans = new Plan?[playerCount];
 
             Vec2[] spawns = MapMaker.SpawnPoints(terrain, playerCount, MatchSettings.MolesPerPlatoon);
+            Vec2[] facings = MapMaker.SpawnFacings(terrain, playerCount, MatchSettings.MolesPerPlatoon);
             _moles = new Mole[playerCount * MatchSettings.MolesPerPlatoon];
 
             for (int slot = 0; slot < _moles.Length; slot++)
@@ -43,7 +44,7 @@ namespace MoleSim.Match
                 // Interleaved rather than clustered, so no platoon starts boxed in.
                 int seat = slot % playerCount;
                 int index = slot / playerCount;
-                _moles[slot] = new Mole(seat, index, spawns[slot]);
+                _moles[slot] = new Mole(seat, index, spawns[slot]) { Facing = facings[slot] };
             }
 
             _stock = new int[playerCount][];

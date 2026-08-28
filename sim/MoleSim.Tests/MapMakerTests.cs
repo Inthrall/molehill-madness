@@ -204,9 +204,12 @@ public sealed class MapMakerTests
 
             Assert.That(surface, Is.LessThan(Height), $"column {cellX} has no turf at all");
 
-            // Ten solid cells below the surface everywhere. This is the guarantee that keeps the
-            // spawn points where they were: break it and a mole starts down a hole instead.
-            for (int depth = 0; depth < 10; depth++)
+            // Four solid cells below the surface everywhere, down from ten, because the caves are
+            // meant to reach the bits near the surface now. What the roof protects is no longer the
+            // spawn points, which find their own ledges: it is the turf line itself, which the
+            // frozen skyline reads, the garden clutter stands on, and the spawn scan measures by.
+            // Three of these four cells are the turf.
+            for (int depth = 0; depth < 4; depth++)
             {
                 Assert.That(
                     MaterialTable.IsSolid(grid[cellX, surface + depth]), Is.True,
@@ -288,7 +291,7 @@ public sealed class MapMakerTests
                     $"column {cellX} stands on a lid rather than on ground");
 
                 Assert.That(
-                    ClearAbove(grid, floor, cellX), Is.GreaterThanOrEqualTo(14),
+                    ClearAbove(grid, floor, cellX), Is.GreaterThanOrEqualTo(16),
                     $"column {cellX} has no room to stand up in");
             });
         }

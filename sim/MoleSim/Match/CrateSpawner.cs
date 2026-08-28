@@ -86,32 +86,69 @@ namespace MoleSim.Match
         }
 
         /// <summary>
-        /// Where a crate dropped down this column would come to rest: on the surface, then
-        /// a metre into it, so somebody has to dig the last stretch rather than stroll up.
+        /// Where a crate dropped down this column comes to rest: on a floor a mole could stand on,
+        /// which is the surface or a cave.
         /// </summary>
+        /// <remarks>
+        /// It used to be the first solid cell and then a metre into it, so the last stretch had to be
+        /// dug rather than strolled up. Two things were wrong with that once the caves grew. A buried
+        /// crate is invisible, and with a parachute drawn over it, it read as a crate floating in
+        /// solid rock. And the surface was the only place one could land, so the half of the map that
+        /// is now chambers and passages never got a crate in it, which is the same objection as
+        /// everybody spawning on the grass.
+        ///
+        /// So it sits on top of a ledge, found by the same scan the spawns use: a run of clear cells
+        /// with something solid under it. One definition of somewhere you can stand, shared, because
+        /// a crate that lands where no mole can reach is worse than no crate.
+        ///
+        /// Which ledge comes off the terrain hash rather than a generator, exactly as the spawns do,
+        /// so nothing here disturbs the map's own random sequence.
+        ///
+        /// Not uniform across the ledges, though, which was the first attempt and measured badly:
+        /// seventeen crates of twenty-three went underground, because a column has one surface and
+        /// several chambers under it and a fair die does not care which is which. One bit of the hash
+        /// chooses between the open air and the burrows instead, which measures at an even split.
+        ///
+        /// How deep the underground half lands is left to the map. Trimming the pick to the
+        /// shallowest few chambers was tried and dropped: with fourteen cells of headroom demanded of
+        /// a ledge, a column has one to four chambers in it and not the seven that would make such a
+        /// rule bite, so it changed nothing it claimed to. Where the crates do land deep, it is
+        /// because the column's only chamber is deep, and the caves connect now, so getting there is
+        /// more a matter of finding the way in than of digging twelve metres.
+        /// </remarks>
         private static Vec2? LandingSpot(TerrainGrid terrain, int cellX)
         {
-            for (int cellY = 0; cellY < terrain.Height; cellY++)
+            int[] ledges = new int[MapMaker.MostLedgesConsidered];
+            int found = MapMaker.Ledges(terrain, cellX, ledges);
+
+            if (found == 0)
             {
-                Material material = terrain[cellX, cellY];
-
-                if (!MaterialTable.IsSolid(material))
-                {
-                    continue;
-                }
-
-                // Landing on bedrock would leave a crate nobody could dig out.
-                if (!MaterialTable.IsDiggable(material))
-                {
-                    return null;
-                }
-
-                return new Vec2(
-                    WorldScale.ToCentreMetres(cellX),
-                    WorldScale.ToMetres(cellY) + EmbedDepth);
+                return null;
             }
 
-            return null;
+            ulong pick = terrain.Hash ^ ((ulong)cellX * 0x9E3779B97F4A7C15UL);
+            pick ^= pick >> 29;
+            pick *= 0xBF58476D1CE4E5B9UL;
+            pick ^= pick >> 32;
+
+            // The topmost ledge is the surface, and everything below it is a chamber. One bit of the
+            // hash decides between the two, and the rest picks which chamber.
+            int caves = found - 1;
+            int cellY = (pick & 1UL) == 0UL || caves == 0
+                ? ledges[0]
+                : ledges[1 + (int)((pick >> 1) % (ulong)caves)];
+
+            // Landing on bedrock would leave a crate nobody could dig out. The ledge scan already
+            // stops above the world's floor, so this is the root mat and anything else undiggable.
+            if (!MaterialTable.IsDiggable(terrain[cellX, cellY]))
+            {
+                return null;
+            }
+
+            // On top of the floor rather than in it, sitting where a mole would stand.
+            return new Vec2(
+                WorldScale.ToCentreMetres(cellX),
+                WorldScale.ToMetres(cellY) - MatchSettings.Radius);
         }
 
         private static bool TooCloseToAnother(Vec2 candidate, List<Crate> placed)

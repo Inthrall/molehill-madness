@@ -146,7 +146,24 @@ public sealed class CorpusTests
         return match.StateHash();
     }
 
-    // Repinned 2026-08-28, second time the same day: half the spawns start on a cave floor now
+    // Repinned 2026-08-28, and five rule changes are in it. Listed because between them they touch
+    // the ground, the crates and the moles, which is about as wide as a single repin should ever be.
+    //
+    // The caves keep their roof per column instead of measuring it from the deepest point on the
+    // map, so they reach the ground near the surface everywhere rather than only under the valleys,
+    // and the roof came down from ten cells to four. A chamber now promises sixteen cells of
+    // headroom rather than fourteen, which qualifies fewer ledges. Crates rest on a ledge instead of
+    // burying themselves a metre in, and choose between the open air and the burrows on a coin
+    // rather than picking uniformly from a column's ledges, which is what makes the split even
+    // instead of three quarters underground. A mole braces in a shaft it has dug, so digging
+    // straight up works at last and every route that goes through one ends somewhere else. And
+    // everybody surfaces facing whichever way the terrain hash says rather than all facing right,
+    // which changes where the first shot of every match leaves from.
+    //
+    // Every rule test passed throughout, which is what says these were changes to the rules and not
+    // damage to them. Three new ones went in with the digging.
+    //
+    // Repinned earlier the same day: half the spawns start on a cave floor now
     // instead of everybody starting on the surface. Where sixteen moles stand at tick zero decides
     // every route, shot and crater after it, so all five pins moved and no rule test did. Chosen off
     // the terrain hash rather than a generator, so the map's own random sequence is untouched.
@@ -160,19 +177,19 @@ public sealed class CorpusTests
     [Test]
     public void TwoPlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 2, seed: 1UL, rounds: 12), Is.EqualTo(0x2A30086E49B930F6UL));
+        Assert.That(Play(playerCount: 2, seed: 1UL, rounds: 12), Is.EqualTo(0xFAEC02C5A132AE68UL));
     }
 
     [Test]
     public void ThreePlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 3, seed: 20260826UL, rounds: 14), Is.EqualTo(0x14F98FA4E2A9F754UL));
+        Assert.That(Play(playerCount: 3, seed: 20260826UL, rounds: 14), Is.EqualTo(0x6C1FE939E272DAB4UL));
     }
 
     [Test]
     public void FourPlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 4, seed: 4242UL, rounds: 16), Is.EqualTo(0x85DC1E7BB9F00209UL));
+        Assert.That(Play(playerCount: 4, seed: 4242UL, rounds: 16), Is.EqualTo(0x380C952160E904F1UL));
     }
 
     [Test]
@@ -180,7 +197,7 @@ public sealed class CorpusTests
     {
         // Past Boiling Point, so the rise, the closing sides and the three-strike rule are
         // all in the hash rather than only the early game.
-        Assert.That(Play(playerCount: 4, seed: 777UL, rounds: 26), Is.EqualTo(0x820B31B85A1101B9UL));
+        Assert.That(Play(playerCount: 4, seed: 777UL, rounds: 26), Is.EqualTo(0x1AA24DF253A038FEUL));
     }
 
     [Test]
@@ -188,7 +205,7 @@ public sealed class CorpusTests
     {
         Assert.That(
             Play(playerCount: 2, seed: 31337UL, rounds: 24, widthCells: 600, heightCells: 320),
-            Is.EqualTo(0xCDBA17FDCC5BDEE1UL));
+            Is.EqualTo(0x7EFFC9557594D308UL));
     }
 
     [Test]

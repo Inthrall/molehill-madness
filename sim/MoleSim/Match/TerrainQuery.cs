@@ -57,7 +57,7 @@ namespace MoleSim.Match
         }
 
         /// <summary>
-        /// Whether a body is standing on something: clear where it is, blocked just below.
+        /// Whether a body is held up: standing on something, or braced between close walls.
         /// </summary>
         public static bool IsSupported(TerrainGrid terrain, Vec2 position, Fix64 radius)
         {
@@ -67,11 +67,57 @@ namespace MoleSim.Match
             }
 
             Vec2 justBelow = new Vec2(position.X, position.Y + ProbeDepth);
-            return IsBlocked(terrain, justBelow, radius);
+
+            return IsBlocked(terrain, justBelow, radius) || IsWedged(terrain, position, radius);
+        }
+
+        /// <summary>
+        /// Whether a body is braced between walls close enough either side to hold it up.
+        /// </summary>
+        /// <remarks>
+        /// This is what a mole digging straight up stands on, which is nothing. It is in a shaft of
+        /// its own making, one body wide, with rock either side and a hole underneath, and something
+        /// has to hold it there or it falls back down the shaft it just paid to dig.
+        ///
+        /// Without this, digging upward was impossible and cost stamina to attempt, which is the
+        /// worst pair of properties a control can have. Measured before the fix: a whole round of
+        /// holding up rose zero cells and spent sixty stamina of a hundred. It took three goes to
+        /// find, because there are two places that pull a mole back down and fixing either alone
+        /// looks like it has worked until the next tick. One is at the end of a move, in
+        /// <see cref="MoleMotion"/>'s ground-follow; the other is at the top of the next tick's step,
+        /// where a mole standing in a clear shaft is neither blocked nor supported. Both ask this
+        /// question, so answering it here covers both.
+        ///
+        /// Said as bracing rather than as intent, deliberately. A rule that asked which way the
+        /// player was pushing would also let a mole hang in mid-air by holding a key; this cannot,
+        /// because out there is nothing to brace against.
+        ///
+        /// The reach is the part that has to be right and was wrong on the first attempt. A carve
+        /// clears a cell radius of the body's radius plus one, seven cells, so the wall of a
+        /// fresh shaft is eight cells out; probing two cells sideways reaches exactly eight and only
+        /// finds it when the mole happens to sit on a cell centre. Three cells reaches nine, which
+        /// finds it with a cell to spare, and still leaves anything wider than about a body and a
+        /// half of gap counting as open air rather than as a chimney.
+        /// </remarks>
+        public static bool IsWedged(TerrainGrid terrain, Vec2 position, Fix64 radius)
+        {
+            Vec2 left = new Vec2(position.X - WedgeReach, position.Y);
+
+            if (!IsBlocked(terrain, left, radius))
+            {
+                return false;
+            }
+
+            Vec2 right = new Vec2(position.X + WedgeReach, position.Y);
+
+            return IsBlocked(terrain, right, radius);
         }
 
         /// <summary>How far below its feet a body looks when asking whether it is standing.</summary>
         private static Fix64 ProbeDepth => Fix64.Ratio(2, WorldScale.CellsPerMetre);
+
+        /// <summary>How far either side a body looks for a wall to brace against.</summary>
+        private static Fix64 WedgeReach => Fix64.Ratio(3, WorldScale.CellsPerMetre);
 
         /// <summary>
         /// Looks for a clear position at or above <paramref name="position"/>, within the

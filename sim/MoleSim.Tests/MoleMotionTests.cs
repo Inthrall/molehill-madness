@@ -376,4 +376,119 @@ public sealed class MoleMotionTests
             });
         }
     }
+
+    /// <summary>
+    /// A mole underground can dig straight up, and gets somewhere for what it spends.
+    /// </summary>
+    /// <remarks>
+    /// Here because this broke three times. Digging upward was impossible and cost stamina to
+    /// attempt, which is the worst pair of properties a control can have, and each of the three fixes
+    /// looked right until the tick after it. The failure is never in the digging: the carve happens
+    /// and the mole moves up. It is that a mole standing in the clear shaft it just made is neither
+    /// blocked nor standing on anything, so the ground-follow at the end of the move and the check at
+    /// the top of the next tick both pull it back down. Fixing one leaves the other.
+    ///
+    /// Measured before the fix: zero cells of rise for sixty stamina of a hundred. The numbers below
+    /// are deliberately generous, because what is being defended is "it works at all", but the rise
+    /// has to be big enough that a snap-back cannot pass as progress.
+    /// </remarks>
+    [Test]
+    public void AMoleUndergroundCanDigStraightUp()
+    {
+        TerrainGrid grid = FlatGround();
+        Mole mole = Buried(grid, 100, SurfaceCell + 160);
+        Fix64 startY = mole.Position.Y;
+
+        // A waypoint two metres overhead, renewed every tick, which is what a held key becomes once
+        // the steering has turned it into a push.
+        for (int tick = 0; tick < MatchSettings.TicksPerRound; tick++)
+        {
+            mole.WaypointIndex = 0;
+            MoleMotion.Step(mole, grid, new[] { new Vec2(mole.Position.X, mole.Position.Y - Fix64.FromInt(2)) });
+        }
+
+        Fix64 rose = startY - mole.Position.Y;
+        int cells = Fix64.ToInt(rose * Fix64.FromInt(WorldScale.CellsPerMetre));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cells, Is.GreaterThan(40), "a round of holding up should get somewhere");
+            Assert.That(mole.IsAirborne, Is.False, "it should be in its shaft, not falling down it");
+        });
+    }
+
+    /// <summary>
+    /// And it stays where it dug rather than sliding back down the shaft.
+    /// </summary>
+    /// <remarks>
+    /// The other half of the same rule, and the reason it is bracing rather than intent. A mole in a
+    /// body-width shaft is wedged against both walls, so letting go of the key leaves it where it is.
+    /// A rule that instead asked which way the player was pushing would have passed the test above
+    /// and failed this one, by dropping the mole the moment it stopped being told to climb.
+    /// </remarks>
+    [Test]
+    public void AMoleThatHasDugUpwardStaysInItsShaft()
+    {
+        TerrainGrid grid = FlatGround();
+        Mole mole = Buried(grid, 100, SurfaceCell + 160);
+
+        for (int tick = 0; tick < 60; tick++)
+        {
+            mole.WaypointIndex = 0;
+            MoleMotion.Step(mole, grid, new[] { new Vec2(mole.Position.X, mole.Position.Y - Fix64.FromInt(2)) });
+        }
+
+        Fix64 climbedTo = mole.Position.Y;
+
+        // Nobody pushing anything, for a good while.
+        for (int tick = 0; tick < 120; tick++)
+        {
+            MoleMotion.Step(mole, grid, route: null);
+        }
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(mole.Position.Y, Is.EqualTo(climbedTo), "it slid back down its own shaft");
+            Assert.That(mole.IsAirborne, Is.False, "it fell");
+        });
+    }
+
+    /// <summary>
+    /// Bracing is not a way to hang in the open air.
+    /// </summary>
+    /// <remarks>
+    /// The objection to the whole idea, checked rather than argued. If a shaft holds a mole up then
+    /// the rule has to be about the walls and not about the pushing, or a mole in mid-air would hold
+    /// itself there the same way. There are no walls in the sky, so it falls.
+    /// </remarks>
+    [Test]
+    public void BracingCannotHoldAMoleUpInMidAir()
+    {
+        TerrainGrid grid = FlatGround();
+        Vec2 high = new Vec2(
+            WorldScale.ToCentreMetres(100),
+            WorldScale.ToMetres(SurfaceCell) - Fix64.FromInt(10));
+
+        Mole mole = new Mole(seat: 0, index: 0, high);
+
+        for (int tick = 0; tick < 30; tick++)
+        {
+            mole.WaypointIndex = 0;
+            MoleMotion.Step(mole, grid, new[] { new Vec2(mole.Position.X, mole.Position.Y - Fix64.FromInt(2)) });
+        }
+
+        Assert.That(mole.Position.Y, Is.GreaterThan(high.Y), "it should have fallen, not hung there");
+    }
+
+    /// <summary>Puts a mole in a body-sized hole at a depth, which is where a tunnelling one sits.</summary>
+    private static Mole Buried(TerrainGrid grid, int cellX, int cellY)
+    {
+        Vec2 position = new Vec2(WorldScale.ToCentreMetres(cellX), WorldScale.ToMetres(cellY));
+
+        TerrainQuery.CarveBody(grid, position, MatchSettings.Radius);
+
+        Mole mole = new Mole(seat: 0, index: 0, position);
+        mole.BeginRound();
+        return mole;
+    }
 }

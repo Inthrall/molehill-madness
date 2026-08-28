@@ -370,17 +370,22 @@ namespace MoleSim.Match
         /// </remarks>
         private static void Caves(TerrainGrid grid, MatchRng rng, int[] surface, int heightCells)
         {
-            int deepestSurface = 0;
+            // The highest ground rather than the lowest, which is what lets caves reach the bits
+            // near the surface. Measured off the deepest point, the region began below the lowest
+            // valley floor on the map, so under a hill the roof was as thick as the hill was tall
+            // and the top third of the underground was solid everywhere it mattered. The roof is
+            // kept per column instead, at the writeback below.
+            int shallowestSurface = int.MaxValue;
 
             foreach (int top in surface)
             {
-                if (top > deepestSurface)
+                if (top < shallowestSurface)
                 {
-                    deepestSurface = top;
+                    shallowestSurface = top;
                 }
             }
 
-            int from = deepestSurface + RoofCells;
+            int from = shallowestSurface + RoofCells;
 
             // All the way down to the bedrock, rather than stopping a fifth of the map short of it.
             // The bottom fifth is the root mat and the world's floor, and leaving it solid meant the
@@ -461,11 +466,22 @@ namespace MoleSim.Match
 
             for (int row = 0; row < rows; row++)
             {
+                int cellY = from + row;
+
                 for (int column = 0; column < width; column++)
                 {
+                    // The roof, column by column. The noise is cut over one rectangle because that
+                    // is what makes a cave a shape rather than a per-column decision, and then each
+                    // column keeps its own few cells of ground on top, so a chamber can come up
+                    // under a hilltop as readily as under a valley without either breaking through.
+                    if (cellY < surface[column] + RoofCells)
+                    {
+                        continue;
+                    }
+
                     if (air[(row * width) + column])
                     {
-                        grid.Set(column, from + row, Material.Air);
+                        grid.Set(column, cellY, Material.Air);
                     }
                 }
             }
@@ -509,10 +525,16 @@ namespace MoleSim.Match
         }
 
         /// <summary>
-        /// Solid ground kept between the caves and the daylight, in cells. Measured from the
-        /// deepest the surface gets anywhere, so the thinnest roof on the map is this one.
+        /// Solid ground kept between the caves and the daylight, in cells.
         /// </summary>
-        private const int RoofCells = 10;
+        /// <remarks>
+        /// Kept per column, so this is the roof everywhere rather than the thinnest roof on the map.
+        /// Four rather than ten, because the turf is three cells thick and what this has to protect
+        /// is the turf line: the frozen skyline reads it, the garden clutter stands on it, and the
+        /// spawn scan finds ledges by it. A cave a hand's breadth under the grass is the point; a
+        /// cave through the grass would take all three of those with it.
+        /// </remarks>
+        private const int RoofCells = 4;
 
         /// <summary>Range of one noise weight. Arbitrary; only its ratio to the cut matters.</summary>
         private const int WeightRange = 256;
@@ -590,6 +612,33 @@ namespace MoleSim.Match
         }
 
         /// <summary>
+        /// Which way each spawn is looking, as a unit vector along the ground.
+        /// </summary>
+        /// <remarks>
+        /// Every mole used to face right, because that is the default on the entity and nothing ever
+        /// said otherwise, and sixteen moles all looking the same way reads as a rank rather than as
+        /// a pair of platoons who have just surfaced.
+        ///
+        /// Off the terrain hash rather than the match generator, exactly as the ledge choice above
+        /// is, so which way somebody faces cannot shift the random sequence the rest of the match
+        /// draws from. A coin, because left and right is all the art has: the mole sheets are drawn
+        /// facing one way and mirrored for the other.
+        /// </remarks>
+        public static Vec2[] SpawnFacings(TerrainGrid grid, int playerCount, int molesPerPlatoon)
+        {
+            Vec2[] facings = new Vec2[playerCount * molesPerPlatoon];
+
+            for (int slot = 0; slot < facings.Length; slot++)
+            {
+                ulong pick = Scramble(grid.Hash ^ ((ulong)slot * 0xD6E8FEB86659FD93UL));
+
+                facings[slot] = (pick & 1UL) == 0UL ? Vec2.UnitX : -Vec2.UnitX;
+            }
+
+            return facings;
+        }
+
+        /// <summary>
         /// Which ledge in a column this spawn stands on: the surface, or one of its caves.
         /// </summary>
         /// <remarks>
@@ -629,7 +678,7 @@ namespace MoleSim.Match
         /// caves are somewhere to start: it reads as standing on the ground and behaves like standing
         /// on a lid.
         /// </remarks>
-        private static int Ledges(TerrainGrid grid, int cellX, int[] into)
+        public static int Ledges(TerrainGrid grid, int cellX, int[] into)
         {
             int found = 0;
             int clear = 0;
@@ -691,13 +740,27 @@ namespace MoleSim.Match
         /// <summary>
         /// Clear cells a mole needs above a floor to stand on it. A mole is twelve cells across.
         /// </summary>
-        private const int HeadRoomCells = 14;
+        /// <remarks>
+        /// Sixteen rather than fourteen, and the two extra cells are not comfort. A spawn stands its
+        /// radius plus a cell above its floor, so a mole's centre is seven cells up and the top of
+        /// its head thirteen. The client decides whether to draw the digging pose by asking whether
+        /// there is ground two cells above that head, which is the first cell outside the radius a
+        /// carve clears, so it has to be able to see solid rock through a tunnel roof. Fourteen cells
+        /// of headroom put that probe exactly on the fifteenth cell, the first one a chamber does not
+        /// promise, so a mole standing perfectly still on a cave floor was drawn mid-dig.
+        ///
+        /// Raising the promise rather than shortening the probe, because the probe's reach is set by
+        /// the carve radius and cannot come down without a mole in its own tunnel reading as standing
+        /// in the open. And a chamber of fourteen cells is 0.875 m for a mole 0.75 m across, which was
+        /// tight for somewhere the design now expects a platoon to start.
+        /// </remarks>
+        private const int HeadRoomCells = 16;
 
         /// <summary>Solid cells under a ledge before it counts as ground rather than as a lid.</summary>
         private const int LedgeCells = 3;
 
         /// <summary>Ledges looked at in one column. More than anybody could start on.</summary>
-        private const int MostLedgesConsidered = 8;
+        public const int MostLedgesConsidered = 8;
 
         /// <summary>
         /// Which column one spawn stands in.

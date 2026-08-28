@@ -127,26 +127,51 @@ public sealed class CratesAndPacingTests
         Assert.That(gap, Is.GreaterThan(Fix64.FromInt(15)));
     }
 
+    /// <summary>
+    /// A crate lands on a floor somebody could stand on.
+    /// </summary>
+    /// <remarks>
+    /// This used to assert the opposite: that a crate buried itself a metre into the ground so the
+    /// last stretch had to be dug rather than strolled up. That was a good rule while the surface
+    /// was the only place one could land, and it stopped being one when the caves grew. A buried
+    /// crate cannot be seen, and drawn under its parachute it read as a crate floating in solid
+    /// rock; and landing only on the surface meant the half of the map that is now chambers never
+    /// saw a crate.
+    ///
+    /// What is asserted instead is the property that replaced it, which is the same one the spawns
+    /// have: the crate is sitting on something solid, with room above it, whether that floor is the
+    /// grass or a cave. Reaching it is still work, because half the time it is underground.
+    /// </remarks>
     [Test]
-    public void ACrateEmbedsItselfSoTheLastStretchHasToBeDug()
+    public void ACrateLandsOnAFloorSomebodyCouldStandOn()
     {
         MoleMatch match = NewMatch();
         RoundResult result = IdleRound(match);
 
         Vec2 crate = result.NextCrates[0].Position;
-        int surfaceCell = 0;
+        int cellX = WorldScale.ToCell(crate.X);
+        int floor = WorldScale.ToCell(crate.Y);
 
-        for (int cellY = 0; cellY < HeightCells; cellY++)
+        while (floor < HeightCells && !MaterialTable.IsSolid(match.Terrain[cellX, floor]))
         {
-            if (MaterialTable.IsSolid(match.Terrain[WorldScale.ToCell(crate.X), cellY]))
-            {
-                surfaceCell = cellY;
-                break;
-            }
+            floor++;
         }
 
-        Assert.That(crate.Y, Is.GreaterThan(WorldScale.ToMetres(surfaceCell)),
-            "it should be below the surface, not sitting on it");
+        int clear = 0;
+
+        for (int up = floor - 1; up >= 0 && !MaterialTable.IsSolid(match.Terrain[cellX, up]); up--)
+        {
+            clear++;
+        }
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(floor, Is.LessThan(HeightCells), "the crate is over a bottomless column");
+            Assert.That(
+                MaterialTable.IsDiggable(match.Terrain[cellX, floor]), Is.True,
+                "the crate is resting on something nobody can dig");
+            Assert.That(clear, Is.GreaterThanOrEqualTo(16), "no room to stand where it landed");
+        });
     }
 
     [Test]
@@ -203,11 +228,24 @@ public sealed class CratesAndPacingTests
 
         RoundResult result = IdleRound(match, moleIndex: 1);
 
+        // The shattered one, rather than the only one. A three player round telegraphs two crates,
+        // and now that they land on floors rather than burying themselves one of them can come down
+        // somewhere a mole already is, so the other crate being claimed as well is not this test's
+        // business.
+        CrateClaim? torn = null;
+
+        foreach (CrateClaim claim in result.CrateClaims)
+        {
+            if (claim.Shattered)
+            {
+                torn = claim;
+            }
+        }
+
         Assert.Multiple(() =>
         {
-            Assert.That(result.CrateClaims, Has.Count.EqualTo(1));
-            Assert.That(result.CrateClaims[0].Shattered, Is.True);
-            Assert.That(result.CrateClaims[0].Seat, Is.EqualTo(-1), "nobody");
+            Assert.That(torn, Is.Not.Null, "nothing was torn apart");
+            Assert.That(torn!.Value.Seat, Is.EqualTo(-1), "nobody");
         });
     }
 
