@@ -55,6 +55,12 @@ public partial class MatchHud : Control
         /// below them rather than across the top-right pane's strip.
         /// </summary>
         public float TopClearance;
+
+        /// <summary>
+        /// How much of the bottom of the screen something else has taken, so the tally can sit
+        /// above it. The keyboard strip, when there is one.
+        /// </summary>
+        public float BottomClearance;
     }
 
     private State _state;
@@ -114,7 +120,9 @@ public partial class MatchHud : Control
         Vector2 origin = _state.HasSpareCell
             ? _state.SpareCell.Position
                 + ((_state.SpareCell.Size - new Vector2(width, height)) / 2f)
-            : new Vector2((viewport.X - width) / 2f, viewport.Y - height - 14f);
+            : new Vector2(
+                (viewport.X - width) / 2f,
+                viewport.Y - height - 14f - _state.BottomClearance);
 
         DrawRect(
             new Rect2(origin - new Vector2(glyph * 0.5f, glyph * 0.4f),

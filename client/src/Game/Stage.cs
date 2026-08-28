@@ -68,6 +68,17 @@ public sealed class Stage
     /// <summary>Whether the plans should be drawn, which is to say whether anybody is still laying one.</summary>
     public bool Planning { get; set; }
 
+    /// <summary>
+    /// Whether a replay is rolling right now.
+    /// </summary>
+    /// <remarks>
+    /// Not the same as having a recording, which is what the views used to test. A recording stays
+    /// on the stage through the pause after the replay ends, so the broadcast furniture stayed up
+    /// with it: the crop marks, the tally light and the caption all carried on framing a shot that
+    /// had finished, and a player reasonably read that as the game claiming to still be recording.
+    /// </remarks>
+    public bool Replaying { get; set; }
+
     public RoundRecording? Recording { get; set; }
 
     public RoundResult? Result { get; set; }

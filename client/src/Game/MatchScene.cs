@@ -118,6 +118,9 @@ public partial class MatchScene : Node2D
     /// <summary>Every round's result, so the drama scorer has a match to look at.</summary>
     private readonly List<RoundResult> _rounds = new List<RoundResult>();
 
+    private PauseMenu? _pause;
+    private KeyGuide? _guide;
+
     private Lobby? _lobby;
     private WaitingSign? _waiting;
     private EmoteWheel? _wheel;
@@ -241,6 +244,17 @@ public partial class MatchScene : Node2D
             AddChild(_sfx);
         }
 
+        // The keyboard's answer to the thumb layout, and only when there is no thumb layout. A
+        // phone already shows every control it has; a desktop showed none of them.
+        if (!Flags.WantsTouch())
+        {
+            _guide = new KeyGuide();
+            overlay.AddChild(_guide);
+        }
+
+        _pause = new PauseMenu();
+        overlay.AddChild(_pause);
+
         if (Flags.WantsTouch())
         {
             _touch = new TouchControls();
@@ -350,6 +364,7 @@ public partial class MatchScene : Node2D
         _clock = PlanningSeconds;
         _stage.Planning = true;
         _stage.Recording = null;
+        _stage.Replaying = false;
         _stage.Result = null;
 
         foreach (SeatPlanner planner in _planners)
@@ -527,6 +542,7 @@ public partial class MatchScene : Node2D
         _stage.Result = _result;
         _stage.Recording = _result.Recording;
         _stage.Planning = false;
+        _stage.Replaying = true;
         _stage.Tick = 0;
         _stage.Seconds = Fix64.Zero;
         _playback = 0;
@@ -881,6 +897,11 @@ public partial class MatchScene : Node2D
         _hud.Visible = _beat != Beat.Finished;
         _hud.Apply(BuildHudState());
 
+        // Only while somebody is planning. During a replay there is nothing to press, and a row of
+        // keys that do nothing is the sort of thing a player tries and then distrusts.
+        SeatPlanner? holding = _beat == Beat.Planning ? Pointed() : null;
+        _guide?.Watch(holding, holding?.Seat ?? 0);
+
         if (_touch is not null)
         {
             _touch.LayOut(GetViewportRect().Size);
@@ -1049,6 +1070,13 @@ public partial class MatchScene : Node2D
 
     private void RunPlanning(double delta)
     {
+        // A pause menu that lets an eight second turn run down is not a pause menu, and on a
+        // shared clock it would be a way of losing somebody else's round for them.
+        if (_pause?.Showing == true)
+        {
+            return;
+        }
+
         _clock -= (float)delta;
 
         for (int seat = 0; seat < _players; seat++)
@@ -1111,6 +1139,7 @@ public partial class MatchScene : Node2D
         if (!_result.MatchOver)
         {
             _beat = Beat.Aftermath;
+            _stage.Replaying = false;
             return;
         }
 
@@ -1334,7 +1363,12 @@ public partial class MatchScene : Node2D
     {
         Vector2 viewport = GetViewportRect().Size;
 
-        return new Rect2(0, 0, viewport.X, viewport.Y);
+        // The keyboard strip gets its own room rather than sitting over the map. It is there to be
+        // read once, so it can afford the space, and a control legend drawn over the ground a mole
+        // is standing on is worse than a slightly shorter map.
+        float taken = _guide?.Visible == true ? KeyGuide.Height(viewport) : 0f;
+
+        return new Rect2(0, 0, viewport.X, viewport.Y - taken);
     }
 
     private void Relayout(double delta)
@@ -1406,6 +1440,25 @@ public partial class MatchScene : Node2D
         if (_beat == Beat.Finished)
         {
             HandleScoreboard(@event);
+            return;
+        }
+
+        if (@event is InputEventKey { Pressed: true, Echo: false, Keycode: Key.Escape })
+        {
+            _pause?.Toggle();
+            Click();
+            return;
+        }
+
+        // Nothing reaches the match while the menu is up, which is what makes it a pause rather
+        // than an overlay. A press is offered to the menu first and goes no further either way.
+        if (_pause?.Showing == true)
+        {
+            if (Pressing(@event, out Vector2 onMenu))
+            {
+                Chose(_pause.Pressed(onMenu));
+            }
+
             return;
         }
 
@@ -1955,6 +2008,34 @@ public partial class MatchScene : Node2D
         return null;
     }
 
+    /// <summary>Acts on whatever the pause menu was asked for.</summary>
+    private void Chose(PauseMenu.Choice choice)
+    {
+        switch (choice)
+        {
+            case PauseMenu.Choice.Resume:
+                _pause!.Close();
+                Click();
+                break;
+
+            case PauseMenu.Choice.Sound:
+                _pause!.Sounding = !_pause.Sounding;
+
+                // The bus rather than the player, so a sound already in flight stops too.
+                AudioServer.SetBusMute(0, !_pause.Sounding);
+                _pause.QueueRedraw();
+                break;
+
+            case PauseMenu.Choice.Menu:
+                GetTree().CallDeferred(
+                    SceneTree.MethodName.ChangeSceneToFile, "res://scenes/Menu.tscn");
+                break;
+
+            default:
+                break;
+        }
+    }
+
     /// <summary>Zooms whichever pane a point is over, about that point.</summary>
     private void ZoomAt(Vector2 onScreen, float factor)
     {
@@ -2358,6 +2439,12 @@ public partial class MatchScene : Node2D
         // the screen either way.
         SplitLayout.TrySpareCell(panes.Length, Band(), out Rect2 spare);
 
+        // The keyboard strip owns the bottom of the screen while it is up, so the shared tally
+        // moves above it rather than being drawn underneath it.
+        float guide = _guide?.Visible == true
+            ? KeyGuide.Height(GetViewportRect().Size)
+            : 0f;
+
         return new MatchHud.State
         {
             // Cleared past the top row of panes' own instruments, which the shared strip used to
@@ -2374,6 +2461,7 @@ public partial class MatchScene : Node2D
             SpareCell = spare,
             HasSpareCell = splitting && panes.Length == 3,
             Split = splitting,
+            BottomClearance = guide,
         };
     }
 

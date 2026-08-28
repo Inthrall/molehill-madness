@@ -440,7 +440,9 @@ public partial class WorldView : Control
     /// </remarks>
     private void DrawBroadcast()
     {
-        if (_watching is null)
+        // A replay camera, and a replay actually rolling. The first was the only test, and it let
+        // the crop marks and the tally light sit over the hold after the replay had ended.
+        if (_watching is null || !_stage.Replaying)
         {
             return;
         }
