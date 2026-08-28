@@ -551,16 +551,16 @@ public partial class MenuScene : Control
     /// window a short canvas, so the whole column compresses into itself and the button ends up in
     /// the row above it.
     ///
-    /// A corner cannot do that. It is measured from the bottom and the left rather than from the
-    /// middle, so it stays a fixed distance from two edges whatever shape the window is, and it is
-    /// out of the way of a column that can be as tall as it likes.
+    /// A corner cannot do that. It is measured from two edges rather than from the middle, so it
+    /// stays a fixed distance from both whatever shape the window is, and it is out of the way of a
+    /// column that can be as tall as it likes.
     /// </remarks>
     private void DrawPlay(Vector2 viewport)
     {
         float margin = _button * 0.75f;
         float middle = viewport.Y - margin - _button;
 
-        _play = new Vector2(margin + _button, middle);
+        _play = new Vector2(viewport.X - margin - _button, middle);
 
         DrawCircle(_play, _button, Palette.Panel);
         DrawArc(_play, _button, 0, Mathf.Tau, 40, new Color(Palette.OnPanel, 0.55f), 3f);
@@ -572,8 +572,9 @@ public partial class MenuScene : Control
         }
 
         // Carrying on beside starting again, in the same corner, because they are the same kind of
-        // thing and a player looking for one is looking for the other.
-        Vector2 back = new Vector2(_play.X + (_button * 2.5f), middle);
+        // thing and a player looking for one is looking for the other. Inboard of it, since play is
+        // now against the right edge and there is no room outboard.
+        Vector2 back = new Vector2(_play.X - (_button * 2.5f), middle);
 
         _resume = new Rect2(back - new Vector2(_button, _button), Vector2.One * _button * 2f);
 

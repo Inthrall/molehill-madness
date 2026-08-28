@@ -46,6 +46,16 @@ public partial class MatchScene : Node2D
         Arriving,
 
         /// <summary>
+        /// Reading the art in, before the first frame of the match is drawn.
+        /// </summary>
+        /// <remarks>
+        /// A beat rather than a blocking call, which is what it was. The cost is the same either
+        /// way; the difference is that a beat can draw, so the pause has a bar on it saying how far
+        /// through it is instead of being a still frame of nothing.
+        /// </remarks>
+        Loading,
+
+        /// <summary>
         /// Online only: this platoon has committed and the others have not.
         /// </summary>
         /// <remarks>
@@ -118,6 +128,9 @@ public partial class MatchScene : Node2D
     /// <summary>Every round's result, so the drama scorer has a match to look at.</summary>
     private readonly List<RoundResult> _rounds = new List<RoundResult>();
 
+    private Art.Warming? _warming;
+    private LoadingBar? _loading;
+
     private PauseMenu? _pause;
     private KeyGuide? _guide;
 
@@ -129,8 +142,6 @@ public partial class MatchScene : Node2D
     private Lobby? _lobby;
     private WaitingSign? _waiting;
     private EmoteWheel? _wheel;
-    private FirstGesture? _gesture;
-    private bool _shownTheGesture;
     private bool _saidWhy;
 
     /// <summary>How often the driver says something. Slower than the relay would allow.</summary>
@@ -203,13 +214,15 @@ public partial class MatchScene : Node2D
             _match, _shadow, _terrain.Texture,
             Backdrop.Freeze(_match.Terrain, MatchSetup.Seed), MapWidthCells, MapHeightCells);
 
-        // Before the first frame rather than during the first minute of them. See Art.Warm.
-        Art.Warm(_players);
+        // Before the first frame rather than during the first minute of them, and spread over a
+        // few frames rather than blocking, so the pause can show how far through it is.
+        _warming = Art.Warm(_players);
 
         _shoulderHeldUp = new bool[_players];
         _shoulderHeldDown = new bool[_players];
         _plantHeld = new bool[_players];
         _hopHeld = new bool[_players];
+        _jumpHeld = new bool[_players];
         _driven = new bool[_players];
         _damageTaken = new int[_players];
         _outAtRound = new int[_players];
@@ -260,6 +273,11 @@ public partial class MatchScene : Node2D
         _pause = new PauseMenu();
         overlay.AddChild(_pause);
 
+        // Over everything including the pause menu, because until the art is in there is nothing
+        // to pause and nothing worth showing behind it.
+        _loading = new LoadingBar();
+        overlay.AddChild(_loading);
+
         if (Flags.WantsTouch())
         {
             _touch = new TouchControls();
@@ -293,7 +311,8 @@ public partial class MatchScene : Node2D
             }
         }
 
-        BeginRound();
+        // Held until the art is in. BeginRound draws moles.
+        _beat = Beat.Loading;
     }
 
     /// <summary>
@@ -380,69 +399,6 @@ public partial class MatchScene : Node2D
         System.Array.Clear(_driven, 0, _driven.Length);
         _pointerSeat = NextPointerSeat(from: 0);
         RecentreViews();
-        ShowTheGestureOnce();
-    }
-
-    /// <summary>
-    /// Puts the drawn paw in front of a player who has never planned a turn.
-    /// </summary>
-    /// <remarks>
-    /// The whole of the design's tutorial. There are no solo modes so there is no puzzle ladder to
-    /// hide one in, and nothing is written down so there is no text to explain with: "the first round
-    /// of a real match has to do the whole job", and this is the one gesture it has to give away.
-    ///
-    /// Once ever rather than once a match, and never under the driver, which has no eyes and would
-    /// only be recording it.
-    /// </remarks>
-    private void ShowTheGestureOnce()
-    {
-        if (_gesture is not null || _shownTheGesture || _autoPilot is not null || !Player.Beginner)
-        {
-            return;
-        }
-
-        _shownTheGesture = true;
-
-        CanvasLayer over = new CanvasLayer();
-        AddChild(over);
-
-        _gesture = new FirstGesture();
-        over.AddChild(_gesture);
-    }
-
-    /// <summary>
-    /// Tells the paw where to point, once the layout knows where its controls are.
-    /// </summary>
-    /// <remarks>
-    /// Separate from creating it, because the touch controls lay themselves out in _Process and the
-    /// round begins before that. Reading the stick's position at BeginRound gave the origin, and the
-    /// paw performed its whole demonstration in the top-left corner of the screen, which the renders
-    /// caught and nothing else would have.
-    /// </remarks>
-    private void PlaceTheGesture()
-    {
-        if (_gesture is null || _gesture.Placed)
-        {
-            return;
-        }
-
-        Vector2 screen = GetViewportRect().Size;
-        Vector2 from = _touch is not null && _touch.StickHome != Vector2.Zero
-            ? _touch.StickHome
-            : new Vector2(screen.X * 0.3f, screen.Y * 0.66f);
-
-        // Waits for the real position rather than settling for a guess, since the whole point is to
-        // point at the control the player is going to use.
-        if (_touch is not null && _touch.StickHome == Vector2.Zero)
-        {
-            return;
-        }
-
-        float reach = _touch?.StickReach ?? (screen.Y * 0.1f);
-
-        // Up and to the right, which is a walk rather than a dig: the first thing to understand is
-        // that pushing moves the mole, and the stamina lesson is taught by the bar a moment later.
-        _gesture.Demonstrate(from, from + new Vector2(reach * 0.85f, -reach * 0.55f));
     }
 
     /// <summary>
@@ -883,6 +839,12 @@ public partial class MatchScene : Node2D
             return;
         }
 
+        if (_beat == Beat.Loading)
+        {
+            RunLoading();
+            return;
+        }
+
         switch (_beat)
         {
             case Beat.Planning:
@@ -930,7 +892,6 @@ public partial class MatchScene : Node2D
         }
 
         // After the layout, so the paw points at where the controls actually ended up.
-        PlaceTheGesture();
     }
 
     // ---- Playing apart ---------------------------------------------------------------
@@ -944,6 +905,30 @@ public partial class MatchScene : Node2D
     /// OnlineMatch this scene already owns. A separate scene would have to be handed the same
     /// session and would then have to hand it back.
     /// </remarks>
+    /// <summary>
+    /// Reads a few more textures in, and starts the match when they are all there.
+    /// </summary>
+    /// <remarks>
+    /// A handful a frame. One a frame would make the loading screen the slowest part of starting a
+    /// match; the whole lot in one frame is what this replaced.
+    /// </remarks>
+    private void RunLoading()
+    {
+        _warming!.Step(TexturesPerFrame);
+        _loading!.Show(_warming.Progress);
+
+        if (!_warming.Finished)
+        {
+            return;
+        }
+
+        _loading.Done();
+        BeginRound();
+    }
+
+    /// <summary>How many textures to read in per frame while the loading bar is up.</summary>
+    private const int TexturesPerFrame = 4;
+
     private void RunArriving(double delta)
     {
         OnlineMatch online = Online.Match!;
@@ -1528,14 +1513,6 @@ public partial class MatchScene : Node2D
             return;
         }
 
-        // Any press at all ends the demonstration. Somebody who has started has understood, and a
-        // drawn hand carrying on over the top of them is now clutter.
-        if (_gesture is not null && Pressing(@event, out Vector2 _))
-        {
-            _gesture.Interrupted();
-            _gesture = null;
-        }
-
         // The wheel gets first refusal, before anything reaches the map. The map is a Node2D reading
         // raw events, so a Control sitting on top of it does not naturally win, and a tap that both
         // opened the wheel and steered a mole is the kind of fault that only turns up in a playtest.
@@ -1929,10 +1906,60 @@ public partial class MatchScene : Node2D
     /// a desktop keyboard under <c>--touch</c>, which is the only way the thumb layout gets looked
     /// at without a phone in the room.
     /// </remarks>
+    /// <summary>
+    /// Steers whoever is holding the pointer, and turns up on the surface into a jump.
+    /// </summary>
+    /// <remarks>
+    /// Pushing up while standing on the ground did nothing at all. Measured on a flat surface it
+    /// moved the mole one cell down over thirty ticks, which is the ground snap doing its job and
+    /// the push doing none: there is nothing above a mole on the surface to climb, so the solver
+    /// walks it into the sky, finds no ground, and the snap puts it back. A key that does nothing is
+    /// worse than a key that does the wrong thing, because it reads as broken.
+    ///
+    /// So up is the jump, which already existed on its own key and as a planned action. Only on the
+    /// surface: underground, up still digs upward, and that is the only way out of a tunnel.
+    ///
+    /// Up-dominant rather than any upward component, so walking up a slope with up and right held
+    /// together is still walking. And on the press rather than the hold, because a hop is booked at
+    /// a moment and a held key would book one every frame until the three are gone.
+    /// </remarks>
     private void SteerPointerSeat(double delta)
     {
-        Pointed()?.Steer(PointerPush(), delta);
+        SeatPlanner? planner = Pointed();
+
+        if (planner is null)
+        {
+            return;
+        }
+
+        Vec2 push = PointerPush();
+
+        if (Jumping(push) && planner.Actor is not null
+            && !Moles.Underground(planner.PlannedPosition, _match.Terrain))
+        {
+            if (!_jumpHeld[planner.Seat] && planner.BookHop())
+            {
+                Click();
+            }
+
+            _jumpHeld[planner.Seat] = true;
+            return;
+        }
+
+        _jumpHeld[planner.Seat] = false;
+        planner.Steer(push, delta);
     }
+
+    /// <summary>Whether a push is mostly upward, which on the surface means jump.</summary>
+    private static bool Jumping(Vec2 push)
+    {
+        Fix64 up = -push.Y;
+
+        return up > JumpingAbove && up > (push.X > Fix64.Zero ? push.X : -push.X);
+    }
+
+    /// <summary>How far up a push has to be pointed to read as a jump rather than as noise.</summary>
+    private static Fix64 JumpingAbove => Fix64.Ratio(4, 10);
 
     private Vec2 PointerPush()
     {
@@ -2314,6 +2341,9 @@ public partial class MatchScene : Node2D
     private bool[] _shoulderHeldDown = System.Array.Empty<bool>();
     private bool[] _plantHeld = System.Array.Empty<bool>();
     private bool[] _hopHeld = System.Array.Empty<bool>();
+
+    /// <summary>Held state for up-as-jump, kept apart from the hop key's own.</summary>
+    private bool[] _jumpHeld = System.Array.Empty<bool>();
 
     /// <summary>How far a gamepad axis must move before it counts as pushed.</summary>
     private const float PadDeadZone = 0.2f;

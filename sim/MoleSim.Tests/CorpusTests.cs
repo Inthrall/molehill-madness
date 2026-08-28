@@ -146,22 +146,28 @@ public sealed class CorpusTests
         return match.StateHash();
     }
 
+    // Repinned 2026-08-28: the caves changed shape on purpose. They now run all the way down to
+    // the bedrock instead of stopping a fifth of the map short of it, and the noise block that sets
+    // their scale went from twelve cells to thirty-six, so a chamber is three moles across rather
+    // than one. Different ground means different everything downstream of it, and all five pins
+    // moved together while every rule test kept passing, which is what a map change looks like as
+    // opposed to a rules change. No RNG draw was added or removed.
     [Test]
     public void TwoPlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 2, seed: 1UL, rounds: 12), Is.EqualTo(0x7B95F13257C2BAC6UL));
+        Assert.That(Play(playerCount: 2, seed: 1UL, rounds: 12), Is.EqualTo(0xAB6021C572B65723UL));
     }
 
     [Test]
     public void ThreePlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 3, seed: 20260826UL, rounds: 14), Is.EqualTo(0x219586457AA717E5UL));
+        Assert.That(Play(playerCount: 3, seed: 20260826UL, rounds: 14), Is.EqualTo(0x5BA37C0C2D53CA5FUL));
     }
 
     [Test]
     public void FourPlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 4, seed: 4242UL, rounds: 16), Is.EqualTo(0xB10639761A13556EUL));
+        Assert.That(Play(playerCount: 4, seed: 4242UL, rounds: 16), Is.EqualTo(0x9B8468932CAFBB11UL));
     }
 
     [Test]
@@ -169,7 +175,7 @@ public sealed class CorpusTests
     {
         // Past Boiling Point, so the rise, the closing sides and the three-strike rule are
         // all in the hash rather than only the early game.
-        Assert.That(Play(playerCount: 4, seed: 777UL, rounds: 26), Is.EqualTo(0xBF5C9B967FE7C9BCUL));
+        Assert.That(Play(playerCount: 4, seed: 777UL, rounds: 26), Is.EqualTo(0x8C5EE9226E236A88UL));
     }
 
     [Test]
@@ -177,7 +183,7 @@ public sealed class CorpusTests
     {
         Assert.That(
             Play(playerCount: 2, seed: 31337UL, rounds: 24, widthCells: 600, heightCells: 320),
-            Is.EqualTo(0x97713E56BC9888BAUL));
+            Is.EqualTo(0x5347A84FE1F5B1A7UL));
     }
 
     [Test]

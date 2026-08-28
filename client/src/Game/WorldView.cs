@@ -72,9 +72,22 @@ public partial class WorldView : Control
             _zoom = 1f;
         }
 
+        // Whoever is acting has changed, so the camera goes to them. It keeps the zoom the player
+        // chose, which is the whole point: a player who has pinched in to line up a shot wants to be
+        // taken to the next mole at that magnification, not zoomed back out to a wide shot. Only the
+        // pan lock is released; _zoom is left alone.
+        int acting = ActingSlot();
+
+        if (acting != _acting)
+        {
+            _acting = acting;
+            _manual = false;
+        }
+
         _base = pane.PixelsPerMetre;
         _pushing = PushWeight();
-        _scale = _base * _zoom * Mathf.Lerp(1f, PushIn, _pushing);
+        _scale = Mathf.Max(
+            _base * _zoom * Mathf.Lerp(1f, PushIn, _pushing), Filling());
         Chase(delta);
         QueueRedraw();
     }
@@ -110,6 +123,27 @@ public partial class WorldView : Control
 
     /// <summary>How much closer the camera gets at the height of the moment.</summary>
     private const float PushIn = 1.8f;
+
+    /// <summary>
+    /// The closest the camera may be to the map and still cover the pane across.
+    /// </summary>
+    /// <remarks>
+    /// There was a strip of nothing down the right hand side of the map, and it was neither the map
+    /// nor a rendering fault: the camera was simply further out than the map is wide. The map is
+    /// sixty-two and a half metres across, so a pane 1280 pixels wide needs at least twenty and a
+    /// half pixels to the metre to be covered, and both zoom floors sat under that. The manual one
+    /// is half of normal framing, which is twenty; the replay director's furthest is thirteen, which
+    /// leaves nearly four hundred and seventy pixels of backdrop showing.
+    ///
+    /// Across only. Off the top of the map is sky and the camera is deliberately allowed to rise
+    /// into it, which is why the gap only ever appeared on one axis.
+    /// </remarks>
+    private float Filling()
+    {
+        float metres = _stage.MapWidthCells / (float)WorldScale.CellsPerMetre;
+
+        return metres > 0f ? Size.X / metres : 0f;
+    }
 
     private static bool SameSubjects(int[]? mine, int[]? theirs)
     {
@@ -237,6 +271,34 @@ public partial class WorldView : Control
     /// What this view is looking at. Its own platoon's mole when it has one, and otherwise
     /// the middle of whatever is happening.
     /// </summary>
+    /// <summary>
+    /// Which mole is being planned in this pane, as a slot, or -1 when none is.
+    /// </summary>
+    /// <remarks>
+    /// A slot rather than a position, because this is asked every frame only to notice when it
+    /// changes, and a position changes constantly while a mole is being steered.
+    /// </remarks>
+    private int ActingSlot()
+    {
+        if (!_stage.Planning)
+        {
+            return -1;
+        }
+
+        int seat = _seat >= 0 ? _seat : SharedPlanSeat();
+
+        if (seat < 0 || seat >= _stage.Planners.Length)
+        {
+            return -1;
+        }
+
+        Mole? actor = _stage.Planners[seat].Actor;
+
+        return actor is null ? -1 : SlotOf(actor);
+    }
+
+    private int _acting = -1;
+
     private Vector2 Subject()
     {
         if (_watching is not null)
@@ -259,6 +321,17 @@ public partial class WorldView : Control
         if (_seat >= 0)
         {
             return Actor(_seat);
+        }
+
+        // In a shared view, whoever is actually holding the pen. It used to be the middle of every
+        // platoon's actor at once, which on one pointer is the middle of three moles nobody can move
+        // and one they can: the mole being steered sat off to one side of its own turn.
+        int planning = SharedPlanSeat();
+
+        if (planning >= 0 && planning < _stage.Planners.Length
+            && _stage.Planners[planning].Actor is not null)
+        {
+            return Actor(planning);
         }
 
         Vector2 total = Vector2.Zero;

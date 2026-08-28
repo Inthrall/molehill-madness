@@ -52,7 +52,7 @@ namespace MoleSim.Match
             // A hard layer to make certain routes cost more than they are worth, and
             // bedrock along the very bottom so nothing digs out of the world.
             grid.FillRectangle(0, heightCells - (heightCells / 5), widthCells, heightCells / 14, Material.RootMat);
-            grid.FillRectangle(0, heightCells - 10, widthCells, 10, Material.Bedrock);
+            grid.FillRectangle(0, heightCells - BedrockCells, widthCells, BedrockCells, Material.Bedrock);
 
             // Last, so the strata above do not fill them back in.
             Caves(grid, rng, surface, heightCells);
@@ -381,7 +381,13 @@ namespace MoleSim.Match
             }
 
             int from = deepestSurface + RoofCells;
-            int to = heightCells - (heightCells / 5) - 1;
+
+            // All the way down to the bedrock, rather than stopping a fifth of the map short of it.
+            // The bottom fifth is the root mat and the world's floor, and leaving it solid meant the
+            // deepest sixth of the map was undisturbed strata nobody had a reason to visit, which is
+            // the same objection that moved the surface down in the first place. The bedrock itself
+            // is still untouched, which is what stops anything digging out of the world.
+            int to = heightCells - BedrockCells - 1;
             int rows = to - from + 1;
 
             if (rows < ShallowestWorthCaving)
@@ -520,10 +526,16 @@ namespace MoleSim.Match
         private const int HollowBelow = 112;
 
         /// <summary>
-        /// Cells between noise weights, which sets the scale of a cave. A mole is twelve cells
-        /// across, so features around this size are chambers it can walk into rather than cracks.
+        /// Cells between noise weights, which sets the scale of a cave.
         /// </summary>
-        private const int SeedBlock = 12;
+        /// <remarks>
+        /// A mole is twelve cells across. At twelve, a chamber was about one mole wide: enough to
+        /// get into and not enough to be a place, so the underground read as a sponge to squeeze
+        /// through rather than as somewhere to go. Three times that makes a chamber three moles
+        /// across and a passage wide enough for two to pass, which is what makes reaching one worth
+        /// the stamina.
+        /// </remarks>
+        private const int SeedBlock = 36;
 
         /// <summary>Solid cells out of nine that fill a cell back in. A majority.</summary>
         private const int SolidToFillIn = 5;
@@ -532,6 +544,9 @@ namespace MoleSim.Match
         /// Smoothing passes. Too few leaves gravel, too many rounds everything off into blobs.
         /// </summary>
         private const int SmoothingPasses = 2;
+
+        /// <summary>Bedrock along the floor of the world, in cells. Never carved.</summary>
+        private const int BedrockCells = 10;
 
         /// <summary>Rows below which a map is too thin to be worth hollowing out.</summary>
         private const int ShallowestWorthCaving = 40;

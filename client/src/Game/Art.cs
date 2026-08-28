@@ -210,33 +210,85 @@ public static class Art
     /// and they are half the total. Whether the pause this makes at match setup is worth hiding
     /// behind something is a question for when there is a loading screen to hide it behind.
     /// </remarks>
-    public static void Warm(int players)
+    public static Warming Warm(int players) => new Warming(players);
+
+    /// <summary>
+    /// The loading, one texture at a time, so something can draw how far through it is.
+    /// </summary>
+    /// <remarks>
+    /// It used to be one call that loaded the lot and blocked for as long as it took. That was
+    /// already better than loading on first use, which spread the same cost over the opening minute
+    /// of a match as a dozen dropped frames, but it still means a pause with nothing on the screen
+    /// explaining it, and a pause with nothing on the screen is the shape of a game that has hung.
+    ///
+    /// This one knows its own total before it starts, because the list is a list rather than a
+    /// discovery, so what it reports is real progress rather than the fact that something is
+    /// happening. That is the difference between this and the lobby's bar: the lobby waits for other
+    /// people to arrive and genuinely cannot know how long that is, so it sweeps; this counts.
+    /// </remarks>
+    public sealed class Warming
     {
-        for (int seat = 0; seat < Mathf.Min(players, Seats.Length); seat++)
+        private readonly List<System.Action> _steps = new List<System.Action>();
+        private int _done;
+
+        public Warming(int players)
         {
-            foreach (string pose in MoleFrames.Keys)
+            for (int seat = 0; seat < Mathf.Min(players, Seats.Length); seat++)
             {
-                Mole(seat, pose);
+                int which = seat;
+
+                foreach (string pose in MoleFrames.Keys)
+                {
+                    string named = pose;
+                    _steps.Add(() => Mole(which, named));
+                }
+
+                foreach (string exit in ExitFrames.Keys)
+                {
+                    string named = exit;
+                    _steps.Add(() => Exit(which, named));
+                }
             }
 
-            foreach (string exit in ExitFrames.Keys)
+            foreach (string effect in EffectFrames.Keys)
             {
-                Exit(seat, exit);
+                string named = effect;
+                _steps.Add(() => Effect(named));
+            }
+
+            foreach (string name in InTheWorld)
+            {
+                string named = name;
+                _steps.Add(() => Object(named));
+            }
+
+            _steps.Add(() => _ = LavaFloor);
+            _steps.Add(() => _ = LavaWall);
+        }
+
+        public int Total => _steps.Count;
+
+        public bool Finished => _done >= _steps.Count;
+
+        /// <summary>How far through, from nothing to one.</summary>
+        public float Progress => _steps.Count == 0 ? 1f : _done / (float)_steps.Count;
+
+        /// <summary>
+        /// Loads the next few.
+        /// </summary>
+        /// <remarks>
+        /// A handful a frame rather than one, because a texture is a few milliseconds and one a
+        /// frame would make the loading screen itself the slowest part of starting a match. Enough
+        /// to finish in well under a second and few enough that the bar visibly moves.
+        /// </remarks>
+        public void Step(int howMany)
+        {
+            for (int taken = 0; taken < howMany && _done < _steps.Count; taken++)
+            {
+                _steps[_done]();
+                _done++;
             }
         }
-
-        foreach (string effect in EffectFrames.Keys)
-        {
-            Effect(effect);
-        }
-
-        foreach (string name in InTheWorld)
-        {
-            Object(name);
-        }
-
-        _ = LavaFloor;
-        _ = LavaWall;
     }
 
     /// <summary>
