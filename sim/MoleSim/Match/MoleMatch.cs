@@ -466,7 +466,7 @@ namespace MoleSim.Match
                 case PlanActionKind.Hop:
                     if (!actor.IsAirborne)
                     {
-                        actor.AddImpulse(-Vec2.UnitY * HopSpeed);
+                        actor.AddImpulse(-Vec2.UnitY * MatchSettings.HopSpeed);
                     }
 
                     break;
@@ -940,14 +940,18 @@ namespace MoleSim.Match
                         continue;
                     }
 
+                    // Nothing is carved. A crate used to punch a small hole on the way in, so
+                    // the last stretch had to be dug rather than strolled up to, and that was
+                    // right while a crate buried itself a metre down. It is actively wrong now
+                    // that one rests on a ledge: the hole is fourteen cells in the radius, centred
+                    // on the crate, whose floor is only six cells under it, so a landing crate
+                    // removed eight cells of the ground it was sitting on and fourteen either
+                    // side. It blew away its own ledge, dropped whoever was waiting there out of
+                    // reach, and left the crate hanging over a fresh crater.
+                    //
+                    // There is nothing left for a carve to do. The landing spot is already a ledge
+                    // with sixteen cells of headroom over it, so the crate arrives in open air.
                     crate.HasLanded = true;
-
-                    // Punches a small hole on the way in, so the last stretch has to be
-                    // dug rather than strolled up to.
-                    Terrain.CarveCircle(
-                        WorldScale.ToCell(crate.Position.X),
-                        WorldScale.ToCell(crate.Position.Y),
-                        Fix64.FloorToInt(Crate.ReachRadius / WorldScale.CellSize));
                 }
 
                 Claim(crate, result);
@@ -1305,7 +1309,7 @@ namespace MoleSim.Match
         }
 
         /// <summary>Upward kick a hop gives.</summary>
-        private static Fix64 HopSpeed => Fix64.FromInt(9);
+
 
         private static ulong Fold(ulong hash, ulong value)
         {

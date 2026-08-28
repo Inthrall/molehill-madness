@@ -146,7 +146,14 @@ public sealed class CorpusTests
         return match.StateHash();
     }
 
-    // Repinned 2026-08-28, and five rule changes are in it. Listed because between them they touch
+    // Repinned 2026-08-28: a crate no longer carves a hole when it lands. It used
+    // to punch one of the claim radius so the last stretch had to be dug, which was right while a
+    // crate buried itself and became actively wrong once one rested on a ledge: the hole was
+    // centred on the crate, six cells above its floor, so a landing crate removed the ground it was
+    // sitting on and dropped whoever was waiting there out of claim range. Terrain changed, so all
+    // five moved; the rule test added with it says the floor survives.
+    //
+    // Repinned earlier the same day, and five rule changes were in it. Listed because between them they touch
     // the ground, the crates and the moles, which is about as wide as a single repin should ever be.
     //
     // The caves keep their roof per column instead of measuring it from the deepest point on the
@@ -177,19 +184,19 @@ public sealed class CorpusTests
     [Test]
     public void TwoPlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 2, seed: 1UL, rounds: 12), Is.EqualTo(0xFAEC02C5A132AE68UL));
+        Assert.That(Play(playerCount: 2, seed: 1UL, rounds: 12), Is.EqualTo(0x0FB94C98302175DDUL));
     }
 
     [Test]
     public void ThreePlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 3, seed: 20260826UL, rounds: 14), Is.EqualTo(0x6C1FE939E272DAB4UL));
+        Assert.That(Play(playerCount: 3, seed: 20260826UL, rounds: 14), Is.EqualTo(0x1232AA2E2EE6B9B4UL));
     }
 
     [Test]
     public void FourPlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 4, seed: 4242UL, rounds: 16), Is.EqualTo(0x380C952160E904F1UL));
+        Assert.That(Play(playerCount: 4, seed: 4242UL, rounds: 16), Is.EqualTo(0x44F4B4D62F54C7CDUL));
     }
 
     [Test]
@@ -197,7 +204,7 @@ public sealed class CorpusTests
     {
         // Past Boiling Point, so the rise, the closing sides and the three-strike rule are
         // all in the hash rather than only the early game.
-        Assert.That(Play(playerCount: 4, seed: 777UL, rounds: 26), Is.EqualTo(0x1AA24DF253A038FEUL));
+        Assert.That(Play(playerCount: 4, seed: 777UL, rounds: 26), Is.EqualTo(0x8E49E9208A84317EUL));
     }
 
     [Test]
@@ -205,7 +212,7 @@ public sealed class CorpusTests
     {
         Assert.That(
             Play(playerCount: 2, seed: 31337UL, rounds: 24, widthCells: 600, heightCells: 320),
-            Is.EqualTo(0x7EFFC9557594D308UL));
+            Is.EqualTo(0x3121AC7F897F9A91UL));
     }
 
     [Test]

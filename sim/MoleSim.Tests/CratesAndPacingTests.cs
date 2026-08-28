@@ -128,6 +128,61 @@ public sealed class CratesAndPacingTests
     }
 
     /// <summary>
+    /// A crate that lands does not blow away the ledge it lands on.
+    /// </summary>
+    /// <remarks>
+    /// It did, and the arithmetic is worth keeping because nothing about it was visible. A landing
+    /// crate used to carve a hole of the claim radius, fourteen cells, centred on itself, so that
+    /// the last stretch had to be dug rather than strolled up to. That was right while a crate
+    /// buried itself a metre down. Once crates began resting on ledges instead, the same carve was
+    /// centred one body radius above the floor, six cells, and so removed eight cells of the ground
+    /// underneath it and fourteen either side.
+    ///
+    /// The crate then hung over a fresh crater, and anybody standing on that ledge waiting for it
+    /// fell out of claim range as it arrived, which reads from the sofa as crates not being
+    /// collectable at all.
+    /// </remarks>
+    [Test]
+    public void ACrateLandingDoesNotBlowAwayItsOwnLedge()
+    {
+        MoleMatch match = NewMatch();
+        RoundResult telegraphed = IdleRound(match);
+        Vec2 where = telegraphed.NextCrates[0].Position;
+        int cellX = WorldScale.ToCell(where.X);
+
+        int floorBefore = FloorUnder(match.Terrain, cellX, WorldScale.ToCell(where.Y));
+
+        // A whole round, which carries past the landing tick at the halfway mark.
+        IdleRound(match, moleIndex: 1);
+
+        int floorAfter = FloorUnder(match.Terrain, cellX, WorldScale.ToCell(where.Y));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                floorAfter, Is.EqualTo(floorBefore),
+                "the floor under the crate moved, so the landing carved it away");
+
+            Assert.That(
+                MaterialTable.IsSolid(match.Terrain[cellX, floorBefore]), Is.True,
+                "the cell the crate was resting on is no longer solid");
+        });
+    }
+
+    /// <summary>The first solid cell at or below a row.</summary>
+    private static int FloorUnder(TerrainGrid grid, int cellX, int cellY)
+    {
+        int at = cellY < 0 ? 0 : cellY;
+
+        while (at < grid.Height && !MaterialTable.IsSolid(grid[cellX, at]))
+        {
+            at++;
+        }
+
+        return at;
+    }
+
+    /// <summary>
     /// A crate lands on a floor somebody could stand on.
     /// </summary>
     /// <remarks>
