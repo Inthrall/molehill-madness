@@ -84,7 +84,6 @@ public partial class MatchHud : Control
         Vector2 viewport = GetViewportRect().Size;
 
         DrawTally(viewport);
-        DrawWind(viewport);
         DrawClock(viewport);
     }
 
@@ -211,6 +210,18 @@ public partial class MatchHud : Control
         }
     }
 
+    /// <summary>
+    /// The wind, and not drawn at present.
+    /// </summary>
+    /// <remarks>
+    /// An arrow in a box in the top right corner, which two people in a row have read as a next
+    /// button rather than as weather. That is a fair reading: nothing about it says air, it is the
+    /// same shape as the interface's own chevrons, and it only matters to one weapon in fifteen,
+    /// the Beetle Launcher, which is the only thing that flies straight enough for wind to push.
+    /// Left here rather than deleted, because the wind is real, the simulation applies it and a
+    /// player firing a beetle does need to know: it wants a picture that says moving air, not a
+    /// smaller version of this one.
+    /// </remarks>
     private void DrawWind(Vector2 viewport)
     {
         Vector2 at = new Vector2(viewport.X - 60f, 32f);

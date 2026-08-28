@@ -275,6 +275,92 @@ public static class Glyphs
     /// A mole's head. One per mole still standing, in the tally, and the same shape the moles
     /// themselves are drawn as so the two read as the same animal.
     /// </summary>
+    /// <summary>
+    /// A mouse, meaning this platoon plans with the pointer and the keys.
+    /// </summary>
+    /// <remarks>
+    /// Drawn rather than imported, like the rest of the interface's own furniture: the icon sheet
+    /// that arrived has a speaker and a gear and a heart on it, and nothing that means an input
+    /// device. Three shapes, told apart at a glance by silhouette rather than by detail, because
+    /// these are read at about twenty pixels on a menu.
+    /// </remarks>
+    public static void Pointer(CanvasItem into, Vector2 at, float size, Color ink)
+    {
+        float wide = size * 0.27f;
+        float shoulder = at.Y - (size * 0.12f);
+
+        // A rounded shoulder over straight sides, which is the whole of a mouse at this size. The
+        // first attempt was a plain rectangle with a nick in it and read as a plug.
+        into.DrawCircle(new Vector2(at.X, shoulder), wide, ink);
+        into.DrawRect(
+            new Rect2(at.X - wide, shoulder, wide * 2f, size * 0.5f), ink);
+        into.DrawCircle(new Vector2(at.X, shoulder + (size * 0.5f)), wide * 0.62f, ink);
+
+        // The seam, and the wheel in it. Two marks, and they are what say mouse rather than pebble.
+        into.DrawLine(
+            new Vector2(at.X, at.Y - (size * 0.38f)),
+            new Vector2(at.X, at.Y - (size * 0.08f)),
+            Palette.Panel,
+            Mathf.Max(size * 0.08f, 1.5f));
+
+        into.DrawCircle(
+            new Vector2(at.X, at.Y - (size * 0.19f)), Mathf.Max(size * 0.07f, 1.2f), ink);
+    }
+
+    /// <summary>A gamepad, meaning this platoon has a controller of its own.</summary>
+    public static void Pad(CanvasItem into, Vector2 at, float size, Color ink)
+    {
+        float wide = size * 0.46f;
+
+        into.DrawRect(
+            new Rect2(at.X - wide, at.Y - (size * 0.18f), wide * 2f, size * 0.34f), ink);
+
+        // Grips at the corners, which is the silhouette that says controller rather than brick.
+        into.DrawCircle(new Vector2(at.X - (wide * 0.86f), at.Y + (size * 0.14f)), size * 0.19f, ink);
+        into.DrawCircle(new Vector2(at.X + (wide * 0.86f), at.Y + (size * 0.14f)), size * 0.19f, ink);
+        into.DrawCircle(new Vector2(at.X - (wide * 0.86f), at.Y - (size * 0.1f)), size * 0.15f, ink);
+        into.DrawCircle(new Vector2(at.X + (wide * 0.86f), at.Y - (size * 0.1f)), size * 0.15f, ink);
+
+        // A stick and a pair of buttons, punched out rather than drawn on, so they read on any ink.
+        into.DrawCircle(new Vector2(at.X - (wide * 0.4f), at.Y), size * 0.09f, Palette.Panel);
+        into.DrawCircle(new Vector2(at.X + (wide * 0.46f), at.Y - (size * 0.06f)), size * 0.06f, Palette.Panel);
+        into.DrawCircle(new Vector2(at.X + (wide * 0.22f), at.Y + (size * 0.06f)), size * 0.06f, Palette.Panel);
+    }
+
+    /// <summary>
+    /// A mouse being passed round, meaning this platoon waits its turn with it.
+    /// </summary>
+    /// <remarks>
+    /// The one that had to be said and could not be before. Hotseat on one pointer means a platoon
+    /// plans when the mouse reaches it, and with nothing on screen saying so, four platoons all
+    /// looked equally ready and only one of them could act.
+    /// </remarks>
+    public static void Passing(CanvasItem into, Vector2 at, float size, Color ink)
+    {
+        // The mouse, lower and smaller, with the loop over the top of it rather than beside it.
+        // Side by side the two shapes were the same weight and the pair read as a mug.
+        Pointer(into, at + new Vector2(0f, size * 0.14f), size * 0.72f, ink);
+
+        float line = Mathf.Max(size * 0.1f, 1.5f);
+        Vector2 middle = at + new Vector2(0f, size * 0.06f);
+        float reach = size * 0.4f;
+
+        into.DrawArc(middle, reach, Mathf.Pi * 1.15f, Mathf.Pi * 1.85f, 20, ink, line);
+
+        // An arrowhead on the leading end, because an arc on its own is a bracket.
+        Vector2 head = middle + (Vector2.Right.Rotated(Mathf.Pi * 1.85f) * reach);
+        Vector2 along = Vector2.Right.Rotated(Mathf.Pi * 1.85f + (Mathf.Pi / 2f));
+
+        into.DrawColoredPolygon(
+            new[]
+            {
+                head + (along * size * 0.17f),
+                head + (along.Rotated(Mathf.Pi * 0.62f) * size * 0.17f),
+                head + (along.Rotated(-Mathf.Pi * 0.62f) * size * 0.17f),
+            },
+            ink);
+    }
+
     public static void Mole(CanvasItem into, Vector2 at, float size, Color ink)
     {
         float unit = size / 2f;

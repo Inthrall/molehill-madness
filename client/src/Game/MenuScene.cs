@@ -393,11 +393,44 @@ public partial class MenuScene : Control
         }
     }
 
+    /// <summary>
+    /// What each platoon will be planning with, under the platoon it belongs to.
+    /// </summary>
+    /// <remarks>
+    /// The rule is the match's, not the menu's: seat zero takes the pointer and the keys, the next
+    /// seats take a connected controller each, and whoever is left shares the pointer and plans
+    /// when it reaches them. Read straight off the connected pads so the menu cannot disagree with
+    /// what happens when the match starts.
+    ///
+    /// Worth saying out loud on this screen because it is the thing about local play that is least
+    /// guessable. Four platoons on one keyboard all look equally ready, only one of them can act at
+    /// a time, and until now nothing said so: a table of four would sit there waiting for three
+    /// platoons that were never going to move.
+    /// </remarks>
+    private void DrawDevice(int seat, Vector2 at, float size, Color ink)
+    {
+        int pads = Input.GetConnectedJoypads().Count;
+
+        if (seat == 0)
+        {
+            Glyphs.Pointer(this, at, size, ink);
+            return;
+        }
+
+        if (seat - 1 < pads)
+        {
+            Glyphs.Pad(this, at, size, ink);
+            return;
+        }
+
+        Glyphs.Passing(this, at, size, ink);
+    }
+
     /// <summary>Two, three or four, each shown as that many platoons.</summary>
     private void DrawChoices(Vector2 viewport)
     {
         float glyph = _button * 0.62f;
-        float height = _button * 1.5f;
+        float height = _button * 2.05f;
         float gap = _button * 0.5f;
         float[] widths = new float[_choices.Length];
         float total = 0f;
@@ -421,13 +454,24 @@ public partial class MenuScene : Control
 
             for (int seat = 0; seat < players; seat++)
             {
+                float across =
+                    left + (_button * 0.5f) + (glyph * 0.52f) + (seat * glyph * 1.05f);
+
+                Color colour = chosen
+                    ? Palette.Seat(seat)
+                    : new Color(Palette.Seat(seat), 0.65f);
+
                 Glyphs.Mole(
                     this,
-                    new Vector2(
-                        left + (_button * 0.5f) + (glyph * 0.52f) + (seat * glyph * 1.05f),
-                        top + (height / 2f)),
+                    new Vector2(across, top + (height * 0.38f)),
                     glyph,
-                    chosen ? Palette.Seat(seat) : new Color(Palette.Seat(seat), 0.65f));
+                    colour);
+
+                DrawDevice(
+                    seat,
+                    new Vector2(across, top + (height * 0.75f)),
+                    glyph * 0.86f,
+                    chosen ? new Color(Palette.OnPanel, 0.85f) : new Color(Palette.OnPanel, 0.45f));
             }
 
             left += widths[index] + gap;

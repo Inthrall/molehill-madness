@@ -474,8 +474,23 @@ public partial class MatchScene : Node2D
         return -1;
     }
 
+    /// <summary>
+    /// Whichever platoon is holding the pointer, or null when none is.
+    /// </summary>
+    /// <remarks>
+    /// Bounds checked, because there is a beat where there are no planners at all. Online, the
+    /// match cannot be built until the relay has said what seed to grow and how many platoons are
+    /// in it, so a scene sits in <see cref="Beat.Arriving"/> with an empty planner list; and the
+    /// pointer seat starts at zero rather than at minus one, because zero is what a fresh int is.
+    /// Every mouse movement in that beat threw, which does not stop the game but does mean nothing
+    /// responds to anything, and from the outside that is indistinguishable from a hang.
+    /// </remarks>
     private SeatPlanner? Pointed() =>
-        _pointerSeat >= 0 && _planners[_pointerSeat].IsPlanning ? _planners[_pointerSeat] : null;
+        _pointerSeat >= 0
+        && _pointerSeat < _planners.Length
+        && _planners[_pointerSeat].IsPlanning
+            ? _planners[_pointerSeat]
+            : null;
 
     /// <summary>
     /// Whether every platoon this device is responsible for has committed.
@@ -1447,6 +1462,14 @@ public partial class MatchScene : Node2D
         {
             _pause?.Toggle();
             Click();
+            return;
+        }
+
+        // Nothing below this point has a match to act on until one has been built. Escape is above
+        // it deliberately: a player waiting on a relay that is never going to answer needs the one
+        // door out of the room to work.
+        if (_planners.Length == 0)
+        {
             return;
         }
 
