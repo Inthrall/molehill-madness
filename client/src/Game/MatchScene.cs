@@ -1247,7 +1247,7 @@ public partial class MatchScene : Node2D
         ClipMaker maker = new ClipMaker();
         AddChild(maker);
 
-        byte[]? clip = await maker.Make(
+        Molehill.Clip.ClipFile? clip = await maker.Make(
             MatchSetup.Seed, _players, MapWidthCells, MapHeightCells, _played, moment);
 
         maker.QueueFree();
@@ -1258,25 +1258,56 @@ public partial class MatchScene : Node2D
             return;
         }
 
-        string path = $"user://clip-round{moment.Round}.png";
+        string path = $"user://clip-round{moment.Round}.{clip.Extension}";
 
         using (FileAccess file = FileAccess.Open(path, FileAccess.ModeFlags.Write))
         {
-            file?.StoreBuffer(clip);
+            file?.StoreBuffer(clip.Bytes);
         }
 
-        // Loaded straight back through Godot's own PNG decoder, which is a decoder nobody here wrote.
-        // An animated PNG's first frame is an ordinary PNG, so anything that can read one at all
-        // should read this, and if it cannot then the file is wrong however good the chunk layout
-        // looked.
-        Image check = new Image();
-        Error read = check.LoadPngFromBuffer(clip);
-
+        // The number the whole feature hangs on. The plan's open question about the clip pipeline is
+        // whether five seconds of it can be encoded on a mid-range phone, and this is the only place
+        // that can say. A desktop timing is not the answer, but a desktop timing an order of
+        // magnitude out would be, so it is printed on every run rather than measured when somebody
+        // remembers to.
         GD.Print(
             $"clip: {moment.Kind} round {moment.Round} tick {moment.Tick} score {moment.Score}, "
-            + $"{clip.Length} bytes, {ClipMaker.Frames} frames, "
-            + $"reload {read} {check.GetWidth()}x{check.GetHeight()}, "
+            + $"{clip.Format} {clip.Bytes.Length} bytes, {clip.Frames} frames, "
+            + $"encoded in {clip.Took.TotalMilliseconds:F0} ms, "
+            + $"{Verified(clip)}, "
             + $"at {ProjectSettings.GlobalizePath(path)}");
+    }
+
+    /// <summary>
+    /// Whether the clip that came out is a file anything else could open.
+    /// </summary>
+    /// <remarks>
+    /// An animated PNG goes back through Godot's own decoder, which is a decoder nobody here wrote,
+    /// and its first frame is an ordinary PNG so anything that reads one at all should read this. If
+    /// it cannot, the file is wrong however good the chunk layout looked.
+    ///
+    /// An MP4 gets the same question asked the only way it can be asked without a demuxer: the first
+    /// box in the file has to be ftyp, which is four bytes of length followed by the four characters,
+    /// and faststart is what puts it there. It is a weaker check and it is honest about being one,
+    /// but it catches the failure that actually happens, which is ffmpeg writing an error where a
+    /// file was expected.
+    /// </remarks>
+    private static string Verified(Molehill.Clip.ClipFile clip)
+    {
+        if (clip.Format == Molehill.Clip.ClipFormat.Mp4)
+        {
+            byte[] bytes = clip.Bytes;
+            bool boxed = bytes.Length > 12
+                && bytes[4] == (byte)'f' && bytes[5] == (byte)'t'
+                && bytes[6] == (byte)'y' && bytes[7] == (byte)'p';
+
+            return boxed ? "ftyp ok" : "NOT AN MP4";
+        }
+
+        Image check = new Image();
+        Error read = check.LoadPngFromBuffer(clip.Bytes);
+
+        return $"reload {read} {check.GetWidth()}x{check.GetHeight()}";
     }
 
     /// <summary>

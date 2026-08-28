@@ -20,6 +20,8 @@ sim/     MoleSim, the deterministic game, and its tests
 tools/   headless CLI, terrain dumps, corpus runners, the art importer
 client/  Godot 4 project (added at Phase 2)
 relay/   ASP.NET Core lobby and turn-exchange service (added at Phase 4)
+online/  the client's half of playing apart: lobbies, paces, emotes, the age band
+clip/    the shareable round: the drama scorer and the encoders
 art/     the generated sheets, as they arrived. The importer's input
 docs/    design document, implementation plan
 ```
@@ -144,6 +146,10 @@ godot --path client --position 9000,9000 --write-movie frames/f.png --fixed-fps 
 The window position is not decoration. Movie recording needs a rendering context, so `--headless` crashes, and a verification loop that opens a window every run buries whatever you were working in. Off the side of the desktop it records exactly the same frames and stays out of the way.
 
 For a phone, `tools/scripts/deploy-android.sh` exports a signed debug APK, checks that the C# actually made it in, and installs it if a device is connected. Pass `--export-only`, or just leave the phone unplugged, and it hands over the APK to sideload instead. USB debugging is not required.
+
+A clip comes out as a video where there is anything to encode one with, and as an animated PNG where there is not. The encoder is a seam rather than a function now, begin and add and finish, and that shape is the point rather than tidiness: the pipeline used to gather every frame into a list and hand the list over, which is what an APNG needs and what makes a hardware encoder impossible, since an encoder that consumes frames as they arrive can never be written against a signature that wants them all at once. A full portrait frame is eight megabytes, so the difference is two frames in memory against three hundred and seventy megabytes of them, and it is the reason the fallback has to be handed shrunken frames while the video path takes them at full size. Which one is in use is decided before the first frame is rendered, by encoding two sixteen-pixel frames and seeing whether they come out, because a streaming encoder does not keep what it has been given and one that failed halfway would have nothing left to fall back to but the whole re-simulation again.
+
+The desktop encoder is ffmpeg, found on the path or beside the game, fed raw RGBA down a pipe. Its command line is a static that returns a string, so a test can read it back without launching anything, which matters because nearly every way this can be wrong is in that string and most of them fail quietly: a pixel format that does not match the frames produces coloured noise, a size that does not match produces a picture that shears sideways, and anything but 4:2:0 produces a video that encodes perfectly and then will not play on a phone. Where a real ffmpeg exists, which is any Linux CI runner, the encoder is run for real and the bytes are checked, since ffmpeg is the only thing that actually knows whether the line is right. Android's MediaCodec is not here: it needs a Godot plugin written in Java, which needs a device to mean anything, and iOS is out of scope entirely.
 
 Still owed: the gamepad axis reads have never met real hardware, though the simultaneous planning and the plan verbs they feed are exercised by the driver. The pinch has not either, since a mouse has only ever had one finger. And the structured playtests, which are the actual gate. No amount of this code can answer whether it is funny.
 

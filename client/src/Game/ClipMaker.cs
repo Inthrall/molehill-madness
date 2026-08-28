@@ -4,24 +4,27 @@ using Molehill.Clip;
 using MoleSim.Match;
 
 /// <summary>
-/// Re-simulates a round into a portrait viewport and writes it out as an animated PNG.
+/// Re-simulates a round into a portrait viewport and pushes the frames at whatever encoder this
+/// machine has.
 /// </summary>
 /// <remarks>
-/// The plan's clip pipeline, minus the hardware encoders. This is the path that is certain to exist:
-/// no platform plugin, no bundled binary, no licence, and the design already calls it out as the
-/// pre-designed fallback if the encoder spike misses its five seconds on a mid phone.
-///
 /// A clip is a re-simulation rather than a screen recording, which is the whole reason it is cheap.
 /// The match is a seed and a list of plans, so the round can be played again at any size, in any
 /// aspect, at any speed, from data that is already on the device. Portrait because a clip is for a
 /// phone, and 1080 by 1920 because that is what the plan says the video path targets.
 ///
-/// The frames are captured smaller than they are rendered, and that is deliberate rather than a
-/// shortcut. A full-size frame is 1080 times 1920 times four bytes, which is eight megabytes, and a
-/// few seconds of them is a gigabyte of RGBA sitting in memory before anything has been compressed.
-/// A hardware encoder never holds more than a frame or two because it consumes them as they arrive;
-/// an APNG has to have all of them at once. So the fallback is visibly a fallback, and saying so is
-/// better than quietly running a phone out of memory.
+/// What comes out depends on what is installed, and the difference is a whole order of magnitude in
+/// quality rather than a detail. An encoder that streams takes the frames at full size, one at a
+/// time, and never holds more than a couple: that is the video path, and it is what the design's
+/// share flow is for. An encoder that buffers has to have every frame at once, and a full-size frame
+/// is eight megabytes, so forty-five of them is three hundred and seventy megabytes of RGBA sitting
+/// in a phone's memory before anything has been compressed. The fallback therefore gets its frames
+/// shrunk to a ninth of the pixels, and is visibly a fallback, which the design accepts by name.
+///
+/// The choice is made before the first frame is rendered rather than after the last one fails,
+/// because a streaming encoder does not keep what it has been given. An encoder that broke halfway
+/// would have nothing left to fall back to but the whole re-simulation again, so the one that gets
+/// used here is one that has already encoded two frames successfully.
 /// </remarks>
 public partial class ClipMaker : Node
 {
@@ -31,7 +34,7 @@ public partial class ClipMaker : Node
     private const int RenderTall = 1920;
 
     /// <summary>
-    /// What the fallback keeps, which is a third of it in each direction.
+    /// What a buffering encoder is given instead, which is a third of it in each direction.
     /// </summary>
     /// <remarks>
     /// Three hundred and sixty by six hundred and forty: a third of the render in each direction, so a
@@ -68,7 +71,7 @@ public partial class ClipMaker : Node
     /// frame has been drawn. Reading it in the same pass gives the previous one, which produces a clip
     /// that is subtly one frame behind everything and is very hard to notice.
     /// </remarks>
-    public async System.Threading.Tasks.Task<byte[]?> Make(
+    public async System.Threading.Tasks.Task<ClipFile?> Make(
         ulong seed, int playerCount, int mapWidthCells, int mapHeightCells,
         IReadOnlyList<Plan[]> rounds, Moment moment)
     {
@@ -138,7 +141,17 @@ public partial class ClipMaker : Node
         WorldView view = new WorldView(stage);
         viewport.AddChild(view);
 
-        List<byte[]> frames = new List<byte[]>(Frames);
+        // Beside the executable is where a bundled encoder would sit. Godot hands back the path of
+        // the running binary, which in an exported game is the game and in the editor is the editor;
+        // that is the right answer both times, since a development machine finds ffmpeg on its path
+        // and a shipped one finds it in its own folder.
+        using IClipEncoder encoder = Clips.Choose(
+            System.IO.Path.GetDirectoryName(OS.GetExecutablePath()));
+
+        int frameWide = encoder.Streams ? RenderWide : KeepWide;
+        int frameTall = encoder.Streams ? RenderTall : KeepTall;
+
+        encoder.Begin(frameWide, frameTall, ClipFps);
 
         // Centred on the moment rather than started at it, so a clip shows the shot as well as what
         // it did. A clip that opens on the explosion has thrown away the part that made it funny.
@@ -181,14 +194,18 @@ public partial class ClipMaker : Node
 
             Image shot = viewport.GetTexture().GetImage();
             shot.Convert(Image.Format.Rgba8);
-            shot.Resize(KeepWide, KeepTall, Image.Interpolation.Bilinear);
 
-            frames.Add(shot.GetData());
+            if (!encoder.Streams)
+            {
+                shot.Resize(frameWide, frameTall, Image.Interpolation.Bilinear);
+            }
+
+            encoder.Add(shot.GetData());
         }
 
         viewport.QueueFree();
 
-        return Apng.Write(KeepWide, KeepTall, frames, ClipFps);
+        return encoder.Finish();
     }
 
     /// <summary>
