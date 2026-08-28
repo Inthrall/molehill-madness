@@ -232,38 +232,98 @@ public sealed class MapMakerTests
     }
 
     /// <summary>
-    /// Nobody starts down a hole.
+    /// Everybody starts on something, and some of them start underground.
     /// </summary>
     /// <remarks>
-    /// Deliberately not asserting that a spawn is clear of solid ground. A mole's body is six cells
-    /// in the radius and a spawn sits one cell above its own column, so on any slope the body
-    /// overlaps the hillside beside it. That has been true since spawns existed and the motion
-    /// solver settles it on the first tick; it is not something caving introduced.
+    /// This used to assert that every spawn was above its column's surface, which was the right test
+    /// while the surface was the only place anybody started. Half of them start on a cave floor now,
+    /// so "above the surface" is no longer the property worth defending and asserting it would be
+    /// asserting the feature away.
     ///
-    /// What caving could break is this: a spawn standing over a void rather than on the
-    /// surface. So that is what gets checked.
+    /// What is worth defending is what the old test was really protecting: that a spawn is standing
+    /// on ground rather than hanging over a void, and that the ground under it is ground rather than
+    /// a lid over the next hole down. Both are checked here whether the floor is the surface or a
+    /// chamber, along with there being room for a mole to stand in.
+    ///
+    /// Deliberately not asserting that a spawn is clear of solid ground. A mole's body is six cells
+    /// in the radius and a spawn sits one cell above its own floor, so on any slope the body overlaps
+    /// the hillside beside it. That has been true since spawns existed and the motion solver settles
+    /// it on the first tick.
+    ///
+    /// And deliberately asserting that both kinds happen. A rule that put everybody in caves would
+    /// pass every check above and would not be what was asked for.
     /// </remarks>
     [Test]
-    public void NobodyStartsDownAHole()
+    public void EverybodyStartsOnSomethingAndSomeStartUnderground()
     {
         TerrainGrid grid = Field();
         Vec2[] spawns = MapMaker.SpawnPoints(grid, 4, MatchSettings.MolesPerPlatoon);
+        int underground = 0;
+        int onTop = 0;
 
         foreach (Vec2 spawn in spawns)
         {
             int cellX = WorldScale.ToCell(spawn.X);
-            int cellY = WorldScale.ToCell(spawn.Y);
+            int floor = FloorUnder(grid, cellX, WorldScale.ToCell(spawn.Y));
             int surface = SurfaceCell(grid, cellX);
+
+            if (floor > surface + 4)
+            {
+                underground++;
+            }
+            else
+            {
+                onTop++;
+            }
 
             Assert.Multiple(() =>
             {
-                Assert.That(cellY, Is.LessThan(surface), $"column {cellX} starts below its ground");
-                Assert.That(surface, Is.LessThan(Height - 10), $"column {cellX} starts in bedrock");
                 Assert.That(
-                    MaterialTable.IsSolid(grid[cellX, surface + 1]), Is.True,
-                    $"column {cellX} stands on a one-cell crust over a cave");
+                    floor, Is.LessThan(Height - 10), $"column {cellX} starts in the bedrock");
+
+                Assert.That(
+                    MaterialTable.IsSolid(grid[cellX, floor + 1])
+                    && MaterialTable.IsSolid(grid[cellX, floor + 2]),
+                    Is.True,
+                    $"column {cellX} stands on a lid rather than on ground");
+
+                Assert.That(
+                    ClearAbove(grid, floor, cellX), Is.GreaterThanOrEqualTo(14),
+                    $"column {cellX} has no room to stand up in");
             });
         }
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(underground, Is.GreaterThan(0), "nobody started in a cave");
+            Assert.That(onTop, Is.GreaterThan(0), "nobody started on the surface");
+        });
+    }
+
+    /// <summary>The first solid cell at or below a row, which is the floor a spawn stands on.</summary>
+    private static int FloorUnder(TerrainGrid grid, int cellX, int cellY)
+    {
+        int at = cellY < 0 ? 0 : cellY;
+
+        while (at < grid.Height && !MaterialTable.IsSolid(grid[cellX, at]))
+        {
+            at++;
+        }
+
+        return at;
+    }
+
+    /// <summary>Clear cells directly above a floor.</summary>
+    private static int ClearAbove(TerrainGrid grid, int floor, int cellX)
+    {
+        int clear = 0;
+
+        for (int up = floor - 1; up >= 0 && !MaterialTable.IsSolid(grid[cellX, up]); up--)
+        {
+            clear++;
+        }
+
+        return clear;
     }
 
     [Test]

@@ -552,24 +552,152 @@ namespace MoleSim.Match
         private const int ShallowestWorthCaving = 40;
 
         /// <summary>
-        /// Spawn points spread along the surface, one band per platoon so nobody starts
-        /// inside somebody else's opening move.
+        /// Spawn points spread across the map, some on the surface and some down in the caves.
         /// </summary>
+        /// <remarks>
+        /// Everybody used to start on the surface, which made the underground somewhere to go rather
+        /// than somewhere anybody was, and meant the first minute of every match was fought along one
+        /// line. Half of them start on a cave floor now, which puts platoons in the tunnels from tick
+        /// zero, gives some moles cover they did not have to dig for, and makes the caves worth having
+        /// on the very first turn rather than the fourth.
+        ///
+        /// The column each spawn stands in has not changed: a margin at each edge then everybody
+        /// spaced evenly, platoons interleaved. Only the height is chosen now, and only from ledges
+        /// that column actually has, so a column with no cave in it simply starts on the surface.
+        ///
+        /// Chosen off the terrain's own hash rather than from a generator, which keeps this out of the
+        /// map's random sequence entirely: the same map gives the same spawns, and adding this took no
+        /// draw away from anything that was already drawing.
+        /// </remarks>
         public static Vec2[] SpawnPoints(TerrainGrid grid, int playerCount, int molesPerPlatoon)
         {
             Vec2[] points = new Vec2[playerCount * molesPerPlatoon];
             int total = points.Length;
+            int[] ledges = new int[MostLedgesConsidered];
 
             for (int slot = 0; slot < total; slot++)
             {
                 int cellX = SpawnColumn(grid.Width, slot, total);
+                int found = Ledges(grid, cellX, ledges);
+
                 points[slot] = new Vec2(
                     WorldScale.ToCentreMetres(cellX),
-                    SurfaceHeight(grid, cellX) - MatchSettings.Radius - WorldScale.CellSize);
+                    WorldScale.ToMetres(Standing(grid, cellX, slot, ledges, found))
+                        - MatchSettings.Radius - WorldScale.CellSize);
             }
 
             return points;
         }
+
+        /// <summary>
+        /// Which ledge in a column this spawn stands on: the surface, or one of its caves.
+        /// </summary>
+        /// <remarks>
+        /// A coin from the terrain hash decides surface or cave, and a second draw off the same
+        /// number picks which cave. Falling back to the surface when the column has none, which is
+        /// why a map with no caves at all still spawns everybody exactly where it used to.
+        /// </remarks>
+        private static int Standing(TerrainGrid grid, int cellX, int slot, int[] ledges, int found)
+        {
+            if (found == 0)
+            {
+                // No ledge with room to stand anywhere in the column, which a narrow or shallow map
+                // can manage. The old behaviour, and better than a spawn in the middle of nothing.
+                return WorldScale.ToCell(SurfaceHeight(grid, cellX));
+            }
+
+            ulong pick = Scramble(grid.Hash ^ ((ulong)slot * 0x9E3779B97F4A7C15UL));
+
+            if (found == 1 || (pick & 1UL) == 0UL)
+            {
+                return ledges[0];
+            }
+
+            return ledges[1 + (int)((pick >> 1) % (ulong)(found - 1))];
+        }
+
+        /// <summary>
+        /// Every ledge in a column, top down: a floor with room for a mole above it. Returns how many.
+        /// </summary>
+        /// <remarks>
+        /// A ledge is a run of clear cells with something solid under it, which is the same thing
+        /// whether the clear part is the sky or a chamber, so the surface comes out of this as ledge
+        /// zero without being a special case.
+        ///
+        /// The floor has to have some thickness to it. A spawn on a one-cell crust over a cave was
+        /// the hazard the old surface-only rule was tested against, and it is no less of one now that
+        /// caves are somewhere to start: it reads as standing on the ground and behaves like standing
+        /// on a lid.
+        /// </remarks>
+        private static int Ledges(TerrainGrid grid, int cellX, int[] into)
+        {
+            int found = 0;
+            int clear = 0;
+            int floor = grid.Height - BedrockCells;
+
+            for (int cellY = 0; cellY < floor && found < into.Length; cellY++)
+            {
+                if (!MaterialTable.IsSolid(grid[cellX, cellY]))
+                {
+                    clear++;
+                    continue;
+                }
+
+                if (clear >= HeadRoomCells && Thick(grid, cellX, cellY))
+                {
+                    into[found] = cellY;
+                    found++;
+                }
+
+                clear = 0;
+            }
+
+            return found;
+        }
+
+        /// <summary>Whether a floor is more than a lid over the next hole down.</summary>
+        private static bool Thick(TerrainGrid grid, int cellX, int cellY)
+        {
+            for (int down = 0; down < LedgeCells; down++)
+            {
+                if (!grid.Contains(cellX, cellY + down)
+                    || !MaterialTable.IsSolid(grid[cellX, cellY + down]))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// SplitMix64's finaliser, so a hash and a slot number make a well-spread choice.
+        /// </summary>
+        /// <remarks>
+        /// The terrain hash is an XOR fold, so its low bits move with the last cell written rather
+        /// than with the map as a whole, and reading a coin straight off it would have every spawn on
+        /// a map agreeing with every other. Mixing first is what makes sixteen independent choices
+        /// out of one number.
+        /// </remarks>
+        private static ulong Scramble(ulong value)
+        {
+            value += 0x9E3779B97F4A7C15UL;
+            value = (value ^ (value >> 30)) * 0xBF58476D1CE4E5B9UL;
+            value = (value ^ (value >> 27)) * 0x94D049BB133111EBUL;
+
+            return value ^ (value >> 31);
+        }
+
+        /// <summary>
+        /// Clear cells a mole needs above a floor to stand on it. A mole is twelve cells across.
+        /// </summary>
+        private const int HeadRoomCells = 14;
+
+        /// <summary>Solid cells under a ledge before it counts as ground rather than as a lid.</summary>
+        private const int LedgeCells = 3;
+
+        /// <summary>Ledges looked at in one column. More than anybody could start on.</summary>
+        private const int MostLedgesConsidered = 8;
 
         /// <summary>
         /// Which column one spawn stands in.

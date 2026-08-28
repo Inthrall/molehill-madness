@@ -146,7 +146,12 @@ public sealed class CorpusTests
         return match.StateHash();
     }
 
-    // Repinned 2026-08-28: the caves changed shape on purpose. They now run all the way down to
+    // Repinned 2026-08-28, second time the same day: half the spawns start on a cave floor now
+    // instead of everybody starting on the surface. Where sixteen moles stand at tick zero decides
+    // every route, shot and crater after it, so all five pins moved and no rule test did. Chosen off
+    // the terrain hash rather than a generator, so the map's own random sequence is untouched.
+    //
+    // Repinned earlier the same day: the caves changed shape on purpose. They now run all the way down to
     // the bedrock instead of stopping a fifth of the map short of it, and the noise block that sets
     // their scale went from twelve cells to thirty-six, so a chamber is three moles across rather
     // than one. Different ground means different everything downstream of it, and all five pins
@@ -155,19 +160,19 @@ public sealed class CorpusTests
     [Test]
     public void TwoPlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 2, seed: 1UL, rounds: 12), Is.EqualTo(0xAB6021C572B65723UL));
+        Assert.That(Play(playerCount: 2, seed: 1UL, rounds: 12), Is.EqualTo(0x2A30086E49B930F6UL));
     }
 
     [Test]
     public void ThreePlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 3, seed: 20260826UL, rounds: 14), Is.EqualTo(0x5BA37C0C2D53CA5FUL));
+        Assert.That(Play(playerCount: 3, seed: 20260826UL, rounds: 14), Is.EqualTo(0x14F98FA4E2A9F754UL));
     }
 
     [Test]
     public void FourPlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 4, seed: 4242UL, rounds: 16), Is.EqualTo(0x9B8468932CAFBB11UL));
+        Assert.That(Play(playerCount: 4, seed: 4242UL, rounds: 16), Is.EqualTo(0x85DC1E7BB9F00209UL));
     }
 
     [Test]
@@ -175,7 +180,7 @@ public sealed class CorpusTests
     {
         // Past Boiling Point, so the rise, the closing sides and the three-strike rule are
         // all in the hash rather than only the early game.
-        Assert.That(Play(playerCount: 4, seed: 777UL, rounds: 26), Is.EqualTo(0x8C5EE9226E236A88UL));
+        Assert.That(Play(playerCount: 4, seed: 777UL, rounds: 26), Is.EqualTo(0x820B31B85A1101B9UL));
     }
 
     [Test]
@@ -183,7 +188,7 @@ public sealed class CorpusTests
     {
         Assert.That(
             Play(playerCount: 2, seed: 31337UL, rounds: 24, widthCells: 600, heightCells: 320),
-            Is.EqualTo(0x5347A84FE1F5B1A7UL));
+            Is.EqualTo(0xCDBA17FDCC5BDEE1UL));
     }
 
     [Test]
