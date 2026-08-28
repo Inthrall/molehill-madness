@@ -63,13 +63,22 @@ public partial class LoadingBar : Control
             new Color(Palette.Ink, 0.8f));
 
         // A mole coming up out of the ground as the bar fills, which is the game's own silhouette
-        // and gives the eye something to read the progress against other than a rectangle.
+        // and gives the eye something to read the progress against other than a rectangle. The
+        // drawn head this used to be was a placeholder for exactly this sheet.
         float rise = Mathf.Clamp(viewport.X * 0.03f, 18f, 44f);
+        float size = rise * 2.1f;
 
-        Glyphs.Mole(
+        Strip faces = Art.Faces;
+        Vector2 box = faces.FrameSize * (size / faces.FrameSize.Y);
+        Vector2 at = new Vector2(
+            track.Position.X + (wide * _along), middle.Y - (tall * 0.5f) - (box.Y * 0.55f));
+
+        // Asleep until it is nearly there, then it wakes up, which is a whole progress bar's worth
+        // of information for one frame index.
+        faces.Draw(
             this,
-            new Vector2(track.Position.X + (wide * _along), middle.Y - (tall * 0.5f) - rise),
-            rise * 1.5f,
-            new Color(Palette.Ink, 0.55f));
+            new Rect2(at.X - (box.X / 2f), at.Y - (box.Y / 2f), box),
+            _along < 0.92f ? Art.Face.Asleep : Art.Face.Pleased,
+            mirrored: false);
     }
 }

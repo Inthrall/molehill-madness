@@ -994,6 +994,26 @@ $sheets = @(
     @{ From = 'mole rooted.png'; Key = 'green'; Pack = 'strip'; Into = 'mole'; Name = 'rooted'
        Grid = @(4, 2); Frames = 8; Scale = 0.62; Open = 4; Platoons = $true }
 
+    # ---- Faces -----------------------------------------------------------------------
+    #
+    # Eight expressions of one mole's head, for the places that want a mole without wanting a whole
+    # animation: the loading bar, the menu's player-count chooser, and later the scoreboard and the
+    # field hospital.
+    #
+    # Not per platoon, and there is nothing on these heads that could be. Every other mole sheet
+    # takes its team colour from the trunks, which are red and saturated and so easy to pick out of
+    # the artwork; a head has no trunks. The first version of this sheet wore a white cap, which
+    # looked like somewhere a colour could go until it was measured: the cap was exactly the same
+    # white as the eyes and the teeth, 248 on all three channels, separated only by height in the
+    # cell, and three percent of a cell is not a margin to bet eight faces on. The cap is gone now
+    # and the question is settled. Whose mole it is goes on a disc behind the face.
+    #
+    # The whiskers are drawn inside the silhouette rather than sticking out of it, so the opening
+    # radius cannot reach them: it erodes the alpha mask, and they are interior colour.
+
+    @{ From = 'Mole face icons.jpg'; Key = 'green'; Pack = 'strip'; Into = 'glyph'; Name = 'face'
+       Grid = @(4, 2); Frames = 8; Scale = 0.42; Open = 3 }
+
     # ---- The eight exits --------------------------------------------------------------
     #
     # Named for KnockoutExit rather than for the sheet, because the simulation has been choosing

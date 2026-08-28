@@ -36,7 +36,11 @@ public sealed class Strip
     /// Which frame, wrapped rather than clamped, so a caller can hand over a tick count and get a
     /// cycle without doing the arithmetic itself.
     /// </param>
-    public void Draw(CanvasItem into, Rect2 where, int frame, bool mirrored)
+    /// <param name="tint">
+    /// Multiplied over the frame. White leaves the artwork alone, which is what nearly every caller
+    /// wants; the menu dims a face by passing white at less than full alpha.
+    /// </param>
+    public void Draw(CanvasItem into, Rect2 where, int frame, bool mirrored, Color? tint = null)
     {
         Vector2 size = FrameSize;
         int index = ((frame % Frames) + Frames) % Frames;
@@ -49,6 +53,7 @@ public sealed class Strip
             where = new Rect2(where.End.X, where.Position.Y, -where.Size.X, where.Size.Y);
         }
 
-        into.DrawTextureRectRegion(Art, where, region);
+        into.DrawTextureRectRegion(
+            Art, where, region, tint ?? Colors.White);
     }
 }

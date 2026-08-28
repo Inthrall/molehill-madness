@@ -172,6 +172,36 @@ public static class Art
     public static Strip Mole(int seat, string pose) =>
         Held($"mole/{Seats[Mathf.Clamp(seat, 0, Seats.Length - 1)]}-{pose}.png", MoleFrames[pose]);
 
+    /// <summary>
+    /// The eight mole faces, as one strip.
+    /// </summary>
+    /// <remarks>
+    /// For the places that want a mole and not an animation. Not per platoon, unlike every other
+    /// mole sheet: see the note beside this sheet in <c>import-art.ps1</c> for the measurement that
+    /// settled it, and draw a coloured disc behind a face where whose it is matters.
+    /// </remarks>
+    public static Strip Faces => Held("glyph/face.png", 8);
+
+    /// <summary>Which frame of <see cref="Faces"/> is which, in the order the artist drew them.</summary>
+    public static class Face
+    {
+        public const int Level = 0;
+
+        public const int Pleased = 1;
+
+        public const int Cross = 2;
+
+        public const int Startled = 3;
+
+        public const int Alarmed = 4;
+
+        public const int OutCold = 5;
+
+        public const int Weary = 6;
+
+        public const int Asleep = 7;
+    }
+
     /// <summary>A knockout exit in a platoon's colour.</summary>
     public static Strip Exit(int seat, string exit) =>
         Held($"exit/{Seats[Mathf.Clamp(seat, 0, Seats.Length - 1)]}-{exit}.png", ExitFrames[exit]);

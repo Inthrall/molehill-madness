@@ -343,6 +343,36 @@ public partial class MenuScene : Control
             false);
     }
 
+    /// <summary>
+    /// One platoon, as a face on a disc of its own colour.
+    /// </summary>
+    /// <remarks>
+    /// The disc is where the team colour lives, because the face cannot carry one. Every other mole
+    /// in the game is coloured by its trunks, and a head has no trunks; the cap is the only part of
+    /// this artwork that could take a colour and it is the same white as the eyes, to the value. So
+    /// the colour goes behind rather than on, which is what a team badge does anyway.
+    ///
+    /// A ring as well as a fill, a shade darker, so the disc reads as a badge rather than as a
+    /// smudge behind the head.
+    /// </remarks>
+    private void Face(Vector2 at, float glyph, Color colour, bool chosen)
+    {
+        float radius = glyph * 0.62f;
+
+        DrawCircle(at, radius, colour);
+        DrawArc(at, radius, 0f, Mathf.Tau, 30, new Color(Palette.Ink, chosen ? 0.45f : 0.2f), 2f);
+
+        Strip faces = Art.Faces;
+        Vector2 box = faces.FrameSize * (glyph * 1.05f / faces.FrameSize.Y);
+
+        faces.Draw(
+            this,
+            new Rect2(at.X - (box.X / 2f), at.Y - (box.Y / 2f), box),
+            Art.Face.Level,
+            mirrored: false,
+            chosen ? Colors.White : new Color(1f, 1f, 1f, 0.55f));
+    }
+
     /// <summary>Where the row of tables starts and how tall it is.</summary>
     /// <remarks>
     /// Named for the same reason the choices row's are: everything under it is placed by chaining
@@ -490,11 +520,7 @@ public partial class MenuScene : Control
                     ? Palette.Seat(seat)
                     : new Color(Palette.Seat(seat), 0.65f);
 
-                Glyphs.Mole(
-                    this,
-                    new Vector2(across, top + (height * 0.38f)),
-                    glyph,
-                    colour);
+                Face(new Vector2(across, top + (height * 0.38f)), glyph, colour, chosen);
 
                 DrawDevice(
                     seat,
