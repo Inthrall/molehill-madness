@@ -18,8 +18,8 @@ GODOT="${GODOT:-/c/Personal/godot/Godot_v4.7.2-stable_mono_win64/Godot_v4.7.2-st
 UNITY_ANDROID="${UNITY_ANDROID:-/c/Program Files/Unity/Hub/Editor/6000.5.8f1/Editor/Data/PlaybackEngines/AndroidPlayer}"
 ANDROID_HOME="${ANDROID_HOME:-$UNITY_ANDROID/SDK}"
 ADB="$ANDROID_HOME/platform-tools/adb.exe"
-PACKAGE="nz.molehill.mayhem"
-APK="$REPO_ROOT/build/android/molehill-mayhem.apk"
+PACKAGE="nz.molehill.madness"
+APK="$REPO_ROOT/build/android/molehill-madness.apk"
 EXPORT_ONLY=0
 [ "${1:-}" = "--export-only" ] && EXPORT_ONLY=1
 

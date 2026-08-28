@@ -1,4 +1,4 @@
-# Molehill Mayhem
+# Molehill Madness
 
 A turn-based artillery game where everybody takes their turn at the same time.
 
@@ -10,7 +10,7 @@ Steam and Android, cross-play, free, cosmetics only. (iOS is out of scope until 
 
 Both are single-file HTML, readable in any browser.
 
-- [`docs/molehill-mayhem-design.html`](docs/molehill-mayhem-design.html) — the game design document. What the game is and every decision behind it.
+- [`docs/molehill-madness-design.html`](docs/molehill-madness-design.html) — the game design document. What the game is and every decision behind it.
 - [`docs/implementation-plan.html`](docs/implementation-plan.html) — the implementation plan. Seven phases, two hard gates, and the engineering contracts.
 
 ## Layout

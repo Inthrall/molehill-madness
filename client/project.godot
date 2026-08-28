@@ -1,4 +1,4 @@
-; Molehill Mayhem client.
+; Molehill Madness client.
 ;
 ; The Phase 0 probe is still here and still runnable: it is the thing that proved
 ; the simulation agrees across two CPU architectures, and it stays as a check that
@@ -8,7 +8,7 @@ config_version=5
 
 [application]
 
-config/name="Molehill Mayhem"
+config/name="Molehill Madness"
 config/description="Four platoons, one screen, everything happening at once."
 run/main_scene="res://scenes/Menu.tscn"
 config/features=PackedStringArray("4.7", "C#", "Mobile")
