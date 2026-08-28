@@ -34,6 +34,16 @@ jobs:
       - name: Build
         run: dotnet build --no-restore --configuration Release
 
+      # The clip pipeline's video encoder shells out to ffmpeg, and ffmpeg is the only thing that
+      # knows whether the command line it is handed is right: a wrong pixel format gives coloured
+      # noise and a wrong frame size gives a picture that shears, both without an error. Those tests
+      # skip themselves where there is no binary, and they were skipping here, which made a suite
+      # that looked green a suite that had never run the encoder at all. One package buys the only
+      # honest check there is.
+      - name: Install ffmpeg for the clip encoder
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
       - name: Test
         run: dotnet test --no-build --configuration Release --verbosity normal
 
