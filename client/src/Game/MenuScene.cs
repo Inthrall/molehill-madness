@@ -302,38 +302,45 @@ public partial class MenuScene : Control
 
         _button = Mathf.Clamp(Mathf.Min(viewport.X, viewport.Y) * 0.075f, 30f, 64f);
 
-        DrawBadge(viewport);
+        DrawTitle(viewport);
         DrawTables(viewport);
         DrawSecondRow(viewport);
         DrawPlay(viewport);
     }
 
     /// <summary>
-    /// Four platoons coming up out of the hill. As close to a title as a wordless game gets.
+    /// The game's name, in the sky above everything else.
     /// </summary>
-    private void DrawBadge(Vector2 viewport)
+    /// <remarks>
+    /// This was four platoons coming up out of the hill in their four colours, on the grounds that it
+    /// was as close to a title as a wordless game gets. There is a painted title now, with a mole
+    /// coming out of a molehill in the middle of it, so the badge was saying the same thing twice
+    /// over and one of the two was doing it better.
+    ///
+    /// Fitted to the band of sky between the top of the window and the row of tables rather than to
+    /// a fraction of the width, and limited by both. Sized by width alone it grew past the tables on
+    /// a wide window; sized by height alone it was a stamp on a tall one.
+    /// </remarks>
+    private void DrawTitle(Vector2 viewport)
     {
-        float size = Mathf.Clamp(viewport.X * 0.075f, 40f, viewport.Y * 0.16f);
-        Color soil = Palette.Of(MoleSim.Terrain.Material.LooseSoil);
+        Texture2D art = Art.MenuTitle;
+        Vector2 sheet = art.GetSize();
 
-        for (int seat = 0; seat < MatchSetup.MostPlayers; seat++)
-        {
-            float across = 0.5f + ((seat - 1.5f) * size * 0.95f / viewport.X);
-            float ground = MenuHill.SurfaceAt(across, viewport);
-            Vector2 at = new Vector2(across * viewport.X, ground - (size * 0.34f));
+        float top = viewport.Y * 0.05f;
+        float floor = TablesTop(viewport) - (_button * 0.5f);
+        float band = Mathf.Max(floor - top, 1f);
 
-            // Each one out of its own molehill, which is the game's whole silhouette.
-            DrawColoredPolygon(
-                new[]
-                {
-                    at + new Vector2(-size * 0.82f, size * 0.5f),
-                    at + new Vector2(0, -size * 0.12f),
-                    at + new Vector2(size * 0.82f, size * 0.5f),
-                },
-                soil);
+        float wide = Mathf.Min(viewport.X * 0.55f, band * sheet.X / sheet.Y);
+        float tall = wide * sheet.Y / sheet.X;
 
-            Glyphs.Mole(this, at, size * 0.62f, Palette.Seat(seat));
-        }
+        DrawTextureRect(
+            art,
+            new Rect2(
+                (viewport.X - wide) / 2f,
+                top + ((band - tall) / 2f),
+                wide,
+                tall),
+            false);
     }
 
     /// <summary>Where the row of tables starts and how tall it is.</summary>

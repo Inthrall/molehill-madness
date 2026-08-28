@@ -307,6 +307,48 @@ public static class Glyphs
             new Vector2(at.X, at.Y - (size * 0.19f)), Mathf.Max(size * 0.07f, 1.2f), ink);
     }
 
+    /// <summary>
+    /// A fat arrow pointing down at something, for saying "this one" across a whole screen.
+    /// </summary>
+    /// <remarks>
+    /// Drawn rather than imported, and drawn as one polygon rather than a stem and a head, because
+    /// two shapes at this size leave a seam wherever they meet and the seam is the first thing the
+    /// eye finds. Outlined in the ink the rest of the interface uses, since the platoon colours are
+    /// mid-tones and half of them vanish against the sky.
+    /// </remarks>
+    public static void Attention(CanvasItem into, Vector2 at, float size, Color ink, float shown)
+    {
+        float half = size * 0.5f;
+        float stem = size * 0.19f;
+        float head = size * 0.42f;
+        float top = at.Y - half;
+        float shoulder = at.Y + half - head;
+
+        Vector2[] arrow =
+        {
+            new Vector2(at.X - stem, top),
+            new Vector2(at.X + stem, top),
+            new Vector2(at.X + stem, shoulder),
+            new Vector2(at.X + head, shoulder),
+            new Vector2(at.X, at.Y + half),
+            new Vector2(at.X - head, shoulder),
+            new Vector2(at.X - stem, shoulder),
+        };
+
+        into.DrawColoredPolygon(arrow, new Color(ink, shown));
+
+        // Closed by hand: DrawPolyline leaves the last edge open, and the gap lands on the point of
+        // the arrow, which is the one corner that has to look sharp.
+        Vector2[] outline = new Vector2[arrow.Length + 1];
+        arrow.CopyTo(outline, 0);
+        outline[arrow.Length] = arrow[0];
+
+        into.DrawPolyline(
+            outline,
+            new Color(Palette.Ink, shown * 0.85f),
+            Mathf.Max(size * 0.055f, 2f));
+    }
+
     /// <summary>A gamepad, meaning this platoon has a controller of its own.</summary>
     public static void Pad(CanvasItem into, Vector2 at, float size, Color ink)
     {

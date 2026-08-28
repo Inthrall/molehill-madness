@@ -1,50 +1,37 @@
 using Godot;
 
 /// <summary>
-/// The hillside the menus stand on.
+/// The ground the menus stand on.
 /// </summary>
 /// <remarks>
-/// Shared rather than duplicated because the code screen needs the same ground the menu has, and the
-/// first version of this lived in the menu with a spoil heap drawn at a fixed height somewhere else,
-/// so the heap floated in the sky with the moles balanced on it. Which is a funny picture but not the
-/// intended one.
+/// Shared rather than duplicated because the code screen, the gate, and the lobby all want the same
+/// ground the menu has. The first version of this lived in the menu with a spoil heap drawn at a
+/// fixed height somewhere else, so the heap floated in the sky with the moles balanced on it. Which
+/// is a funny picture but not the intended one.
 ///
-/// Drawn from the same two soil colours the map uses, out of a handful of cosine terms rather than a
-/// texture, which keeps the menus on the same no-assets footing as everything else.
+/// It used to be drawn: the map's two soil colours under a turf line, out of a handful of cosine
+/// terms rather than a texture, which kept the menus on the same no-assets footing as everything
+/// else. There is a painted one now, a turf line over a cross-section of burrows, and it says what
+/// the game is about in a way three cosines never did.
+///
+/// Covered rather than stretched, which is the whole of the arithmetic here. The sheet is very
+/// nearly sixteen by nine, so on a normal window the crop is a few pixels; on anything else it
+/// crops rather than squashing the burrows into ovals.
 /// </remarks>
 public static class MenuHill
 {
     public static void Draw(CanvasItem into, Vector2 viewport)
     {
-        const int steps = 48;
-        Vector2[] surface = new Vector2[steps + 3];
+        Vector2 size = Covering(viewport);
 
-        for (int step = 0; step <= steps; step++)
-        {
-            float across = step / (float)steps;
-
-            surface[step] = new Vector2(across * viewport.X, SurfaceAt(across, viewport));
-        }
-
-        surface[steps + 1] = new Vector2(viewport.X, viewport.Y);
-        surface[steps + 2] = new Vector2(0, viewport.Y);
-
-        into.DrawColoredPolygon(surface, Palette.Of(MoleSim.Terrain.Material.LooseSoil));
-
-        // The turf line on top, which is what makes it read as ground rather than as a shape.
-        Vector2[] turf = new Vector2[steps + 1];
-
-        for (int step = 0; step <= steps; step++)
-        {
-            turf[step] = surface[step];
-        }
-
-        into.DrawPolyline(turf, Palette.Of(MoleSim.Terrain.Material.Turf), viewport.Y * 0.012f);
+        into.DrawTextureRect(Art.MenuGround, new Rect2((viewport - size) / 2f, size), false);
     }
 
-    /// <summary>Where the hillside is at a given point across the screen.</summary>
-    public static float SurfaceAt(float across, Vector2 viewport) =>
-        (viewport.Y * 0.42f)
-            + (Mathf.Cos(across * 7.1f) * viewport.Y * 0.045f)
-            + (Mathf.Cos((across * 2.7f) + 1.4f) * viewport.Y * 0.03f);
+    /// <summary>How big the sheet has to be to cover the window without distorting it.</summary>
+    private static Vector2 Covering(Vector2 viewport)
+    {
+        Vector2 sheet = Art.MenuGround.GetSize();
+
+        return sheet * Mathf.Max(viewport.X / sheet.X, viewport.Y / sheet.Y);
+    }
 }

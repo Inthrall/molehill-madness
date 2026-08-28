@@ -61,7 +61,37 @@ public static class Palette
     /// still there in the simulation, where they decide what digging costs; they are still not what
     /// the picture is about.
     /// </remarks>
-    public static readonly Color Edge = new Color(0.34f, 0.27f, 0.19f);
+    /// <remarks>
+    /// Pale, which looks like the wrong way round for an art style that outlines everything in dark
+    /// brown, and is not. It was dark brown, and once the painted dirt went in it disappeared. The
+    /// reason is worth writing down because it is not obvious from looking at either colour.
+    ///
+    /// The line has to serve two different boundaries. At the skyline it separates dirt from the sky
+    /// backdrop, and those two are 4.05:1 apart in contrast on their own, so that boundary is plainly
+    /// visible with no line at all. At a cave wall it separates dirt from the deep backdrop, and the
+    /// deep backdrop is multiplied by <c>deep_shade</c> to make a hole read as a hole, which lands it
+    /// at 2.05:1 from the dirt. That is the weak boundary, and it is the one somebody underground is
+    /// trying to read.
+    ///
+    /// A dark line is the exact inverse of what is wanted: measured against the shipped sheets it is
+    /// 6.66:1 against the sky, where nothing was needed, and 1.25:1 against the deep, where
+    /// everything was. No single dark value fixes it either, because dirt and the shaded deep sit
+    /// within a whisker of each other and any colour close enough to contrast with one is close
+    /// enough to vanish against the other.
+    ///
+    /// This value goes the other way: 3.9:1 against dirt, 8.0:1 against the deep backdrop and 3.0:1
+    /// against turf, spending its one weakness at the skyline, which already has 4.05:1 of its own.
+    /// </remarks>
+    public static readonly Color Edge = new Color(0.91f, 0.87f, 0.75f);
+
+    /// <summary>
+    /// A hole somebody has walked their plan through but has not dug yet.
+    /// </summary>
+    /// <remarks>
+    /// Dark rather than in the platoon's colour, because what it is showing is absence of ground and
+    /// not a route. Only ever one plan is on screen in any pane, so nothing needs to say whose it is.
+    /// </remarks>
+    public static readonly Color Planned = new Color(0.10f, 0.06f, 0.04f, 0.55f);
 
 
     // ---- Platoons --------------------------------------------------------------------

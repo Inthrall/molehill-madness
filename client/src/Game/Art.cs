@@ -46,11 +46,19 @@ public static class Art
     /// </remarks>
     public const float SurfaceHorizon = 0.8194f;
 
+    private static Texture2D? _menuGround;
+    private static Texture2D? _menuTitle;
     private static Texture2D? _dirt;
     private static Texture2D? _deep;
     private static Texture2D? _surface;
     private static Texture2D[]? _grass;
     private static Texture2D[]? _things;
+
+    /// <summary>The ground every menu stands on: turf, and a cross-section under it.</summary>
+    public static Texture2D MenuGround => _menuGround ??= Load("menu-ground.png");
+
+    /// <summary>The game's name, which is the one place it is written down.</summary>
+    public static Texture2D MenuTitle => _menuTitle ??= Load("menu-title.png");
 
     /// <summary>The destructible ground, tiling. This is what a solid cell is made of.</summary>
     public static Texture2D Dirt => _dirt ??= Load("terrain-dirt.png");

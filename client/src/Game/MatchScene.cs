@@ -1113,6 +1113,7 @@ public partial class MatchScene : Node2D
         }
 
         SteerPointerSeat(delta);
+        TrackIdle(delta);
         TrackPointerReset(delta);
         DriveIfAsked(delta);
 
@@ -1462,6 +1463,10 @@ public partial class MatchScene : Node2D
 
     public override void _UnhandledInput(InputEvent @event)
     {
+        // Anything at all counts, including a nudge of the mouse. The point of the timer is whether
+        // somebody is at the controls, not whether they have done something useful with them.
+        _stage.Idle = 0f;
+
         if (_beat == Beat.Finished)
         {
             HandleScoreboard(@event);
@@ -1948,6 +1953,50 @@ public partial class MatchScene : Node2D
 
         _jumpHeld[planner.Seat] = false;
         planner.Steer(push, delta);
+    }
+
+    /// <summary>
+    /// Counts how long everybody has sat still, which is what the turn arrow waits on.
+    /// </summary>
+    /// <remarks>
+    /// Polled rather than only reset from input events, because a held key is one press followed by
+    /// silence. Fed by events alone, a player walking a mole across the map would be called idle
+    /// after a second of walking, which is the one moment nothing should be drawn over the mole.
+    /// </remarks>
+    private void TrackIdle(double delta)
+    {
+        _stage.Idle = Fiddling() ? 0f : _stage.Idle + (float)delta;
+    }
+
+    /// <summary>Whether anything is being held down, on any device anybody is using.</summary>
+    private bool Fiddling()
+    {
+        if (PointerPush() != Vec2.Zero || Input.IsMouseButtonPressed(MouseButton.Left)
+            || Input.IsMouseButtonPressed(MouseButton.Right))
+        {
+            return true;
+        }
+
+        for (int seat = 0; seat < _players; seat++)
+        {
+            if (_devices[seat] != Device.Gamepad)
+            {
+                continue;
+            }
+
+            int pad = _gamepad[seat];
+            Vector2 stick = new Vector2(
+                Input.GetJoyAxis(pad, JoyAxis.LeftX), Input.GetJoyAxis(pad, JoyAxis.LeftY));
+            Vector2 aim = new Vector2(
+                Input.GetJoyAxis(pad, JoyAxis.RightX), Input.GetJoyAxis(pad, JoyAxis.RightY));
+
+            if (stick.Length() > PadDeadZone || aim.Length() > PadDeadZone)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>Whether a push is mostly upward, which on the surface means jump.</summary>

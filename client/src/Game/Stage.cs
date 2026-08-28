@@ -69,6 +69,20 @@ public sealed class Stage
     public bool Planning { get; set; }
 
     /// <summary>
+    /// Seconds since anybody last touched anything.
+    /// </summary>
+    /// <remarks>
+    /// On the stage rather than in the scene because four panes each want to answer it for
+    /// themselves, and one number they all read is the only way they agree. Kept by the scene, which
+    /// is the only thing that sees input.
+    ///
+    /// Held keys count as touching something. An idle timer fed only by input events would call a
+    /// player idle while they walked a mole across the map, because a held key is one press and then
+    /// silence, which is exactly the moment nothing should be drawn over the mole.
+    /// </remarks>
+    public float Idle { get; set; }
+
+    /// <summary>
     /// Whether a replay is rolling right now.
     /// </summary>
     /// <remarks>

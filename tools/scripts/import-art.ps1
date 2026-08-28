@@ -934,6 +934,16 @@ $sheets = @(
        Scale = 1.0; Open = 0
        Watermark = @{ X = 1912; Y = 360; Width = 64; Height = 64 } }
 
+    # ---- The menu ---------------------------------------------------------------------
+    #
+    # Full bleed rather than trimmed or tiled: it is one picture behind one screen, stretched to
+    # whatever shape the window is, so it has no key to pull out and no edges to match.
+    @{ From = 'main menu background.jpg'; Key = 'none'; Pack = 'whole'; Name = 'menu-ground'
+       Scale = 1.0; Open = 0 }
+
+    @{ From = 'molehill madness title.jpg'; Key = 'green'; Pack = 'whole'; Name = 'menu-title'
+       Scale = 0.6; Open = 3 }
+
     # ---- Garden dressing --------------------------------------------------------------
     @{ From = 'grass background.png'; Key = 'magenta'; Pack = 'cells'; Into = 'decor'
        Grid = @(4, 2); Scale = 0.5; Open = 0

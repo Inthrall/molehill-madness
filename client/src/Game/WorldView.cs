@@ -443,6 +443,18 @@ public partial class WorldView : Control
     /// generated surface sits about a quarter of the way down, which is less headroom than a
     /// pane wants, and clamping to the map top ate the whole sky bias and left half of every
     /// pane looking at undug soil.
+    ///
+    /// Free, but not unbounded, which it was: the ceiling was a whole pane above the map's top
+    /// edge, so one could scroll up until the screen was nothing but painted sky with the field
+    /// somewhere off the bottom. There is no reason to look at that and it reads as the map having
+    /// fallen out of the window. A fixed amount of air above the top edge instead, in metres so it
+    /// is the same amount of sky at every zoom.
+    ///
+    /// The two vertical limits cross at the widest zoom, and that is deliberately handled rather
+    /// than clamped away. The map is twice as wide as it is tall, so a pane wide enough to hold all
+    /// of it is taller than the map: the highest the camera may sit is then below the lowest, and a
+    /// naive clamp pins the camera to whichever it names first. Both bounds are ordered before
+    /// clamping, so instead of pinning, the pane keeps the small amount of travel between them.
     /// </remarks>
     private Vector2 Clamped(Vector2 focus)
     {
@@ -451,12 +463,16 @@ public partial class WorldView : Control
         float worldHeight = _stage.MapHeightCells * cell;
         float halfWidth = Size.X / 2f;
         float halfHeight = Size.Y / 2f;
-        float ceiling = -halfHeight;
+        float ceiling = halfHeight - (SkyRoomMetres * _scale);
+        float bed = worldHeight - halfHeight;
 
         return new Vector2(
             Mathf.Clamp(focus.X, halfWidth, Mathf.Max(halfWidth, worldWidth - halfWidth)),
-            Mathf.Clamp(focus.Y, ceiling, Mathf.Max(ceiling, worldHeight - halfHeight)));
+            Mathf.Clamp(focus.Y, Mathf.Min(ceiling, bed), Mathf.Max(ceiling, bed)));
     }
+
+    /// <summary>Air the camera may show above the map's top edge, in metres.</summary>
+    private const float SkyRoomMetres = 8f;
 
     private Vector2 Offset() => (Size / 2f) - _cameraAt;
 
@@ -487,11 +503,13 @@ public partial class WorldView : Control
         }
         else
         {
+            DrawDiggings();
             DrawStandingMoles();
             DrawPlans();
         }
 
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+        DrawWhoseTurn();
         DrawGauges();
         DrawFrame();
         DrawBroadcast();
@@ -757,6 +775,60 @@ public partial class WorldView : Control
         (Padding(paneHeight) * 4f) + (BarHeight(paneHeight) * 2f);
 
     /// <summary>Whose instruments this pane shows.</summary>
+    /// <summary>
+    /// A large arrow bouncing over whoever is being planned, while nobody is touching anything.
+    /// </summary>
+    /// <remarks>
+    /// Sixteen moles at a wide zoom are sixteen identical brown shapes, and the one that answers the
+    /// keys is marked by nothing except a plan line it has not drawn yet. Every game of this shape
+    /// has had the same answer and there is no reason to invent a different one.
+    ///
+    /// In screen space rather than world space, which is the part that needed thought. Drawn in the
+    /// world it shrinks with the zoom, so at the zoom where one genuinely cannot tell the moles
+    /// apart the arrow is a speck. Fixed pixels, sized off the pane so a quarter-screen pane does
+    /// not get a quarter-screen arrow.
+    ///
+    /// And only while idle. An arrow that stayed up through a shot would sit over the aim line for
+    /// the whole of every turn, and a thing one has to look past is worse than no thing at all.
+    /// </remarks>
+    private void DrawWhoseTurn()
+    {
+        if (!_stage.Planning || _stage.Idle < ArrowAfterSeconds)
+        {
+            return;
+        }
+
+        int slot = ActingSlot();
+
+        if (slot < 0 || slot >= _stage.Match.Moles.Count)
+        {
+            return;
+        }
+
+        Mole mole = _stage.Match.Moles[slot];
+        SeatPlanner planner = _stage.Planners[mole.Seat];
+        Vector2 head = ToPixels(planner.PlannedPosition) + Offset()
+            - new Vector2(0f, MoleRadius());
+
+        // Faded up over its first moment rather than appearing, because something that appears at
+        // the edge of the eye reads as a fault where something that fades in reads as a prompt.
+        float shown = Mathf.Min((_stage.Idle - ArrowAfterSeconds) * 3f, 1f);
+        float size = Mathf.Clamp(Mathf.Min(Size.X, Size.Y) * 0.14f, 40f, 110f);
+
+        // The gap is measured from the mole rather than from the arrow, so that at a wide zoom a
+        // hundred-pixel arrow does not float half a screen above the twelve-pixel mole it is
+        // pointing at. Positive-only bounce, which keeps the point out of the mole's head and reads
+        // as a bounce rather than a wobble.
+        float gap = Mathf.Max(MoleRadius() * 0.5f, size * 0.12f);
+        float bounce = Mathf.Abs(Mathf.Sin(Beat() * 0.11f)) * (size * 0.22f);
+        Vector2 at = head - new Vector2(0f, (size / 2f) + gap + bounce);
+
+        Glyphs.Attention(this, at, size, Palette.Seat(mole.Seat), shown);
+    }
+
+    /// <summary>How long a pane waits, in seconds, before it says whose turn it is.</summary>
+    private const float ArrowAfterSeconds = 1.2f;
+
     private SeatPlanner? Gauged()
     {
         if (_seat >= 0)
@@ -964,8 +1036,29 @@ public partial class WorldView : Control
         _ => "mound",
     };
 
+    /// <summary>
+    /// The crates: where the next ones are coming down, and the ones that are already here.
+    /// </summary>
+    /// <remarks>
+    /// Two things were wrong here and both came from taking the sprite at face value. The crate
+    /// sheet is drawn small, so scaled by the sprite pitch that dresses the moles a crate came out
+    /// at two fifths of a metre against a mole of three quarters, and read as a parcel. It is sized
+    /// to a stated width now, and the chute frame is sized by the box drawn inside it rather than
+    /// by its own width, so a crate is the same size in the air as it is on the ground. Sized by the
+    /// frame it would shrink on landing: the canopy is sixty-seven pixels across and the box under it
+    /// only thirty-one.
+    ///
+    /// And a crate can land in a cave, which is the point of the change that put it there. A
+    /// parachute drawn at a spot with twelve metres of rock over it is a parachute in the rock, and
+    /// worse, crates draw over the ground rather than under it, so it was plainly visible doing so.
+    /// An underground delivery shows only its marker until it arrives.
+    /// </remarks>
     private void DrawCrates()
     {
+        // One pitch for all of the crate's art, taken from the box itself, so a chute frame drawn
+        // wider than the box stays wider than the box by the amount it is drawn wider.
+        float pitch = Art.Object("closed").GetWidth() / CrateMetres;
+
         foreach (Crate crate in _stage.Match.Crates)
         {
             if (crate.Gone)
@@ -975,33 +1068,86 @@ public partial class WorldView : Control
 
             Vector2 at = ToPixels(crate.Position);
 
-            // Under a parachute on the way down, in three frames of it swinging, and a plain crate
-            // once it is down. The chute is not decoration: a crate arriving under one is a crate
-            // everybody can see coming, which is what telegraphing it is for.
-            Texture2D art = Art.Object(crate.HasLanded ? "closed" : ChuteArt());
-            float wide = art.GetWidth() / Art.MolePixelsPerMetre * _scale;
-            float tall = art.GetHeight() / Art.MolePixelsPerMetre * _scale;
-
             if (!crate.HasLanded)
             {
                 // Where it is going to land, marked on the ground rather than on the crate,
                 // because the ground is where the scramble happens.
-                Texture2D mark = Art.Object("marker");
-                float markWide = mark.GetWidth() / Art.MolePixelsPerMetre * _scale;
-                float markTall = mark.GetHeight() / Art.MolePixelsPerMetre * _scale;
+                Blit(Art.Object("marker"), pitch, at, centred: true);
+
+                if (!OpenSky(crate.Position))
+                {
+                    // No sky over it, so no parachute. A ghost of the box instead, because the ring
+                    // on its own was a dashed ellipse drawn on some dirt and read as a rendering
+                    // fault rather than as a delivery: "what is this circle" was the actual report.
+                    // Half-lit, so it is plainly the promise of a crate and not one already there.
+                    Blit(Art.Object("closed"), pitch, at, centred: true, showing: 0.45f);
+                    continue;
+                }
+
+                // Hung from the chute rather than centred in the picture, so the box is at the
+                // position the simulation says and the canopy is the part above it.
+                Texture2D chute = Art.Object(ChuteArt());
+                float canopy = chute.GetWidth() * ChuteBoxWidth / CrateMetres;
+                float wide = chute.GetWidth() / canopy * _scale;
+                float tall = chute.GetHeight() / canopy * _scale;
 
                 DrawTextureRect(
-                    mark,
-                    new Rect2(at.X - (markWide / 2f), at.Y - (markTall / 2f), markWide, markTall),
+                    chute,
+                    new Rect2(at.X - (wide / 2f), at.Y - (tall * ChuteBoxMiddle), wide, tall),
                     false);
+
+                continue;
             }
 
-            // Hung from the chute rather than centred in the picture, so the crate is at the
-            // position the simulation says and the parachute is the part that is above it.
-            float below = crate.HasLanded ? tall / 2f : tall - (wide * 0.28f);
-
-            DrawTextureRect(art, new Rect2(at.X - (wide / 2f), at.Y - below, wide, tall), false);
+            Blit(Art.Object("closed"), pitch, at, centred: true);
         }
+    }
+
+    /// <summary>How wide a crate is in the world, which is about the girth of a mole.</summary>
+    private const float CrateMetres = 0.8f;
+
+    /// <summary>
+    /// The box's share of the width of a chute frame, and where down that frame its middle sits.
+    /// </summary>
+    /// <remarks>
+    /// Measured off <c>chute-0.png</c> rather than guessed, which is how the rest of the art's
+    /// numbers are arrived at: thirty-one opaque pixels of sixty-seven across, and the box occupying
+    /// rows sixty-one to eighty-six of eighty-six. The canopy and the box are drawn with a gap
+    /// between them and no rigging, so neither number can be derived from the frame's own bounds.
+    /// </remarks>
+    private const float ChuteBoxWidth = 0.4627f;
+
+    private const float ChuteBoxMiddle = 0.855f;
+
+    /// <summary>Draws a texture at a stated pixels-per-metre, centred on or standing over a point.</summary>
+    private void Blit(Texture2D art, float pitch, Vector2 at, bool centred, float showing = 1f)
+    {
+        float wide = art.GetWidth() / pitch * _scale;
+        float tall = art.GetHeight() / pitch * _scale;
+        float above = centred ? tall / 2f : tall;
+
+        DrawTextureRect(
+            art,
+            new Rect2(at.X - (wide / 2f), at.Y - above, wide, tall),
+            false,
+            new Color(1f, 1f, 1f, showing));
+    }
+
+    /// <summary>Whether there is nothing but air between a point and the top of the map.</summary>
+    private bool OpenSky(Vec2 from)
+    {
+        int cellX = WorldScale.ToCell(from.X);
+
+        for (int cellY = WorldScale.ToCell(from.Y); cellY >= 0; cellY--)
+        {
+            if (_stage.Ground.Contains(cellX, cellY)
+                && MoleSim.Terrain.MaterialTable.IsSolid(_stage.Ground[cellX, cellY]))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>Which frame of the parachute swinging, off the engine clock.</summary>
@@ -1453,6 +1599,90 @@ public partial class WorldView : Control
     }
 
     // ---- The plans ------------------------------------------------------------------
+
+    /// <summary>
+    /// The tunnel a plan is going to leave behind it.
+    /// </summary>
+    /// <remarks>
+    /// The walked path is deliberately never drawn as a route, for the reasons in
+    /// <see cref="DrawPlan"/>, and the digging is a different thing: not where the mole went but what
+    /// will not be there any more when it has. Without it the one expensive half of the movement
+    /// budget was invisible. A player could watch the stamina gauge empty and have no idea they had
+    /// spent it carving a passage, because the ground they were carving through still looked whole.
+    ///
+    /// Taken from the walk's own path rather than from anything new. The carve is a disc swept along
+    /// that path, so a thick line through the same points is not an approximation of the hole, it is
+    /// the hole. Only the stretches where the real ground is solid are drawn, so walking through a
+    /// chamber that was already there does not claim credit for digging it.
+    ///
+    /// The walk runs against a copy of the terrain, which is why none of this is visible for free:
+    /// the holes exist, on a map that is thrown away when the round is committed.
+    /// </remarks>
+    private void DrawDiggings()
+    {
+        foreach (SeatPlanner planner in _stage.Planners)
+        {
+            if (planner.Actor is null || planner.Walk is null || !ShowsPlanOf(planner))
+            {
+                continue;
+            }
+
+            DrawDigging(planner.Walk.Path);
+        }
+    }
+
+    private void DrawDigging(IReadOnlyList<Vec2> path)
+    {
+        float bore = MoleRadius() * 2f;
+        List<Vector2> run = new List<Vector2>();
+
+        foreach (Vec2 step in path)
+        {
+            if (InSolidGround(step))
+            {
+                run.Add(ToPixels(step));
+                continue;
+            }
+
+            Sweep(run, bore);
+            run.Clear();
+        }
+
+        Sweep(run, bore);
+    }
+
+    /// <summary>Lays one unbroken stretch of tunnel down, however short it is.</summary>
+    private void Sweep(List<Vector2> run, float bore)
+    {
+        if (run.Count == 0)
+        {
+            return;
+        }
+
+        // A single point is a dugout rather than a tunnel, and DrawPolyline wants two.
+        if (run.Count == 1)
+        {
+            DrawCircle(run[0], bore / 2f, Palette.Planned);
+            return;
+        }
+
+        DrawPolyline(run.ToArray(), Palette.Planned, bore);
+
+        // Round off both ends. A polyline is squared off, so a tunnel that stops in the middle of the
+        // ground stopped with a flat face on it, which is not the shape a mole leaves.
+        DrawCircle(run[0], bore / 2f, Palette.Planned);
+        DrawCircle(run[run.Count - 1], bore / 2f, Palette.Planned);
+    }
+
+    /// <summary>Whether the ground as it stands is solid at a point, so getting there means digging.</summary>
+    private bool InSolidGround(Vec2 at)
+    {
+        int cellX = WorldScale.ToCell(at.X);
+        int cellY = WorldScale.ToCell(at.Y);
+
+        return _stage.Ground.Contains(cellX, cellY)
+            && MoleSim.Terrain.MaterialTable.IsSolid(_stage.Ground[cellX, cellY]);
+    }
 
     private void DrawPlans()
     {
