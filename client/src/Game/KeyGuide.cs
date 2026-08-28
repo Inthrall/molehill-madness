@@ -64,50 +64,141 @@ public partial class KeyGuide : Control
         float tall = Height(viewport);
         float top = viewport.Y - tall;
         float glyph = tall * 0.42f;
+        float middle = top + (tall / 2f);
         Color seat = Palette.Seat(_seat);
 
-        DrawRect(new Rect2(0f, top, viewport.X, tall), Palette.Panel);
+        // No strip. There was a panel the full width of the window behind all of this, and most of
+        // its area was the gaps between controls: a broad dark band across the bottom of the map,
+        // paid for by the two or three places where a pale cap actually needed something behind it.
+        // Each control carries its own plate instead, so the ground shows through between them.
 
-        float middle = top + (tall / 2f);
-        float at = tall * 0.42f;
+        // Weapons stay hard left, which is where a wheel belongs and where it already was.
+        Weapons(tall * 0.42f, middle, glyph, seat);
 
-        // The loaded weapon, and the two either side of it, because a wheel you cannot see the next
-        // notch of is a button that changes to something unpredictable. Same argument as the thumb
-        // layout's, and the same three-wide answer, turned on its side because a strip is wide.
-        at = Weapons(at, middle, glyph, seat);
-
-        DrawLine(
-            new Vector2(at, top + (tall * 0.22f)),
-            new Vector2(at, top + (tall * 0.78f)),
-            new Color(Palette.OnPanel, 0.2f), 2f);
-
-        at += tall * 0.34f;
-        at = Steering(at, middle, glyph);
+        // Everything you press mid-turn, centred as a group. Measured before it is drawn rather
+        // than laid out from the left edge and hoped for: the row has to be centred on the window,
+        // so its width has to be known before the first icon lands.
+        System.Action<CanvasItem, Vector2, float>[] icons =
+        {
+            (into, where, size) => Glyphs.Fire(into, where, size, Palette.OnPanel),
+            (into, where, size) => Glyphs.Dynamite(into, where, size, Palette.OnPanel),
+            (into, where, size) => Glyphs.Hop(into, where, size, Palette.OnPanel),
+            (into, where, size) => Glyphs.Mole(into, where, size * 0.95f, Palette.OnPanel),
+        };
 
         // Right button rather than left, which is the one binding nobody would guess: the left
-        // button drags the map, because a drag on a map means that everywhere else.
-        at = Action(at, middle, glyph, "RMB", (into, where, size) =>
-            Glyphs.Fire(into, where, size, Palette.OnPanel));
+        // button drags the map, because a drag on a map means that everywhere else. And C is a mole
+        // rather than the aiming reticle it used to borrow, which read as a second way to aim.
+        string[] keys = { "RMB", "F", "SPACE", "C" };
 
-        at = Action(at, middle, glyph, "F", (into, where, size) =>
-            Glyphs.Dynamite(into, where, size, Palette.OnPanel));
+        float width = Steer(glyph) + Reach(glyph, "R");
 
-        at = Action(at, middle, glyph, "H", (into, where, size) =>
-            Glyphs.Hop(into, where, size, Palette.OnPanel));
+        for (int index = 0; index < keys.Length; index++)
+        {
+            width += Reach(glyph, keys[index]);
+        }
 
-        at = Action(at, middle, glyph, "R", (into, where, size) =>
-            Glyphs.Reset(into, where, size, Palette.OnPanel));
+        float at = ((viewport.X - width) / 2f) + (Steer(glyph) / 2f);
 
-        at = Action(at, middle, glyph, "C", (into, where, size) =>
-            Glyphs.Icon(into, "aim", where, size * 0.9f, Palette.OnPanel));
+        at = Steering(at, middle, glyph);
 
-        // Commit, in the platoon's colour, because it is the one press that ends the turn and the
-        // only one worth picking out of the row.
-        at = Action(at, middle, glyph, "SPACE", (into, where, size) =>
-            Glyphs.Committed(into, where, size, seat));
+        for (int index = 0; index < keys.Length; index++)
+        {
+            at = Action(at, middle, glyph, keys[index], icons[index]);
+        }
 
-        Action(at, middle, glyph, "ESC", (into, where, size) =>
-            Glyphs.Icon(into, "pause", where, size * 0.85f, Palette.OnPanel));
+        // The reset, with its tokens and its own hold ring, because the panel that used to carry
+        // both of those sat at the top of the pane and is now a stamina bar and a clock.
+        Held(
+            at, middle, glyph, "R", Palette.Damage,
+            (float)Mathf.Min(_planner.ResetHeld, 1),
+            (into, where, size) => Glyphs.Reset(into, where, size, Palette.OnPanel),
+            _planner.ResetsLeft);
+
+        // Ending the turn, bottom right, in the platoon's colour: the one press that finishes the
+        // round, and the only one worth putting in a corner of its own. It is a hold, so it draws a
+        // filling ring, because a cap with no ring on it reads as a tap and a tap here would end
+        // somebody's turn the first time a hand landed on the wrong key.
+        Held(
+            viewport.X - (tall * 0.42f) - (Reach(glyph, "ENTER") / 2f), middle, glyph, "ENTER", seat,
+            (float)Mathf.Min(_planner.CommitHeld, 1),
+            (into, where, size) => Glyphs.Committed(into, where, size, seat),
+            0);
+
+        // The pause, in the opposite corner from everything you press while playing, because it is
+        // the one control that is not part of a turn.
+        float escape = Reach(glyph, "ESC");
+
+        Action(
+            viewport.X - (tall * 0.42f) - (escape / 2f), (tall * 0.42f) + (glyph * 0.42f), glyph,
+            "ESC", (into, where, size) =>
+                Glyphs.Icon(into, "pause", where, size * 0.85f, Palette.OnPanel));
+    }
+
+    /// <summary>How wide one control is, cap included.</summary>
+    private static float Reach(float glyph, string key) =>
+        glyph * (key.Length > 2 ? 2.15f : 1.7f);
+
+    /// <summary>How wide the steering cluster is.</summary>
+    private static float Steer(float glyph) => glyph * 0.62f * 1.12f * 2.4f;
+
+    /// <summary>
+    /// The plate one control sits on.
+    /// </summary>
+    /// <remarks>
+    /// Per control rather than one band across the window. The caps are pale text on a faint pale
+    /// box, which needs something dark behind it and needs it only where a cap actually is.
+    /// </remarks>
+    private void Plate(float at, float middle, float glyph, float width)
+    {
+        float high = glyph * 2.2f;
+
+        DrawRect(
+            new Rect2(at - (width / 2f), middle - (high / 2f), width, high),
+            Palette.Panel);
+    }
+
+    /// <summary>
+    /// An action that has to be held, with a ring that fills as it is.
+    /// </summary>
+    /// <remarks>
+    /// The ring is the whole of the instruction. Nothing on this strip says the word "hold", because
+    /// nothing on this strip says words, so the only way a hold can announce itself is by visibly
+    /// getting somewhere while the key is down. Drawn even at zero, faintly, so the shape is there to
+    /// recognise before the first press rather than appearing during it.
+    /// </remarks>
+    private float Held(
+        float at, float middle, float glyph, string key, Color ring, float held,
+        System.Action<CanvasItem, Vector2, float> icon, int tokens)
+    {
+        float width = Reach(glyph, key);
+        Vector2 where = new Vector2(at, middle - (glyph * 0.42f));
+
+        Plate(at, middle, glyph, width);
+        icon(this, where, glyph);
+
+        DrawArc(where, glyph * 0.62f, 0f, Mathf.Tau, 28, new Color(ring, 0.22f), 2f);
+
+        if (held > 0f)
+        {
+            DrawArc(
+                where, glyph * 0.62f, -Mathf.Pi / 2f,
+                (-Mathf.Pi / 2f) + (Mathf.Tau * held), 28, ring, 3f);
+        }
+
+        // How many are left, as pips over the ring. The design spends its one numeral on damage, so
+        // a count anywhere else is dots.
+        for (int token = 0; token < Mathf.Min(tokens, 4); token++)
+        {
+            DrawCircle(
+                where + new Vector2((token - ((Mathf.Min(tokens, 4) - 1) / 2f)) * glyph * 0.26f,
+                    -glyph * 0.78f),
+                glyph * 0.09f, ring);
+        }
+
+        Cap(at, middle + (glyph * 0.66f), key, glyph * 0.92f);
+
+        return at + width;
     }
 
     private float Weapons(float at, float middle, float glyph, Color seat)
@@ -115,6 +206,10 @@ public partial class KeyGuide : Control
         WeaponId[] wheel = Arsenal.Wheel;
         int loaded = System.Array.IndexOf(wheel, _planner!.Weapon);
         float step = glyph * 1.45f;
+
+        // One plate for the whole wheel, because it is one control with three notches showing
+        // rather than three controls.
+        Plate(at + (step * 2.06f), middle, glyph, step * 4.4f);
 
         Cap(at, middle, "Q", glyph);
         at += step * 0.82f;
@@ -158,6 +253,9 @@ public partial class KeyGuide : Control
         float cap = glyph * 0.62f;
         float gap = cap * 1.12f;
 
+        // One plate under the whole cross. It is four caps and one control.
+        Plate(at, middle, glyph, (gap * 2f) + (cap * 1.4f));
+
         Cap(at, middle - gap, "W", glyph);
         Cap(at - gap, middle + (gap * 0.15f), "A", glyph);
         Cap(at, middle + (gap * 0.15f), "S", glyph);
@@ -170,6 +268,7 @@ public partial class KeyGuide : Control
         float at, float middle, float glyph, string key,
         System.Action<CanvasItem, Vector2, float> icon)
     {
+        Plate(at, middle, glyph, Reach(glyph, key));
         icon(this, new Vector2(at, middle - (glyph * 0.42f)), glyph);
         Cap(at, middle + (glyph * 0.66f), key, glyph * 0.92f);
 

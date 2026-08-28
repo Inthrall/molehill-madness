@@ -79,6 +79,17 @@ public sealed class SeatPlanner
     /// <summary>How far through the hold-to-reset gesture, from zero to one.</summary>
     public double ResetHeld { get; private set; }
 
+    /// <summary>
+    /// How far through the hold-to-end-turn gesture this seat is, from zero to one.
+    /// </summary>
+    /// <remarks>
+    /// The same shape as <see cref="ResetHeld"/> and for the same reason. Ending a turn cannot be
+    /// taken back: the plan goes to the simulation and the round resolves around it. A tap that does
+    /// something irreversible is a tap somebody makes by accident, and this one used to sit on the
+    /// space bar, which is the key a hand rests on.
+    /// </remarks>
+    public double CommitHeld { get; private set; }
+
     /// <summary>Whether this seat has locked its plan in for the round.</summary>
     public bool Committed { get; private set; }
 
@@ -132,6 +143,7 @@ public sealed class SeatPlanner
         Aiming = false;
         Committed = false;
         ResetHeld = 0;
+        CommitHeld = 0;
         _tickDebt = 0;
         _freeResetSpent = false;
 
@@ -414,6 +426,14 @@ public sealed class SeatPlanner
             }
         }
 
+        // The preview leaves the ground here, which is the whole of what makes the key feel like
+        // it did something. Asked first: a mole already in the air cannot hop, resolution will
+        // ignore the action, and booking one anyway would spend a hop on nothing.
+        if (Walk?.Hop() == false)
+        {
+            return false;
+        }
+
         _hops.Add(PlanAction.Hop(tick));
         _hops.Sort((first, second) => first.Tick.CompareTo(second.Tick));
         return true;
@@ -457,7 +477,38 @@ public sealed class SeatPlanner
         ResetHeld = 0;
     }
 
-    /// <summary>Long enough that nobody wipes a turn by leaning on a button.</summary>
+    /// <summary>Advances the hold-to-end-turn gesture, and commits when it completes.</summary>
+    public void HoldCommit(double delta)
+    {
+        if (!IsPlanning)
+        {
+            return;
+        }
+
+        CommitHeld += delta / HoldSeconds;
+
+        if (CommitHeld < 1)
+        {
+            return;
+        }
+
+        CommitHeld = 0;
+        Commit();
+    }
+
+    public void ReleaseCommit()
+    {
+        CommitHeld = 0;
+    }
+
+    /// <summary>
+    /// Long enough that nobody wipes a turn, or ends one, by leaning on a button.
+    /// </summary>
+    /// <remarks>
+    /// One hold length for both gestures rather than one each. They are the two irreversible
+    /// presses in the game and they want to feel like the same kind of press, so a player who has
+    /// learned the weight of one has learned the other.
+    /// </remarks>
     private const double HoldSeconds = 0.5;
 
     /// <summary>

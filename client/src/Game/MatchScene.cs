@@ -859,6 +859,10 @@ public partial class MatchScene : Node2D
                 RunWaiting();
                 break;
 
+            case Beat.Aftermath:
+                RunAftermath(delta);
+                break;
+
             case Beat.Finished:
                 _finishedFor += delta;
                 DriveIfAsked(delta);
@@ -1115,6 +1119,7 @@ public partial class MatchScene : Node2D
         SteerPointerSeat(delta);
         TrackIdle(delta);
         TrackPointerReset(delta);
+        TrackCommitHold(delta);
         DriveIfAsked(delta);
 
         // The pointer moves on the moment its platoon is done, and the clock starts again
@@ -1147,6 +1152,45 @@ public partial class MatchScene : Node2D
         Resolve();
     }
 
+    /// <summary>
+    /// The beat between rounds: damage read, crates telegraphed, then on with the next one.
+    /// </summary>
+    /// <remarks>
+    /// This is the beat that hung the game, and it hung it by doing nothing at all. Aftermath fell
+    /// through the beat switch into the default case, so the only thing that ever moved a match past
+    /// it was somebody pressing the key that also committed a plan and skipped a replay. Nothing on
+    /// screen said so. A player who watched the replay end and then waited was waiting forever, and
+    /// "hangs after one turn" is exactly what that looks like from the sofa.
+    ///
+    /// It went unnoticed for as long as it did because the autopilot driver calls BeginRound itself
+    /// when it sees this beat, so every demo run and every headless pass sailed straight through the
+    /// one transition a human had to know a secret to make.
+    ///
+    /// The design document has always called this a four second beat, so that is what it is now.
+    /// Enter still skips ahead for anybody who has read the numbers and wants the next round.
+    /// </remarks>
+    private void RunAftermath(double delta)
+    {
+        DriveIfAsked(delta);
+
+        if (_pause?.Showing == true)
+        {
+            return;
+        }
+
+        _afterFor += delta;
+
+        if (_afterFor >= AftermathSeconds)
+        {
+            BeginRound();
+        }
+    }
+
+    /// <summary>How long the tallies stay up before the next round starts on its own.</summary>
+    private const double AftermathSeconds = 4;
+
+    private double _afterFor;
+
     private void RunReplay(double delta)
     {
         _playback += delta * Pace();
@@ -1165,6 +1209,7 @@ public partial class MatchScene : Node2D
         if (!_result.MatchOver)
         {
             _beat = Beat.Aftermath;
+            _afterFor = 0;
             _stage.Replaying = false;
             return;
         }
@@ -2072,6 +2117,34 @@ public partial class MatchScene : Node2D
         }
     }
 
+    /// <summary>
+    /// Ending the turn: held rather than tapped, and polled rather than fed from key events.
+    /// </summary>
+    /// <remarks>
+    /// Polled for the same reason the reset and the steering are: a held key is one press followed by
+    /// silence, so there is no event to count against the hold. Keyboard only. The thumb layout's
+    /// commit button is still a tap, deliberately left alone rather than changed sight unseen, which
+    /// does leave the rule inconsistent between the two inputs.
+    /// </remarks>
+    private void TrackCommitHold(double delta)
+    {
+        SeatPlanner? planner = Pointed();
+
+        if (planner is null)
+        {
+            return;
+        }
+
+        if (Input.IsKeyPressed(Key.Enter) || Input.IsKeyPressed(Key.KpEnter))
+        {
+            planner.HoldCommit(delta);
+        }
+        else
+        {
+            planner.ReleaseCommit();
+        }
+    }
+
     private bool FingerOn(TouchTarget target)
     {
         foreach (Finger finger in _fingers.Values)
@@ -2175,7 +2248,24 @@ public partial class MatchScene : Node2D
         switch (key.Keycode)
         {
             case Key.Space:
-                Advance(planner);
+                if (planner?.BookHop() == true)
+                {
+                    Click();
+                }
+
+                break;
+
+            // Getting on with it, which means something different in each beat: skip a replay
+            // somebody has seen enough of, or start the next round before its clock runs out. During
+            // planning it does nothing on the press, because ending a turn is a hold and the hold is
+            // counted in TrackCommitHold rather than here.
+            case Key.Enter:
+            case Key.KpEnter:
+                if (_beat != Beat.Planning)
+                {
+                    Advance(planner);
+                }
+
                 break;
 
             case Key.Q:
@@ -2191,14 +2281,6 @@ public partial class MatchScene : Node2D
             case Key.F:
                 planner?.PlantCharge();
                 Click();
-                break;
-
-            case Key.H:
-                if (planner?.BookHop() == true)
-                {
-                    Click();
-                }
-
                 break;
 
             case Key.C:

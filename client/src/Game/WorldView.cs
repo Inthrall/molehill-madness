@@ -84,6 +84,26 @@ public partial class WorldView : Control
             _manual = false;
         }
 
+        // A mole actually walking takes the camera back, whatever the player did with it before.
+        // Panning used to take a camera outright until the turn passed on, so a player who dragged
+        // the map to look at somebody else and then walked their own mole watched an empty piece of
+        // dirt while the mole left the pane. Steering is a clear statement about what you want to be
+        // looking at, and it beats a drag from ten seconds ago.
+        if (Walking())
+        {
+            _manual = false;
+
+            // And it cannot be so far out that the thing being steered is a speck. Raised once,
+            // here, rather than clamped every frame further down: a floor on the scale alone would
+            // pump the view in as the mole moved and back out as it stopped, which is worse to look
+            // at than either end of it. The player's zoom is overridden the moment they walk, and
+            // then it stays where it was put.
+            if (_zoom < WalkingZoomFloor)
+            {
+                _zoom = WalkingZoomFloor;
+            }
+        }
+
         _base = pane.PixelsPerMetre;
         _pushing = PushWeight();
         _scale = Mathf.Max(
@@ -91,6 +111,47 @@ public partial class WorldView : Control
         Chase(delta);
         QueueRedraw();
     }
+
+    /// <summary>
+    /// Whether the mole this pane is planning has moved since the last frame.
+    /// </summary>
+    /// <remarks>
+    /// Off the walk's own tick count rather than off whether a key is down, which is the distinction
+    /// that matters. The mole is what the camera should follow, so the question is whether the mole
+    /// went anywhere: holding a direction against a wall is not movement, and neither is panning,
+    /// zooming or thinking. A player who drags the map and then keeps dragging it is left alone.
+    /// </remarks>
+    private bool Walking()
+    {
+        int slot = ActingSlot();
+
+        if (slot < 0 || slot >= _stage.Match.Moles.Count)
+        {
+            _walked = -1;
+            return false;
+        }
+
+        SeatPlanner planner = _stage.Planners[_stage.Match.Moles[slot].Seat];
+        int used = planner.Walk?.TicksUsed ?? 0;
+        bool moved = _walked >= 0 && used != _walked;
+
+        _walked = used;
+        return moved;
+    }
+
+    /// <summary>Ticks the followed walk had used last frame, or -1 when nobody is being planned.</summary>
+    private int _walked = -1;
+
+    /// <summary>
+    /// The furthest out a camera may sit while its own mole is being walked.
+    /// </summary>
+    /// <remarks>
+    /// One, which is the framing the layout chose for this pane rather than a number of its own, so
+    /// a quarter-screen pane still gets a quarter-screen view and only the pinching is undone. A
+    /// player may still zoom in as far as they like while walking; it is only the way out that is
+    /// shut, and only while the mole is moving.
+    /// </remarks>
+    private const float WalkingZoomFloor = 1f;
 
     /// <summary>
     /// How far this camera is into its push on the round's big moment, if the moment is its.
@@ -666,95 +727,58 @@ public partial class WorldView : Control
 
         float pad = Padding(Size.Y);
         float barHeight = BarHeight(Size.Y);
-        float height = (barHeight * 2f) + (pad * 3f);
+        float dial = barHeight * 2.2f;
 
-        // Sized to the strip rather than to the pane, so nothing pokes out of the panel it is
-        // supposed to be sitting on.
-        float glyph = height * 0.8f;
-        float tokens = glyph * 0.8f * Mathf.Max(planner.ResetsLeft, 1);
-        float barWidth = Mathf.Min(Size.X - (glyph * 1.4f) - tokens - (pad * 6f), 240f);
-        Color seat = Palette.Seat(planner.Seat);
+        // One bar and one dial, on the map rather than on a panel. What used to sit here was a
+        // panel carrying the loaded weapon with its stock pips, two bars, and the reset tokens, and
+        // three of those four were already on the key strip along the bottom: the same weapon, the
+        // same reset. Two readouts of one number invite the eye to check they agree, which is work
+        // for no information.
+        //
+        // What is left is the two things that are only here: how much puff this turn has left, and
+        // how much of the eight seconds is unspent. No plate behind them, which does cost some
+        // legibility over pale sky, so the bar keeps a dark surround of its own and the dial is
+        // drawn as a ring rather than as a wedge on nothing.
+        float barWidth = Mathf.Min(Size.X - dial - (pad * 5f), 240f);
+        float left = pad + dial + (pad * 2f);
+        float centre = pad + (dial / 2f);
 
-        // A panel behind them. A bar drawn straight onto the sky is unreadable, and one drawn
-        // onto soil is worse.
-        float width = (glyph * 1.4f) + barWidth + tokens + (pad * 5f);
-        DrawRect(new Rect2(pad, pad, width, height), Palette.Panel);
+        Clock(new Vector2(pad + (dial / 2f), centre), dial / 2f, 1f - (float)planner.TimeSpent);
 
-        // What is on the wheel, in the platoon's own colour ring, with how many are left.
-        Vector2 wheelAt = new Vector2(pad + pad + (glyph * 0.7f), pad + (height / 2f));
-        DrawArc(wheelAt, glyph * 0.5f, 0, Mathf.Tau, 28, new Color(seat, 0.6f), 2f);
-        Glyphs.Weapon(this, planner.Weapon, wheelAt, glyph * 0.78f, Palette.OnPanel);
-        DrawStockPips(planner.Stock(planner.Weapon), wheelAt, glyph * 0.5f);
-
-        float left = pad + (glyph * 1.4f) + (pad * 3f);
-        float first = pad + pad;
-        float second = first + barHeight + pad;
-
-        Bar(left, first, barWidth, barHeight, (float)planner.TimeSpent,
-            new Color(0.306f, 0.510f, 0.651f));
-        Glyphs.Time(
-            this, new Vector2(left - (pad * 1.6f), first + (barHeight / 2f)),
-            barHeight * 1.6f, Palette.OnPanel);
-
-        Bar(left, second, barWidth, barHeight, (float)planner.PuffSpent,
+        Bar(left, centre - (barHeight / 2f), barWidth, barHeight, (float)planner.PuffSpent,
             planner.RanOutOfPuff ? Palette.Damage : new Color(0.435f, 0.647f, 0.325f));
-        Glyphs.Puff(
-            this, new Vector2(left - (pad * 1.6f), second + (barHeight / 2f)),
-            barHeight * 1.6f, Palette.OnPanel);
 
-        DrawResets(planner, left + barWidth + (pad * 1.5f), pad + (height / 2f), glyph);
+        Glyphs.Puff(
+            this, new Vector2(left + barWidth + (pad * 1.4f), centre),
+            barHeight * 1.7f, Palette.OnPanel);
     }
 
     /// <summary>
-    /// How many of the selected weapon are left, as pips around its ring.
+    /// The turn's eight seconds, as a ring that empties.
     /// </summary>
     /// <remarks>
-    /// Pips rather than a numeral, because the design spends its one numeral exception on
-    /// damage. Unlimited draws nothing at all, which is the right answer: there is no count to
-    /// read on the one weapon that never runs out, and an infinity mark would be a symbol to
-    /// learn for no gain.
+    /// A clock rather than the second bar this replaced. Two bars stacked in a corner were two
+    /// quantities of the same shape and colour, read as one gauge with a fault, and the eight
+    /// seconds is not really a quantity anyway: it is time, which everybody already knows how to
+    /// read off a dial.
+    ///
+    /// Anticlockwise from noon, because a clock that empties has to run the way a clock runs or the
+    /// shape means nothing.
     /// </remarks>
-    private void DrawStockPips(int stock, Vector2 at, float radius)
+    private void Clock(Vector2 at, float radius, float left)
     {
-        if (stock < 0)
+        DrawCircle(at, radius, new Color(0f, 0f, 0f, 0.32f));
+        DrawArc(at, radius * 0.86f, 0f, Mathf.Tau, 28, new Color(Palette.OnPanel, 0.28f), 2f);
+
+        if (left > 0f)
         {
-            return;
+            DrawArc(
+                at, radius * 0.86f, -Mathf.Pi / 2f,
+                (-Mathf.Pi / 2f) + (Mathf.Tau * Mathf.Clamp(left, 0f, 1f)), 32,
+                new Color(0.306f, 0.510f, 0.651f), Mathf.Max(radius * 0.22f, 3f));
         }
 
-        int shown = Mathf.Min(stock, 5);
-
-        for (int pip = 0; pip < shown; pip++)
-        {
-            float angle = (-Mathf.Pi / 2f) + 0.45f + (pip * 0.42f);
-
-            DrawCircle(
-                at + (new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * radius * 1.35f),
-                radius * 0.16f, Palette.OnPanel);
-        }
-    }
-
-    /// <summary>
-    /// How many resets are left. The design calls this the most watched glyph on the screen, so
-    /// it gets to be obvious, and the ring filling up shows the hold registering.
-    /// </summary>
-    private void DrawResets(SeatPlanner planner, float x, float y, float glyph)
-    {
-        for (int token = 0; token < planner.ResetsLeft; token++)
-        {
-            Vector2 at = new Vector2(x + (glyph * 0.4f) + (token * glyph * 0.8f), y);
-            Glyphs.Reset(this, at, glyph * 0.75f, Palette.Damage);
-        }
-
-        if (planner.ResetHeld <= 0 || planner.ResetsLeft <= 0)
-        {
-            return;
-        }
-
-        Vector2 first = new Vector2(x + (glyph * 0.4f), y);
-        DrawArc(
-            first, glyph * 0.5f, -Mathf.Pi / 2f,
-            (-Mathf.Pi / 2f) + (Mathf.Tau * (float)Mathf.Min(planner.ResetHeld, 1)),
-            24, Palette.OnPanel, 3f);
+        Glyphs.Time(this, at, radius * 1.15f, Palette.OnPanel);
     }
 
     private static float Padding(float paneHeight) => Mathf.Max(paneHeight * 0.025f, 5f);
@@ -843,6 +867,14 @@ public partial class WorldView : Control
 
     private void Bar(float x, float y, float width, float height, float fraction, Color fill)
     {
+        // A dark surround, because this is drawn onto the map now rather than onto a panel and a
+        // pale bar over pale sky is not a bar. Outset rather than inset so the fill keeps its width.
+        float edge = Mathf.Max(height * 0.34f, 2f);
+
+        DrawRect(
+            new Rect2(x - edge, y - edge, width + (edge * 2f), height + (edge * 2f)),
+            new Color(0f, 0f, 0f, 0.32f));
+
         DrawRect(new Rect2(x, y, width, height), new Color(1, 1, 1, 0.14f));
         DrawRect(new Rect2(x, y, width * fraction, height), fill);
     }
