@@ -36,11 +36,27 @@ Two rules in there are load-bearing rather than incidental.
 
 **A seat gets one submission per round.** A second one is refused rather than merged, because a seat that sends twice has either double-tapped commit or is trying to change its mind after a peek.
 
+A round that nobody can complete is swept rather than left. One player who loses interest must not be able to end a match for three other people by never opening the game again, so a lobby carries a window, and a sweep forfeits whoever ran out of it. A seat that has already submitted is never forfeited however late the sweep finds it: their turn is in, and taking it away would be worse than the delay.
+
+## Notifications
+
+Telling somebody it is their turn is two halves. Deciding who to tell is the half with a rule in it, "one a day per match at most", and it is enforced by reading the outbox table rather than by remembering anything. Sending is an HTTP call to somebody else's service, so it is a background drain over the same table: an undeliverable nudge is a row rather than a lost event, and swapping the sender is one class.
+
+Point the relay at a Google service account key and it sends through Firebase Cloud Messaging. Leave it unset and it writes the notifications into the log instead, which during development answers the only question worth asking, which is whether the right people are being told at the right times.
+
+```
+Relay__Firebase__ServiceAccount=/var/lib/molehill/firebase.json dotnet run --project relay/Relay.Api
+```
+
+`GOOGLE_APPLICATION_CREDENTIALS` works too, since that is the convention every other Google client uses. A key that is configured and unusable stops the process rather than quietly falling back to the log: an operator who set the path and got silence has no way to tell a missing key from a quiet day, and a quiet day is what anybody would assume.
+
+What the sender cannot claim is that Google likes the bytes, because there is no Firebase project behind this repository to send to. Everything up to the socket is tested against a stub: a real key signs a real assertion which is verified the way Google verifies it, the bearer is minted and cached and dropped a minute early and thrown away when it is refused, and each documented error is put in front of it to see which of four answers it gives. Those four are the part worth being careful about. Sent and deferred and dropped and unregistered are not a boolean, and a boolean was going to start lying: an outbox that retries a dead phone spins for ever, and one that gives up on a busy service loses the round.
+
 ## What is not here yet
 
 Live pace works, but by polling: both paces use the same submit-and-fetch endpoints, and Live simply polls faster. The WebSocket hub the design calls for is an optimisation on top of a protocol that already works, so it waits.
 
-Forfeits and round windows are task 4.2, accounts and the age gate are 4.4, and neither exists here. Timestamps are stored in a form that sorts and round-trips exactly so that the forfeit job has something to read when it arrives.
+Accounts and the age gate are task 4.4 and are not here.
 
 Hosting is a small container app plus, eventually, managed Postgres. There is no Dockerfile in here yet because there is nowhere to verify one builds from this machine, and an unverified deployment file is worse than an absent one.
 

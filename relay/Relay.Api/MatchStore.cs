@@ -494,6 +494,25 @@ public sealed class MatchStore : IDisposable
         }
     }
 
+    /// <summary>
+    /// Forgets a device the notification service says is gone, if it is still the one on file.
+    /// </summary>
+    /// <remarks>
+    /// The token is part of the condition rather than just the code and the seat, and that is the
+    /// whole point of the method. A player who reinstalled between a nudge being decided and it
+    /// failing has already registered a working device under the same seat, and deleting that
+    /// because the token it replaced is dead would lose them for the rest of the match.
+    /// </remarks>
+    public void ForgetDevice(string code, int seat, string token)
+    {
+        lock (_gate)
+        {
+            Execute(
+                "DELETE FROM devices WHERE code = $code AND seat = $seat AND token = $token;",
+                ("$code", code), ("$seat", seat), ("$token", token));
+        }
+    }
+
     /// <summary>Every device registered for a match, in seat order.</summary>
     public IReadOnlyList<Device> Devices(string code)
     {

@@ -24,10 +24,29 @@ builder.Services.AddSingleton(TimeProvider.System);
 // people by never opening the game again, and the client that would notice is the one that is waiting.
 builder.Services.AddHostedService<ForfeitSweeper>();
 
-// Notifications are decided when a round resolves and drained separately. There is no Firebase
-// project to point a real sender at yet, so this one writes them down: the question during
-// development is whether the right people are told at the right times, and a log answers it.
-builder.Services.AddSingleton<INudgeSender, LoggingNudgeSender>();
+// Notifications are decided when a round resolves and drained separately. Which sender drains them
+// depends on whether the relay has been given a Firebase service account: with one it sends, without
+// one it writes them down. A development run wants the log, since the question there is whether the
+// right people are told at the right times and a log line answers it exactly as well as a phone
+// buzzing would. A deployment that meant to have a key and does not is a different matter, so a key
+// that is configured and unusable stops the process rather than quietly falling back to the log.
+if (Firebase.Configured(builder.Configuration) is ServiceAccount account)
+{
+    builder.Services.AddSingleton(account);
+
+    // One client for the process, over a handler that lets its connections go every so often, which
+    // is the part of IHttpClientFactory that matters to a service with one outbound host. The
+    // container owns it and disposes it at shutdown.
+    builder.Services.AddSingleton(_ => new HttpClient(
+        new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5) }));
+
+    builder.Services.AddSingleton<INudgeSender, FirebaseNudgeSender>();
+}
+else
+{
+    builder.Services.AddSingleton<INudgeSender, LoggingNudgeSender>();
+}
+
 builder.Services.AddHostedService<NudgeDrain>();
 
 WebApplication app = builder.Build();

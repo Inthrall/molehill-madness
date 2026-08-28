@@ -81,22 +81,43 @@ public static class Nudges
 }
 
 /// <summary>
+/// What happened to a nudge, and therefore what to do with it next.
+/// </summary>
+/// <remarks>
+/// This used to be a bool, and the bool was going to start lying. "Sent" and "stop trying" are the
+/// same instruction to the outbox and different facts about the world, and a notification service
+/// refuses in at least three ways that want different answers: come back later, never mind, and that
+/// phone is gone. A yes-or-no forces two of those three to be wrong, and the wrong one is expensive
+/// either way, since an outbox that retries a dead phone spins for ever and one that gives up on a
+/// busy service loses the round.
+/// </remarks>
+public enum Delivery
+{
+    /// <summary>Accepted by the far end. Done with.</summary>
+    Sent = 0,
+
+    /// <summary>Nothing wrong with it, the far end is just not answering. Leave it pending.</summary>
+    Deferred = 1,
+
+    /// <summary>Refused for good. Stop trying, but the device is fine.</summary>
+    Dropped = 2,
+
+    /// <summary>That phone is gone. Stop trying, and forget where it was.</summary>
+    Unregistered = 3,
+}
+
+/// <summary>
 /// Where a decided notification actually goes.
 /// </summary>
 /// <remarks>
 /// An interface with one method, because there is exactly one thing to do with a nudge and two
-/// plausible places to do it: a log, during development and in the tests, or Firebase Cloud
-/// Messaging, in the field.
-///
-/// The Firebase implementation is not here. FCM's v1 API needs a service account key and an OAuth2
-/// bearer minted from it, and there is no Firebase project to point it at yet, so writing the sender
-/// now would mean committing code that looks finished and has never delivered a message. The queue is
-/// the useful half and it is complete: nudges are decided, throttled and recorded, and whatever
-/// drains them is a later and smaller problem than getting the rule right.
+/// places to do it: a log, during development and in the tests, or Firebase Cloud Messaging, in the
+/// field. See <see cref="FirebaseNudgeSender"/> for the second one, and for what it can and cannot
+/// claim without a Firebase project to send to.
 /// </remarks>
 public interface INudgeSender
 {
-    Task<bool> Send(Nudge nudge, CancellationToken cancel = default);
+    Task<Delivery> Send(Nudge nudge, CancellationToken cancel = default);
 }
 
 /// <summary>
@@ -113,11 +134,13 @@ public sealed partial class LoggingNudgeSender : INudgeSender
 
     public LoggingNudgeSender(ILogger<LoggingNudgeSender> log) => _log = log;
 
-    public Task<bool> Send(Nudge nudge, CancellationToken cancel = default)
+    public Task<Delivery> Send(Nudge nudge, CancellationToken cancel = default)
     {
+        ArgumentNullException.ThrowIfNull(nudge);
+
         Nudged(nudge.Code, nudge.Seat, nudge.Round);
 
-        return Task.FromResult(true);
+        return Task.FromResult(Delivery.Sent);
     }
 
     [LoggerMessage(
@@ -193,9 +216,29 @@ public sealed partial class NudgeDrain : BackgroundService
 
         foreach (Nudge nudge in _store.PendingNudges())
         {
-            if (await _sender.Send(nudge, cancel).ConfigureAwait(false))
+            Delivery answer = await _sender.Send(nudge, cancel).ConfigureAwait(false);
+
+            if (answer == Delivery.Deferred)
             {
-                _store.NudgeSent(nudge.Code, nudge.Seat, nudge.Round);
+                continue;
+            }
+
+            if (answer == Delivery.Unregistered)
+            {
+                // Only if it is still the token on file. A player who reinstalled between the nudge
+                // being decided and this failing has a good device registered by now, and deleting
+                // it because the old one is dead would mean never reaching them again.
+                _store.ForgetDevice(nudge.Code, nudge.Seat, nudge.DeviceToken);
+            }
+
+            // Marked done for all three of the answers that are not "later", including the two that
+            // were never delivered. The column says sent and means finished with, which is the only
+            // thing the outbox needs from it: a nudge nobody can receive is not worth carrying, and
+            // the next round decides a fresh one anyway.
+            _store.NudgeSent(nudge.Code, nudge.Seat, nudge.Round);
+
+            if (answer == Delivery.Sent)
+            {
                 sent++;
             }
         }

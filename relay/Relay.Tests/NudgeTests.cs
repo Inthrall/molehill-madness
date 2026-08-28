@@ -208,7 +208,7 @@ public sealed class NudgeTests
 
         // And a second pass has nothing left to do, so nobody is buzzed twice.
         Assert.That(await drain.Drain(), Is.EqualTo(0));
-        Assert.That(sender.Sent, Is.EqualTo(2));
+        Assert.That(sender.Asked, Is.EqualTo(2));
     }
 
     /// <summary>
@@ -222,17 +222,87 @@ public sealed class NudgeTests
         Devices(match.Code, 0, 1);
         Nudges.Decide(_store, match.Code, 2, _now);
 
-        Counting sender = new Counting { Works = false };
+        Counting sender = new Counting { Answer = Delivery.Deferred };
         NudgeDrain drain = new NudgeDrain(
             _store, sender, TimeProvider.System, NullLogger<NudgeDrain>.Instance);
 
         Assert.That(await drain.Drain(), Is.EqualTo(0));
         Assert.That(_store.PendingNudges(), Has.Count.EqualTo(2));
 
-        sender.Works = true;
+        sender.Answer = Delivery.Sent;
 
         Assert.That(await drain.Drain(), Is.EqualTo(2));
         Assert.That(_store.PendingNudges(), Is.Empty);
+    }
+
+    /// <summary>
+    /// A phone that has been wiped or reinstalled is gone for good, and the outbox has to be told
+    /// apart from a service that is merely busy: retrying a dead token is a pass through the loop
+    /// that can never succeed, once every five seconds, for the fortnight the match lasts.
+    /// </summary>
+    [Test]
+    public async Task ADeadPhoneIsForgottenAndItsNudgeIsFinishedWith()
+    {
+        Match match = Started(2);
+        Devices(match.Code, 0);
+        Nudges.Decide(_store, match.Code, 2, _now);
+
+        Counting sender = new Counting { Answer = Delivery.Unregistered };
+        NudgeDrain drain = new NudgeDrain(
+            _store, sender, TimeProvider.System, NullLogger<NudgeDrain>.Instance);
+
+        // Nothing was delivered, so nothing is counted as sent.
+        Assert.That(await drain.Drain(), Is.EqualTo(0));
+
+        Assert.That(_store.PendingNudges(), Is.Empty);
+        Assert.That(_store.Devices(match.Code), Is.Empty);
+    }
+
+    /// <summary>
+    /// A message the service will not take is not the same as a phone that is not there. One is a
+    /// nudge to give up on and the other is a player to give up on, and only one of them should cost
+    /// the player the rest of the match's notifications.
+    /// </summary>
+    [Test]
+    public async Task ARefusedMessageLeavesTheDeviceAlone()
+    {
+        Match match = Started(2);
+        Devices(match.Code, 0);
+        Nudges.Decide(_store, match.Code, 2, _now);
+
+        Counting sender = new Counting { Answer = Delivery.Dropped };
+        NudgeDrain drain = new NudgeDrain(
+            _store, sender, TimeProvider.System, NullLogger<NudgeDrain>.Instance);
+
+        Assert.That(await drain.Drain(), Is.EqualTo(0));
+
+        Assert.That(_store.PendingNudges(), Is.Empty);
+        Assert.That(_store.Devices(match.Code), Has.Count.EqualTo(1));
+    }
+
+    /// <summary>
+    /// A player who reinstalls between a nudge being decided and it failing has a working device
+    /// registered under the same seat by the time the failure arrives. Forgetting that one because
+    /// the token it replaced is dead would lose them for the rest of the match.
+    /// </summary>
+    [Test]
+    public void ForgettingADeviceOnlyTakesTheOneThatDied()
+    {
+        Match match = Started(2);
+
+        _store.RegisterDevice(match.Code, 0, "old", "android", _now);
+        _store.RegisterDevice(match.Code, 0, "new", "android", _now);
+
+        _store.ForgetDevice(match.Code, 0, "old");
+
+        IReadOnlyList<Device> left = _store.Devices(match.Code);
+
+        Assert.That(left, Has.Count.EqualTo(1));
+        Assert.That(left[0].Token, Is.EqualTo("new"));
+
+        _store.ForgetDevice(match.Code, 0, "new");
+
+        Assert.That(_store.Devices(match.Code), Is.Empty);
     }
 
     // ---- Helpers ------------------------------------------------------------------------
@@ -257,23 +327,18 @@ public sealed class NudgeTests
         }
     }
 
-    /// <summary>A sender that counts, and can be made to fail.</summary>
+    /// <summary>A sender that counts what it was asked to send, and answers however it is told to.</summary>
     private sealed class Counting : INudgeSender
     {
-        public int Sent { get; private set; }
+        public int Asked { get; private set; }
 
-        public bool Works { get; set; } = true;
+        public Delivery Answer { get; set; } = Delivery.Sent;
 
-        public Task<bool> Send(Nudge nudge, CancellationToken cancel = default)
+        public Task<Delivery> Send(Nudge nudge, CancellationToken cancel = default)
         {
-            if (!Works)
-            {
-                return Task.FromResult(false);
-            }
+            Asked++;
 
-            Sent++;
-
-            return Task.FromResult(true);
+            return Task.FromResult(Answer);
         }
     }
 }
