@@ -43,7 +43,8 @@ public partial class MenuScene : Control
         // The driver has nobody to press anything, so it walks straight through. Deferred by a
         // frame rather than done here, because changing scene from inside _Ready tears down the
         // tree that is still being built.
-        _startAtOnce = Flags.Driven() || Flags.Host() || Flags.Join() is not null;
+        _startAtOnce =
+            Flags.Driven() || Flags.Host() || Flags.Matchmake() || Flags.Join() is not null;
 
         if (Flags.Host())
         {
@@ -240,6 +241,18 @@ public partial class MenuScene : Control
         MatchSetup.PlayerCount = _players;
         MatchSetup.Where = _where;
         MatchSetup.Pace = _pace;
+
+        if (Flags.Matchmake())
+        {
+            // Into the pool rather than into a lobby. There is no table for this yet because there
+            // is no button for it yet: the menu's three tables are couch, hosting and joining, and a
+            // fourth wants a glyph and a waiting screen of its own rather than a corner of this one.
+            Online.Matchmake(_players, _pace);
+
+            GetTree().CallDeferred(
+                SceneTree.MethodName.ChangeSceneToFile, "res://scenes/Match.tscn");
+            return;
+        }
 
         switch (_where)
         {

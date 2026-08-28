@@ -1,3 +1,4 @@
+using System.Buffers.Text;
 using System.Globalization;
 using System.Security.Cryptography;
 using Microsoft.Data.Sqlite;
@@ -96,6 +97,37 @@ public sealed class MatchStore : IDisposable
                 payload BLOB NOT NULL,
                 at      TEXT NOT NULL,
                 PRIMARY KEY (code, round, seat)
+            );
+
+            -- As little of a player as the game can get away with knowing: an opaque id, the
+            -- secret that owns it, and which side of the age threshold they said they were on. No
+            -- name, no email, no handle, nothing anybody could be found by. The design asks for "no
+            -- discoverable social graph", and the cheapest way to have none is to store nothing one
+            -- could be built out of.
+            CREATE TABLE IF NOT EXISTS accounts (
+                id         TEXT PRIMARY KEY,
+                secret     TEXT NOT NULL,
+                band       INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                seen_at    TEXT NOT NULL
+            );
+
+            -- The matchmaking pool. One row per waiting player, and the same row carries the seat
+            -- once the pool has found them one: a client holds a ticket from pressing the button to
+            -- standing in the lobby and never has to swap it for anything else.
+            --
+            -- The account is unique rather than the primary key, so somebody who presses the button
+            -- twice is refused the second one rather than joining the pool twice and being seated
+            -- opposite themselves.
+            CREATE TABLE IF NOT EXISTS queue (
+                ticket       TEXT PRIMARY KEY,
+                account      TEXT NOT NULL UNIQUE,
+                player_count INTEGER NOT NULL,
+                pace         INTEGER NOT NULL,
+                joined_at    TEXT NOT NULL,
+                code         TEXT NULL,
+                seat         INTEGER NOT NULL DEFAULT -1,
+                seat_token   TEXT NULL
             );
 
             -- One device per seat, latest wins: a player who reinstalls gets a new push token and
@@ -474,6 +506,243 @@ public sealed class MatchStore : IDisposable
             return found;
         }
     }
+
+    // ---- Accounts ---------------------------------------------------------------------
+
+    /// <summary>
+    /// Makes an anonymous account and hands back the secret that owns it, once.
+    /// </summary>
+    /// <remarks>
+    /// The secret is returned here and nowhere else, ever. A client that loses it has lost the
+    /// account, which is the price of an account with nothing in it to recover it by: there is no
+    /// email to send a link to and, for an under-threshold account, the design says there must not
+    /// be one. Losing one costs a player nothing they can name, since an account holds no progress,
+    /// no purchases and no friends. It is a way to be let into the stranger pool and little else.
+    /// </remarks>
+    public (Account Account, string Secret) OpenAccount(AgeBand band, DateTimeOffset now)
+    {
+        // Base64Url rather than base64, because both of these end up in places plain base64 breaks:
+        // an id goes in a Location header and a URL path, and ordinary base64 contains slashes and
+        // plus signs. A ticket found that out the hard way, so neither of these gets to.
+        string id = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(12));
+        string secret = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(24));
+
+        lock (_gate)
+        {
+            Execute(
+                """
+                INSERT INTO accounts (id, secret, band, created_at, seen_at)
+                VALUES ($id, $secret, $band, $now, $now);
+                """,
+                ("$id", id), ("$secret", secret), ("$band", (int)band), ("$now", Stamp(now)));
+        }
+
+        return (new Account(id, band, now, now), secret);
+    }
+
+    /// <summary>
+    /// The account that secret owns, or null. Touches it on the way past, since asking is being seen.
+    /// </summary>
+    public Account? Who(string id, string secret, DateTimeOffset now)
+    {
+        lock (_gate)
+        {
+            AgeBand band;
+            DateTimeOffset created;
+
+            using (SqliteCommand read = _connection.CreateCommand())
+            {
+                read.CommandText =
+                    "SELECT band, created_at FROM accounts WHERE id = $id AND secret = $secret;";
+                read.Parameters.AddWithValue("$id", id);
+                read.Parameters.AddWithValue("$secret", secret);
+
+                using SqliteDataReader row = read.ExecuteReader();
+
+                if (!row.Read())
+                {
+                    return null;
+                }
+
+                band = (AgeBand)row.GetInt32(0);
+                created = When(row.GetString(1));
+            }
+
+            Execute(
+                "UPDATE accounts SET seen_at = $now WHERE id = $id;",
+                ("$id", id), ("$now", Stamp(now)));
+
+            return new Account(id, band, created, now);
+        }
+    }
+
+    /// <summary>
+    /// Changes an account's band, for a player the gate has asked again.
+    /// </summary>
+    /// <remarks>
+    /// It has to be changeable, because a child becomes an adult while the account carries on
+    /// existing. The client re-asks on the birthday the band was worked out from and sends the new
+    /// answer here. Nothing about that is a loophole: the only thing a band buys is the stranger
+    /// pool, and the only direction that matters is the one time was going to grant anyway.
+    /// </remarks>
+    public bool SetBand(string id, string secret, AgeBand band, DateTimeOffset now)
+    {
+        lock (_gate)
+        {
+            using SqliteCommand update = _connection.CreateCommand();
+            update.CommandText =
+                """
+                UPDATE accounts SET band = $band, seen_at = $now
+                WHERE id = $id AND secret = $secret;
+                """;
+            update.Parameters.AddWithValue("$id", id);
+            update.Parameters.AddWithValue("$secret", secret);
+            update.Parameters.AddWithValue("$band", (int)band);
+            update.Parameters.AddWithValue("$now", Stamp(now));
+
+            return update.ExecuteNonQuery() > 0;
+        }
+    }
+
+    // ---- The pool ---------------------------------------------------------------------
+
+    /// <summary>
+    /// Puts an account in the pool, or hands back the ticket it already has.
+    /// </summary>
+    /// <remarks>
+    /// Idempotent rather than refusing, because the case it protects against is not somebody being
+    /// clever: it is a phone that sent the request, lost signal before the reply arrived, and asked
+    /// again. Refusing that would leave a player holding no ticket while the pool holds their place,
+    /// which is the one state neither end can get out of.
+    /// </remarks>
+    public Ticket JoinQueue(string account, int playerCount, Pace pace, DateTimeOffset now)
+    {
+        lock (_gate)
+        {
+            if (Waiting(account) is Ticket already)
+            {
+                return already;
+            }
+
+            // URL-safe, because a ticket is asked about at /queue/{ticket} and a plain base64 one
+            // contains slashes. A slash in the middle of it does not fail the request, it fails to
+            // match the route at all, and an empty 404 is a confusing way to learn that.
+            string ticket = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(18));
+
+            Execute(
+                """
+                INSERT INTO queue (ticket, account, player_count, pace, joined_at)
+                VALUES ($ticket, $account, $count, $pace, $now);
+                """,
+                ("$ticket", ticket), ("$account", account), ("$count", playerCount),
+                ("$pace", (int)pace), ("$now", Stamp(now)));
+
+            return new Ticket(ticket, account, playerCount, pace, now, null, -1, null);
+        }
+    }
+
+    /// <summary>Everybody in the pool, seated or not, oldest first.</summary>
+    public IReadOnlyList<Ticket> Queue()
+    {
+        lock (_gate)
+        {
+            List<Ticket> found = new List<Ticket>();
+
+            using SqliteCommand read = _connection.CreateCommand();
+            read.CommandText =
+                """
+                SELECT ticket, account, player_count, pace, joined_at, code, seat, seat_token
+                FROM queue ORDER BY joined_at, ticket;
+                """;
+
+            using SqliteDataReader row = read.ExecuteReader();
+
+            while (row.Read())
+            {
+                found.Add(ReadTicket(row));
+            }
+
+            return found;
+        }
+    }
+
+    /// <summary>One ticket, by the id its owner is holding.</summary>
+    public Ticket? Held(string ticket)
+    {
+        lock (_gate)
+        {
+            using SqliteCommand read = _connection.CreateCommand();
+            read.CommandText =
+                """
+                SELECT ticket, account, player_count, pace, joined_at, code, seat, seat_token
+                FROM queue WHERE ticket = $ticket;
+                """;
+            read.Parameters.AddWithValue("$ticket", ticket);
+
+            using SqliteDataReader row = read.ExecuteReader();
+
+            return row.Read() ? ReadTicket(row) : null;
+        }
+    }
+
+    /// <summary>
+    /// Records the seat the pool found for a ticket.
+    /// </summary>
+    /// <remarks>
+    /// Guarded on the ticket not having one already, so a pass of the pool that overlapped another
+    /// cannot move somebody out of the lobby they were already put into.
+    /// </remarks>
+    public void Seated(string ticket, string code, int seat, string token)
+    {
+        lock (_gate)
+        {
+            Execute(
+                """
+                UPDATE queue SET code = $code, seat = $seat, seat_token = $token
+                WHERE ticket = $ticket AND code IS NULL;
+                """,
+                ("$ticket", ticket), ("$code", code), ("$seat", seat), ("$token", token));
+        }
+    }
+
+    /// <summary>Takes a ticket out of the pool, whether it was seated or gave up.</summary>
+    public bool LeaveQueue(string ticket)
+    {
+        lock (_gate)
+        {
+            using SqliteCommand delete = _connection.CreateCommand();
+            delete.CommandText = "DELETE FROM queue WHERE ticket = $ticket;";
+            delete.Parameters.AddWithValue("$ticket", ticket);
+
+            return delete.ExecuteNonQuery() > 0;
+        }
+    }
+
+    private Ticket? Waiting(string account)
+    {
+        using SqliteCommand read = _connection.CreateCommand();
+        read.CommandText =
+            """
+            SELECT ticket, account, player_count, pace, joined_at, code, seat, seat_token
+            FROM queue WHERE account = $account;
+            """;
+        read.Parameters.AddWithValue("$account", account);
+
+        using SqliteDataReader row = read.ExecuteReader();
+
+        return row.Read() ? ReadTicket(row) : null;
+    }
+
+    private static Ticket ReadTicket(SqliteDataReader row) =>
+        new Ticket(
+            row.GetString(0),
+            row.GetString(1),
+            row.GetInt32(2),
+            (Pace)row.GetInt32(3),
+            When(row.GetString(4)),
+            row.IsDBNull(5) ? null : row.GetString(5),
+            row.GetInt32(6),
+            row.IsDBNull(7) ? null : row.GetString(7));
 
     // ---- Devices and nudges ---------------------------------------------------------
 
@@ -859,6 +1128,10 @@ public sealed class MatchStore : IDisposable
     /// </summary>
     private static string Stamp(DateTimeOffset when) =>
         when.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
+
+    /// <summary>The other half of <see cref="Stamp"/>.</summary>
+    private static DateTimeOffset When(string stamped) =>
+        DateTimeOffset.Parse(stamped, CultureInfo.InvariantCulture);
 
     private void Execute(string sql, params (string Name, object Value)[] parameters)
     {

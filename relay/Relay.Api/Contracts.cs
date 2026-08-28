@@ -80,6 +80,31 @@ public static class Agreement
 /// <summary>One tap of the wheel.</summary>
 public sealed record SendEmote(int Emote);
 
+/// <summary>
+/// What a device says when it asks for an account.
+/// </summary>
+/// <remarks>
+/// One field, and it is the answer to the gate rather than the question. A date of birth is typed
+/// once on the device and turned into a band there; nothing that could reconstruct it is sent.
+/// </remarks>
+public sealed record OpenAccount(AgeBand Band);
+
+/// <summary>What comes back, including the one and only sight of the secret.</summary>
+public sealed record Opened(string Id, string Secret, string Band);
+
+/// <summary>A player whose birthday has moved them across the threshold.</summary>
+public sealed record SetBand(AgeBand Band);
+
+/// <summary>
+/// What somebody asks for when they press the one button.
+/// </summary>
+/// <remarks>
+/// The same two choices a host makes when opening a lobby, because a matchmade match is an ordinary
+/// match: how many seats, and which clock. There is nothing else to ask, since there are no skill
+/// brackets, no regions and no maps to pick.
+/// </remarks>
+public sealed record JoinPool(int PlayerCount, Pace Pace);
+
 /// <summary>Where to reach a player when it is their turn.</summary>
 public sealed record RegisterDevice(string Token, string? Platform);
 

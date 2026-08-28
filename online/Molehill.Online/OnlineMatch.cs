@@ -33,6 +33,16 @@ namespace Molehill.Online
         /// does not speak, so simulating it would diverge rather than fail.
         /// </summary>
         Incompatible = 7,
+
+        /// <summary>
+        /// In the matchmaking pool, waiting to be put with strangers.
+        /// </summary>
+        /// <remarks>
+        /// Not Arriving, though it looks like it from outside. Arriving is a single call that either
+        /// lands or does not; this is an open-ended wait on other people showing up, it can be given
+        /// up on, and it is the one stage with something worth drawing on screen while it lasts.
+        /// </remarks>
+        Queueing = 8,
     }
 
     /// <summary>
@@ -89,6 +99,17 @@ namespace Molehill.Online
         private System.Threading.Tasks.Task<Reply<Chatter>>? _listening;
         private long _heardUpTo;
         private double _sinceHeard;
+
+        private readonly AgeBand _band;
+        private readonly int _wanted;
+        private readonly MatchPace _wantedPace;
+        private readonly Action<AccountKey>? _remember;
+
+        private AccountKey? _account;
+        private System.Threading.Tasks.Task<Reply<AccountKey>>? _opening;
+        private System.Threading.Tasks.Task<Reply<string>>? _joining;
+        private System.Threading.Tasks.Task<Reply<Place>>? _placing;
+        private string? _ticket;
 
         private LiveDoorbell? _bell;
         private byte[]? _mine;
@@ -221,6 +242,10 @@ namespace Molehill.Online
 
             switch (Stage)
             {
+                case OnlineStage.Queueing:
+                    Queueing();
+                    return;
+
                 case OnlineStage.Arriving:
                     Arrive();
                     return;
@@ -301,6 +326,14 @@ namespace Molehill.Online
         /// <summary>Gives up on the match, without telling the relay, which does not care.</summary>
         public void Leave()
         {
+            if (_ticket is not null)
+            {
+                // Somebody who walks away from the queue has to come out of it, or the pool will
+                // seat them into a match nobody is coming to and hold a stranger there waiting.
+                _ = _relay.LeavePool(_ticket);
+                _ticket = null;
+            }
+
             Hush();
             Stage = OnlineStage.Done;
         }
@@ -372,6 +405,245 @@ namespace Molehill.Online
         }
 
         // ---- Stages -----------------------------------------------------------------
+
+        /// <summary>
+        /// Presses the one button: joins the pool and plays whoever it finds.
+        /// </summary>
+        /// <remarks>
+        /// The account is the whole difference between this and hosting. Couch play needs none and a
+        /// game code needs none, because a code arrives from somebody you know; this is the one way
+        /// into a match with strangers, and the relay will refuse it for an account that has not been
+        /// through the age gate or is under the threshold. The refusal comes back as
+        /// <see cref="RelayOutcome.TooYoung"/> rather than as a generic no, because it is the only
+        /// refusal in the client a player is owed an explanation for.
+        ///
+        /// Everything after the pool finds a match is identical to a lobby somebody hosted. There is
+        /// no separate matchmade mode, no different rules and no flag anywhere downstream: a ticket
+        /// turns into a seat, and a seat is a seat.
+        /// </remarks>
+        public static OnlineMatch Matchmaking(
+            RelayClient relay,
+            AccountKey? account,
+            AgeBand band,
+            int playerCount,
+            MatchPace pace,
+            Action<AccountKey>? remember = null)
+        {
+            ArgumentNullException.ThrowIfNull(relay);
+
+            return new OnlineMatch(relay, account, band, playerCount, pace, remember);
+        }
+
+        private OnlineMatch(
+            RelayClient relay,
+            AccountKey? account,
+            AgeBand band,
+            int playerCount,
+            MatchPace pace,
+            Action<AccountKey>? remember)
+        {
+            _relay = relay;
+            _account = account;
+            _band = band;
+            _wanted = playerCount;
+            _wantedPace = pace;
+            _remember = remember;
+
+            // Asked here rather than left to the relay, and the difference is what each check is
+            // for. This one decides whether to make the attempt at all, so that a player who has not
+            // been through the gate is sent to it instead of being given an account and then refused
+            // one call later. The relay's copy is the gate: it runs somewhere the player cannot edit,
+            // and it is the one that means anything.
+            if (account is null && !Allowed.Matchmaking(band))
+            {
+                Trouble = RelayOutcome.TooYoung;
+                Stage = OnlineStage.Done;
+
+                return;
+            }
+
+            Stage = OnlineStage.Queueing;
+        }
+
+        /// <summary>
+        /// Whether this session is actually in the pool, as opposed to still asking to be.
+        /// </summary>
+        /// <remarks>
+        /// The difference matters to a waiting screen, which wants to say "looking for people" rather
+        /// than "connecting" once there is a place in the queue, and it matters to a test, which
+        /// otherwise has no way to tell a player who has joined the pool from one whose first request
+        /// is still in flight.
+        /// </remarks>
+        public bool Queued => _ticket is not null;
+
+        /// <summary>How long this player has been in the pool, in seconds.</summary>
+        public int Waited { get; private set; }
+
+        /// <summary>
+        /// Whether the pool is thin enough that the other pace is worth offering.
+        /// </summary>
+        /// <remarks>
+        /// The design's answer to an empty pool is Anytime, "offered by default to anyone whose Live
+        /// queue is slow", rather than a spinner with a better animation. This is the relay saying
+        /// when; what to do about it belongs to whoever is drawing the waiting screen, because
+        /// switching somebody's pace without asking would be answering a different question from the
+        /// one they pressed the button for.
+        /// </remarks>
+        public bool PoolIsSlow { get; private set; }
+
+        /// <summary>
+        /// Works through the pool: join it, ask about it, and take the seat it finds.
+        /// </summary>
+        /// <remarks>
+        /// Asked about once a second, which is the Live gap and for the same reason: somebody
+        /// watching a queue is watching it, and a slower poll would show them a match they were put
+        /// in half a minute ago. This is also the one part of the flow that has nothing to fall back
+        /// on, since a pool with no socket and no notification is only a poll.
+        /// </remarks>
+        private void Queueing()
+        {
+            if (_account is null)
+            {
+                OpeningAnAccount();
+                return;
+            }
+
+            if (_ticket is null)
+            {
+                JoiningThePool();
+                return;
+            }
+
+            if (_placing is null)
+            {
+                if (_quiet < LiveGap)
+                {
+                    return;
+                }
+
+                _placing = _relay.Place(_ticket);
+                _quiet = 0;
+                return;
+            }
+
+            if (!_placing.IsCompleted)
+            {
+                return;
+            }
+
+            Reply<Place> reply = Harvest(_placing);
+            _placing = null;
+
+            if (!reply.Ok)
+            {
+                Stumble(reply);
+                return;
+            }
+
+            Struggling = false;
+
+            Place place = reply.Value!;
+
+            if (place.Seated is null)
+            {
+                Waited = place.Seconds;
+                PoolIsSlow = place.Slow;
+                _quiet = 0;
+                return;
+            }
+
+            // Seated. The ticket has done its job, and a pool that kept finished tickets would grow
+            // for ever, so it is handed back on the way past. Not awaited and not harvested: nothing
+            // depends on the answer, a failure costs one stale row, and a client that waited on it
+            // would be sitting in a lobby refusing to start over a piece of tidying.
+            _ = _relay.LeavePool(_ticket);
+            _ticket = null;
+
+            Seating = place.Seated;
+            Round = Seating.Round;
+            Stage = Seating.Started ? OnlineStage.Planning : OnlineStage.WaitingForPlayers;
+            _quiet = 0;
+        }
+
+        /// <summary>
+        /// Gets this device an account, on the first occasion it has ever needed one.
+        /// </summary>
+        /// <remarks>
+        /// Not at startup, and not when the game is installed: an account is only ever needed to be
+        /// let in among strangers, and couch play and game codes both need none. So it is made here,
+        /// the first time somebody presses the one button that needs it, and handed straight back to
+        /// whoever is going to write it down. The relay issues the secret once and cannot reissue it,
+        /// so a client that forgot to keep it has quietly thrown the account away.
+        /// </remarks>
+        private void OpeningAnAccount()
+        {
+            if (_opening is null)
+            {
+                if (_quiet < RetryGap && Struggling)
+                {
+                    return;
+                }
+
+                _opening = _relay.OpenAccount(_band);
+                _quiet = 0;
+                return;
+            }
+
+            if (!_opening.IsCompleted)
+            {
+                return;
+            }
+
+            Reply<AccountKey> reply = Harvest(_opening);
+            _opening = null;
+
+            if (!reply.Ok)
+            {
+                Stumble(reply);
+                return;
+            }
+
+            Struggling = false;
+            _account = reply.Value;
+            _remember?.Invoke(_account!);
+            _quiet = double.MaxValue;
+        }
+
+        private void JoiningThePool()
+        {
+            if (_joining is null)
+            {
+                if (_quiet < RetryGap && Struggling)
+                {
+                    return;
+                }
+
+                _joining = _relay.JoinPool(_account!, _wanted, _wantedPace);
+                _quiet = 0;
+                return;
+            }
+
+            if (!_joining.IsCompleted)
+            {
+                return;
+            }
+
+            Reply<string> reply = Harvest(_joining);
+            _joining = null;
+
+            if (!reply.Ok)
+            {
+                // TooYoung comes through here and is not worth retrying, so Stumble ends the session
+                // with the outcome on Trouble. That is the whole enforcement path as far as this
+                // client is concerned: the relay said no, and there is nothing to do about it.
+                Stumble(reply);
+                return;
+            }
+
+            Struggling = false;
+            _ticket = reply.Value;
+            _quiet = double.MaxValue;
+        }
 
         private void Arrive()
         {

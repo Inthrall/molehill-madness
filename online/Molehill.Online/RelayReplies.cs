@@ -41,6 +41,67 @@ namespace Molehill.Online
 
         /// <summary>The relay refused it for a reason worth logging rather than showing.</summary>
         Refused = 7,
+
+        /// <summary>
+        /// This account is not old enough to be put among strangers.
+        /// </summary>
+        /// <remarks>
+        /// Its own outcome rather than a Refused, because it is the only refusal in the whole client
+        /// that a player is entitled to an explanation for. Everything else the relay says no to is a
+        /// bug or a race; this one is a rule, and a queue button that failed silently on it would
+        /// look broken to exactly the person it is protecting.
+        /// </remarks>
+        TooYoung = 8,
+    }
+
+    /// <summary>
+    /// The whole of an account: an opaque id and the secret that owns it.
+    /// </summary>
+    /// <remarks>
+    /// Worth keeping somewhere durable the moment it arrives, because the relay hands the secret over
+    /// exactly once and has no way to reissue it. There is nothing in an account to recover it by, by
+    /// design: no email for an under-threshold one, and the design says there must not be. Losing it
+    /// costs a player nothing they can name, since an account carries no progress, no purchases and
+    /// no friends, only permission to be put among strangers.
+    /// </remarks>
+    public sealed class AccountKey
+    {
+        public AccountKey(string id, string secret)
+        {
+            Id = id;
+            Secret = secret;
+        }
+
+        public string Id { get; }
+
+        public string Secret { get; }
+    }
+
+    /// <summary>Where a ticket has got to: still queueing, or seated in a match.</summary>
+    public sealed class Place
+    {
+        public Place(int seconds, bool slow, Seating? seated)
+        {
+            Seconds = seconds;
+            Slow = slow;
+            Seated = seated;
+        }
+
+        /// <summary>How long this player has been in the pool.</summary>
+        public int Seconds { get; }
+
+        /// <summary>
+        /// Whether the queue is thin enough that the other pace is worth offering.
+        /// </summary>
+        /// <remarks>
+        /// The design's answer to an empty pool is Anytime rather than a better spinner. The relay
+        /// says when, the player decides whether: changing somebody's pace out from under them would
+        /// be answering a different question from the one they asked.
+        /// </remarks>
+        public bool Slow { get; }
+
+        /// <summary>The seat, once the pool has found one. Null while still waiting.</summary>
+        public Seating? Seated { get; }
     }
 
     /// <summary>A reply that either carries a value or explains why it does not.</summary>

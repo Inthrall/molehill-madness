@@ -24,6 +24,8 @@ public static class Player
     private const string Kept = "user://player.cfg";
 
     private static string _id = string.Empty;
+    private static string _relayId = string.Empty;
+    private static string _relaySecret = string.Empty;
     private static AgeBand _band = AgeBand.Unknown;
     private static int _reviewAfter;
     private static int _planned;
@@ -38,6 +40,46 @@ public static class Player
 
             return _id;
         }
+    }
+
+    /// <summary>
+    /// The account the relay knows this device by, if it has ever needed one.
+    /// </summary>
+    /// <remarks>
+    /// A different thing from <see cref="Id"/>, which this device made up for itself. This one is
+    /// issued by the relay, and the secret beside it is handed over exactly once and cannot be
+    /// reissued, so it is written down the moment it arrives rather than when something is finished
+    /// with it. There is nothing in an account to recover it by: no email for an under-threshold one,
+    /// and the design says there must not be.
+    ///
+    /// Null until the first time somebody asks to be put among strangers. Couch play needs no
+    /// account and a game code needs none either, so most devices never have one.
+    /// </remarks>
+    public static AccountKey? RelayAccount
+    {
+        get
+        {
+            Load();
+
+            return _relayId.Length > 0 && _relaySecret.Length > 0
+                ? new AccountKey(_relayId, _relaySecret)
+                : null;
+        }
+    }
+
+    /// <summary>Keeps the account the relay just issued, since it will not issue it again.</summary>
+    public static void RememberRelay(AccountKey account)
+    {
+        if (account is null)
+        {
+            return;
+        }
+
+        Load();
+
+        _relayId = account.Id;
+        _relaySecret = account.Secret;
+        Save();
     }
 
     /// <summary>Which side of the threshold this account is on.</summary>
@@ -179,6 +221,8 @@ public static class Player
         if (file.Load(Kept) == Error.Ok)
         {
             _id = file.GetValue("account", "id", string.Empty).AsString();
+            _relayId = file.GetValue("account", "relayId", string.Empty).AsString();
+            _relaySecret = file.GetValue("account", "relaySecret", string.Empty).AsString();
             _band = (AgeBand)file.GetValue("account", "band", 0).AsInt32();
             _reviewAfter = file.GetValue("account", "reviewAfter", 0).AsInt32();
             _planned = file.GetValue("account", "planned", 0).AsInt32();
@@ -198,6 +242,8 @@ public static class Player
     {
         ConfigFile file = new ConfigFile();
         file.SetValue("account", "id", _id);
+        file.SetValue("account", "relayId", _relayId);
+        file.SetValue("account", "relaySecret", _relaySecret);
         file.SetValue("account", "band", (int)_band);
         file.SetValue("account", "reviewAfter", _reviewAfter);
         file.SetValue("account", "planned", _planned);

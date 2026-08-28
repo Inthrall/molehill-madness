@@ -139,6 +139,104 @@ namespace Molehill.Online
                     element.GetProperty("round").GetInt32()),
                 cancel);
 
+        // ---- Accounts and the pool ----------------------------------------------------
+
+        /// <summary>
+        /// Makes this device an account, and hands back the only copy of its secret.
+        /// </summary>
+        /// <remarks>
+        /// Only ever needed to be let in among strangers. Couch play needs no account and joining by
+        /// code needs none either, so nothing calls this until somebody presses the one button that
+        /// pairs them with people they have not met.
+        ///
+        /// The band travels; the date of birth does not, and never has. It is typed once on the
+        /// device, turned into one of three values there, and the value is all the relay ever sees.
+        /// </remarks>
+        public Task<Reply<AccountKey>> OpenAccount(
+            AgeBand band, CancellationToken cancel = default) =>
+            Call(
+                () => new HttpRequestMessage(HttpMethod.Post, "/accounts")
+                {
+                    Content = Body($"{{\"band\":\"{band}\"}}"),
+                },
+                element => new AccountKey(
+                    element.GetProperty("id").GetString() ?? string.Empty,
+                    element.GetProperty("secret").GetString() ?? string.Empty),
+                cancel);
+
+        /// <summary>Tells the relay a player has had the birthday that moves their band.</summary>
+        public Task<Reply<bool>> SetBand(
+            AccountKey account, AgeBand band, CancellationToken cancel = default) =>
+            Call(
+                () =>
+                {
+                    HttpRequestMessage request =
+                        new HttpRequestMessage(HttpMethod.Put, "/accounts/band")
+                        {
+                            Content = Body($"{{\"band\":\"{band}\"}}"),
+                        };
+
+                    return Owned(request, account);
+                },
+                _ => true,
+                cancel,
+                emptyBodyMeansSuccess: true);
+
+        /// <summary>
+        /// Joins the pool, and hands back the ticket to ask about it with.
+        /// </summary>
+        /// <remarks>
+        /// Safe to call twice. A phone that sent this and lost signal before the reply gets the same
+        /// ticket back rather than a second place in the queue, which is the one case where being
+        /// idempotent is the difference between recovering and being stuck.
+        /// </remarks>
+        public Task<Reply<string>> JoinPool(
+            AccountKey account,
+            int playerCount,
+            MatchPace pace,
+            CancellationToken cancel = default) =>
+            Call(
+                () =>
+                {
+                    HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, "/queue")
+                    {
+                        Content = Body(
+                            $"{{\"playerCount\":{playerCount.ToString(CultureInfo.InvariantCulture)},"
+                            + $"\"pace\":\"{pace}\"}}"),
+                    };
+
+                    return Owned(request, account);
+                },
+                element => element.GetProperty("ticket").GetString() ?? string.Empty,
+                cancel);
+
+        /// <summary>Where a ticket has got to.</summary>
+        public Task<Reply<Place>> Place(string ticket, CancellationToken cancel = default) =>
+            Call(
+                () => new HttpRequestMessage(HttpMethod.Get, $"/queue/{Uri.EscapeDataString(ticket)}"),
+                element => element.GetProperty("waiting").GetBoolean()
+                    ? new Place(
+                        element.GetProperty("seconds").GetInt32(),
+                        element.GetProperty("slow").GetBoolean(),
+                        null)
+                    : new Place(0, false, ReadSeating(element.GetProperty("seated"))),
+                cancel);
+
+        /// <summary>
+        /// Gives up a place in the pool, or lets go of a ticket that has done its job.
+        /// </summary>
+        /// <remarks>
+        /// The same call either way. A pool that kept finished tickets would grow for ever and would
+        /// eventually try to seat somebody into a match they left a fortnight ago.
+        /// </remarks>
+        public Task<Reply<bool>> LeavePool(string ticket, CancellationToken cancel = default) =>
+            Call(
+                () => new HttpRequestMessage(
+                    HttpMethod.Delete, $"/queue/{Uri.EscapeDataString(ticket)}"),
+                _ => true,
+                cancel,
+                emptyBodyMeansSuccess: true);
+
         // ---- Rounds -----------------------------------------------------------------
 
         /// <summary>Hands one seat's plan over as the bytes PlanCodec produced.</summary>
@@ -361,6 +459,11 @@ namespace Molehill.Online
                 case HttpStatusCode.Unauthorized:
                     return RelayOutcome.NotYourSeat;
 
+                // Only the pool ever says this, and only for one reason: the account behind the
+                // request is not old enough to be put among strangers.
+                case HttpStatusCode.Forbidden:
+                    return RelayOutcome.TooYoung;
+
                 // The relay says 409 for a full lobby, a second submission and the wrong round
                 // alike, and which one it is depends entirely on what was asked. So the caller says.
                 case HttpStatusCode.Conflict:
@@ -439,6 +542,15 @@ namespace Molehill.Online
             string.Equals(name, "Anytime", StringComparison.OrdinalIgnoreCase)
                 ? MatchPace.Anytime
                 : MatchPace.Live;
+
+        /// <summary>Signs a request with the account that owns it, rather than with a seat.</summary>
+        private static HttpRequestMessage Owned(HttpRequestMessage request, AccountKey account)
+        {
+            request.Headers.Add("X-Account", account.Id);
+            request.Headers.Add("X-Account-Secret", account.Secret);
+
+            return request;
+        }
 
         private static HttpRequestMessage Signed(HttpMethod method, string path, string token)
         {

@@ -51,6 +51,30 @@ public static class Online
     }
 
     /// <summary>
+    /// The one button: into the pool, and play whoever turns up.
+    /// </summary>
+    /// <remarks>
+    /// The only way into a match with strangers, and the only thing in the game that needs an
+    /// account. The account is made on the way in if this device has never needed one, and written
+    /// down as it arrives, because the relay hands the secret over once and cannot hand it over
+    /// again.
+    ///
+    /// A device that has not been through the age gate does not get as far as the relay: the session
+    /// comes back finished, with TooYoung on it, and the caller sends the player to the gate. That
+    /// check runs here as well as at the relay, and only the relay's one is a gate.
+    /// </remarks>
+    public static void Matchmake(int playerCount, MatchPace pace)
+    {
+        Match = OnlineMatch.Matchmaking(
+            Relay, RelayAccount, Player.Band, playerCount, pace, Player.RememberRelay);
+    }
+
+    /// <summary>Whether the one button is worth offering at all on this device.</summary>
+    public static bool CanMeetStrangers => Allowed.Matchmaking(Player.Band);
+
+    private static AccountKey? RelayAccount => Player.RelayAccount;
+
+    /// <summary>
     /// Whether this device has a match it could go back into.
     /// </summary>
     /// <remarks>

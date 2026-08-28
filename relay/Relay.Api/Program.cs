@@ -55,6 +55,9 @@ builder.Services.AddHostedService<NudgeDrain>();
 builder.Services.AddSingleton<LiveHub>();
 builder.Services.AddHostedService<LiveWatcher>();
 
+// The matchmaking pool. Empty most of the time and cheap to sweep when it is not.
+builder.Services.AddHostedService<PoolFiller>();
+
 WebApplication app = builder.Build();
 
 // Sockets have to be turned on before anything can be upgraded onto one. The keepalive is the
@@ -145,6 +148,121 @@ app.MapGet("/matches/{code}/seat", (string code, HttpRequest http, MatchStore st
     return Results.Ok(Joined.From(
         match, new Seat(tidy, number, token, match.OpenedAt), store.SeatsTaken(tidy)));
 });
+
+// ---- Accounts -------------------------------------------------------------------------
+
+// An account is only ever needed to be let in among strangers. Couch play needs none, and joining by
+// code needs none either, because a code arrives from somebody you already know and the person who
+// read it out is accountable for who else is in the lobby. So none of the endpoints above ask for
+// one, and that absence is the design rather than an oversight.
+app.MapPost("/accounts", (OpenAccount request, MatchStore store, TimeProvider clock) =>
+{
+    if (!Enum.IsDefined(request.Band))
+    {
+        return Results.BadRequest(new { error = "That is not an age band." });
+    }
+
+    (Account account, string secret) = store.OpenAccount(request.Band, clock.GetUtcNow());
+
+    // The only time the secret is ever sent. There is nothing to recover an account with afterwards,
+    // by design: no email to post a link to, and for an under-threshold account the design says
+    // there must not be one.
+    return Results.Created(
+        $"/accounts/{account.Id}", new Opened(account.Id, secret, account.Band.ToString()));
+});
+
+app.MapPut("/accounts/band", (
+    SetBand request, HttpRequest http, MatchStore store, TimeProvider clock) =>
+{
+    if (!Enum.IsDefined(request.Band))
+    {
+        return Results.BadRequest(new { error = "That is not an age band." });
+    }
+
+    string id = http.Headers["X-Account"].ToString();
+    string secret = http.Headers["X-Account-Secret"].ToString();
+
+    // A child becomes an adult while the account carries on existing, so the band has to be able to
+    // move. The client re-asks on the birthday it worked the band out from.
+    return store.SetBand(id, secret, request.Band, clock.GetUtcNow())
+        ? Results.NoContent()
+        : Results.Unauthorized();
+});
+
+// ---- The pool -------------------------------------------------------------------------
+
+app.MapPost("/queue", (
+    JoinPool request, HttpRequest http, MatchStore store, TimeProvider clock) =>
+{
+    if (request.PlayerCount is < 2 or > 4)
+    {
+        return Results.BadRequest(new { error = "A match is two to four players." });
+    }
+
+    DateTimeOffset now = clock.GetUtcNow();
+
+    if (store.Who(
+            http.Headers["X-Account"].ToString(),
+            http.Headers["X-Account-Secret"].ToString(),
+            now) is not Account account)
+    {
+        return Results.Unauthorized();
+    }
+
+    // The whole reason the age gate exists, enforced at the one place that can enforce it. The
+    // client has the same rule written down and the client's copy is not a gate: it decides whether
+    // the button is offered, and it runs on a machine the player owns.
+    if (!Allowed.Matchmaking(account.Band))
+    {
+        return Results.StatusCode(StatusCodes.Status403Forbidden);
+    }
+
+    Ticket ticket = store.JoinQueue(account.Id, request.PlayerCount, request.Pace, now);
+
+    return Results.Accepted($"/queue/{ticket.Id}", new { ticket = ticket.Id });
+});
+
+app.MapGet("/queue/{ticket}", (string ticket, MatchStore store, TimeProvider clock) =>
+{
+    if (store.Held(ticket) is not Ticket held)
+    {
+        return Results.NotFound(new { error = "No such ticket." });
+    }
+
+    DateTimeOffset now = clock.GetUtcNow();
+
+    if (!held.Seated)
+    {
+        return Results.Ok(new
+        {
+            waiting = true,
+            seconds = (int)(now - held.JoinedAt).TotalSeconds,
+
+            // The design's answer to a thin pool is not a better spinner, it is the other pace,
+            // "offered by default to anyone whose Live queue is slow". The relay says when; the
+            // player decides whether, because changing somebody's pace out from under them would
+            // be answering a different question from the one they asked.
+            slow = Matchmaker.Slowly(held, now),
+        });
+    }
+
+    Match match = store.Find(held.Code!)!;
+
+    return Results.Ok(new
+    {
+        waiting = false,
+        seated = Joined.From(
+            match,
+            new Seat(held.Code!, held.Seat, held.SeatToken!, held.JoinedAt),
+            store.SeatsTaken(held.Code!)),
+    });
+});
+
+// Leaving is the same call whether somebody gave up or has taken their seat and no longer needs the
+// ticket. A pool that kept finished tickets would grow for ever and would eventually seat somebody
+// into a match they left a fortnight ago.
+app.MapDelete("/queue/{ticket}", (string ticket, MatchStore store) =>
+    store.LeaveQueue(ticket) ? Results.NoContent() : Results.NotFound());
 
 // ---- Rounds ---------------------------------------------------------------------------
 

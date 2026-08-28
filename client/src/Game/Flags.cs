@@ -137,6 +137,20 @@ public static class Flags
     public static bool Host() => Asked("--host");
 
     /// <summary>
+    /// Whether to go straight into the matchmaking pool, as <c>--matchmake</c>.
+    /// </summary>
+    /// <remarks>
+    /// A development switch, and the same kind of switch <c>--host</c> was before the menu grew a
+    /// button for hosting. The player-facing flow is one button on the menu and a screen to wait on,
+    /// including the offer of the other pace when the pool is thin; this is how the plumbing under it
+    /// gets driven end to end in the meantime, which for a pool means running two of them.
+    ///
+    /// It needs an account that has been through the age gate, because that is the whole point of
+    /// the gate. A device that has not been asked comes straight back to the menu.
+    /// </remarks>
+    public static bool Matchmake() => Asked("--matchmake");
+
+    /// <summary>
     /// How many platoons, as <c>--players=2</c>.
     /// </summary>
     /// <remarks>

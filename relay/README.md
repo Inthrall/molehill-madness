@@ -60,6 +60,41 @@ Relay__Firebase__ServiceAccount=/var/lib/molehill/firebase.json dotnet run --pro
 
 What the sender cannot claim is that Google likes the bytes, because there is no Firebase project behind this repository to send to. Everything up to the socket is tested against a stub: a real key signs a real assertion which is verified the way Google verifies it, the bearer is minted and cached and dropped a minute early and thrown away when it is refused, and each documented error is put in front of it to see which of four answers it gives. Those four are the part worth being careful about. Sent and deferred and dropped and unregistered are not a boolean, and a boolean was going to start lying: an outbox that retries a dead phone spins for ever, and one that gives up on a busy service loses the round.
 
+## Accounts, and the one gate
+
+An account is only ever needed to be let in among strangers. Couch play needs none, and joining by code needs none either, which is why none of the endpoints above ask for one: a code arrives from somebody you know, and the person who read it out is accountable for who else is in the lobby. That absence is the design rather than an oversight, and `Allowed.JoiningByCode` is written down so it reads as one.
+
+| | |
+| --- | --- |
+| `POST /accounts` | `{"band":"Adult"}`. Makes an anonymous account and returns the id and the secret. |
+| `PUT /accounts/band` | The band again, with `X-Account` and `X-Account-Secret`, for a player who has had the birthday that moves it. |
+
+What is stored is an opaque id, the secret that owns it, and one of three age bands. Not a date of birth, not an age, not a name, not an email, nothing anybody could be found by: the design asks for "no discoverable social graph", and the cheapest way to have none is to store nothing one could be built out of. The date is typed once on the device, turned into a band there, and never leaves it.
+
+Three bands rather than two, because "we have not asked yet" is a real state. Defaulting an unasked account to the safe side would be tempting and wrong: it would silently apply child protections to adults and, worse, would make a bug that skipped the gate look like a working gate.
+
+The secret is returned once and cannot be reissued. There is nothing in an account to recover it by, deliberately: no email for an under-threshold one, and the design says there must not be. Losing it costs a player nothing they can name, since an account holds no progress, no purchases and no friends, only permission to be put among strangers.
+
+The client has the same rule about who may be matched written down, and the client's copy is not the enforcement. A guard that runs on the device decides whether a button is offered and can be edited out by anybody who cares to. This one is the gate. It is a rule stated twice, which is worth being uncomfortable about and is still smaller than the alternatives: sharing a library would mean the relay referencing the game, which is what stops it ever learning what a plan is, and trusting the client would mean not having a gate at all.
+
+## The pool
+
+| | |
+| --- | --- |
+| `POST /queue` | `{"playerCount":4,"pace":"Live"}` with the account headers. Returns a ticket. |
+| `GET /queue/{ticket}` | Still waiting, with how long and whether that is slow; or the seat, once there is one. |
+| `DELETE /queue/{ticket}` | Gives the place back. |
+
+One region-wide pool, no skill brackets, no ranking, exactly as the design says and for the reason it gives: a new free game with a thin population is a queue that never fills, and every bracket divides a population that cannot afford dividing. The only thing separating one queue from another is how many seats somebody asked for and which clock they asked for, because those are different requests rather than different skill levels.
+
+Oldest first is the only fairness rule in it. Partial groups are left waiting rather than seated short: a host in a lobby may lower the count and start, because a host is a person making a decision, and nothing in the pool is in a position to make that one on anybody's behalf.
+
+What comes out is an ordinary lobby. It is opened through the same call a host uses and seats people through the same Join, so it has a code somebody could read out and nothing downstream can tell how its players found each other. That is worth more than it costs: every rule about rounds, forfeits, notifications and sockets already works on it, because there is nothing new to work on.
+
+A queue that is not filling says so rather than spinning. After forty-five seconds a waiting ticket comes back marked slow, and the design's answer to a thin pool is the other pace, "offered by default to anyone whose Live queue is slow". The relay says when; the player decides whether, because changing somebody's pace out from under them would be answering a different question from the one they asked.
+
+Joining the pool is idempotent. The case it protects against is not somebody being clever, it is a phone that sent the request and lost signal before the reply: refusing the second one would leave a player holding no ticket while the pool holds their place, which is the one state neither end can get out of.
+
 ## The image
 
 ```
@@ -69,15 +104,15 @@ docker run --rm -p 8080:8080 -v molehill:/data molehill-relay
 
 The build context is this directory rather than the repository root, which is a guard rather than a convenience. The relay has no project reference to MoleSim on purpose, because the moment it can see a `Plan` type it becomes possible for it to start having opinions about one, and a context that cannot reach the simulation means adding that reference breaks the image build instead of passing quietly.
 
-The runtime image is the ordinary one rather than a chiselled or Alpine build. SQLite arrives as a native library through SQLitePCLRaw, and the small images are where that stops being somebody else's problem: musl wants a different build of it, and finding that out from a container that starts and then throws on the first query is a bad afternoon. The database goes on a volume, since the whole point of Anytime pace is that a match outlives the process. There is no `HEALTHCHECK` line: the image carries no curl, adding one is a package and an attack surface for something every host does better itself, and `/health` is there for the platform to probe.
+The runtime image is the ordinary one rather than a chiselled or Alpine build. SQLite arrives as a native library through SQLitePCLRaw, and the small images are where that stops being somebody else's problem: musl wants a different build of it, and finding that out from a container that starts and then throws on the first query is a bad afternoon. Hosting is this image plus, eventually, managed Postgres. The database goes on a volume, since the whole point of Anytime pace is that a match outlives the process. There is no `HEALTHCHECK` line: the image carries no curl, adding one is a package and an attack surface for something every host does better itself, and `/health` is there for the platform to probe.
 
 **This has never been built.** Docker is installed on the machine it was written on and its engine will not start, so what can be said about it is exactly this much: the publish step is the same command run outside a container, and it produces `Relay.Api.dll`; that binary was then started with the container's own configuration, answered `/health`, opened a lobby and wrote its SQLite file to the path the image sets. Everything in the file above that is not the image layering has been run. The layering has not. That is a weaker claim than this repository usually makes and it is written down rather than left to be discovered.
 
 ## What is not here yet
 
-Accounts and the age gate are task 4.4 and are not here.
+The email link. An account is anonymous and stays on one device, so a player who reinstalls is a new player, and the design's "lightweight account (email or platform sign-in)" is what eventually carries one between a phone and a desktop. It is not here because it needs something that can send mail and be seen to have sent it, which cannot be verified from the machine this was written on, and because an under-threshold account must never be asked for one: the feature is half a gate as well as half a login, and half of it built is worse than none.
 
-Hosting is a small container app plus, eventually, managed Postgres.
+Platform-level parental approval. The design lets an under-threshold account into the pool with it, and it is not a parameter here because nothing can set it truthfully: a store hands it to us, a player cannot tick it, and a flag this service accepted on somebody's word would be a hole in the gate wearing the name of a safeguard. When a platform can assert it, it arrives as a second field on the account and the rule becomes an or.
 
 ## Tests
 
