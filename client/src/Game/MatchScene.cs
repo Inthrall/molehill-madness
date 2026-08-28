@@ -966,6 +966,10 @@ public partial class MatchScene : Node2D
         {
             Online.Remember();
 
+            // The same moment, for the same reason: this is the first point at which there is a code
+            // and a token to open a socket with. Idempotent, so it costs nothing to ask every frame.
+            Online.Listen();
+
             if (!_saidCode)
             {
                 // Once, to the log. A code is the only handle anybody has on a match, so it is worth

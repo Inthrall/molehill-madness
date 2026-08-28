@@ -38,6 +38,14 @@ Two rules in there are load-bearing rather than incidental.
 
 A round that nobody can complete is swept rather than left. One player who loses interest must not be able to end a match for three other people by never opening the game again, so a lobby carries a window, and a sweep forfeits whoever ran out of it. A seat that has already submitted is never forfeited however late the sweep finds it: their turn is in, and taking it away would be worse than the delay.
 
+## Being told at once
+
+`GET /matches/{code}/live`, upgraded to a WebSocket with the same seat token everything else takes. It is a doorbell rather than a delivery van: the socket says "round four is ready" and the client fetches round four through the endpoint it would otherwise have polled. Nothing that matters travels over it, so a socket that drops costs a second of latency and nothing else, and the polling path stays the truth rather than becoming a branch that only runs once something has already gone wrong. A client with a socket up asks every ten seconds instead of every second, and hears about the round sooner than it would have anyway.
+
+Notices are decided by watching the store rather than by ringing the bell from the endpoints. Ringing from the endpoints is lower latency and is one forgotten call site away from a match that silently stops notifying, which would only ever show up as "sometimes it takes a second longer", the least reportable symptom there is. A watcher means one place decides and no call site can disagree, and it costs two local reads per quarter second per match somebody is actually listening to.
+
+Live pace has no deadline, deliberately, because everybody is present. This is where that stops being true. A Live round still waiting ninety seconds on a seat that has neither submitted nor got a socket has lost that player rather than found a slow one, since a connected client commits whatever it had at the buzzer, so the match downgrades to Anytime and the forfeit sweep that was already running finishes it. Without that, one person closing their phone leaves three others on a round that can never settle.
+
 ## Notifications
 
 Telling somebody it is their turn is two halves. Deciding who to tell is the half with a rule in it, "one a day per match at most", and it is enforced by reading the outbox table rather than by remembering anything. Sending is an HTTP call to somebody else's service, so it is a background drain over the same table: an undeliverable nudge is a row rather than a lost event, and swapping the sender is one class.
@@ -53,8 +61,6 @@ Relay__Firebase__ServiceAccount=/var/lib/molehill/firebase.json dotnet run --pro
 What the sender cannot claim is that Google likes the bytes, because there is no Firebase project behind this repository to send to. Everything up to the socket is tested against a stub: a real key signs a real assertion which is verified the way Google verifies it, the bearer is minted and cached and dropped a minute early and thrown away when it is refused, and each documented error is put in front of it to see which of four answers it gives. Those four are the part worth being careful about. Sent and deferred and dropped and unregistered are not a boolean, and a boolean was going to start lying: an outbox that retries a dead phone spins for ever, and one that gives up on a busy service loses the round.
 
 ## What is not here yet
-
-Live pace works, but by polling: both paces use the same submit-and-fetch endpoints, and Live simply polls faster. The WebSocket hub the design calls for is an optimisation on top of a protocol that already works, so it waits.
 
 Accounts and the age gate are task 4.4 and are not here.
 

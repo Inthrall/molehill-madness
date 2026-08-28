@@ -67,6 +67,18 @@ namespace Molehill.Online
         /// <summary>How long to wait after a call could not reach the relay.</summary>
         private const double RetryGap = 2.0;
 
+        /// <summary>
+        /// How often to ask while a socket is up, in seconds.
+        /// </summary>
+        /// <remarks>
+        /// Ten, which is a safety net rather than a poll. The socket says when a round is ready, so
+        /// the only job left for the timer is to catch the case where a notice was missed while the
+        /// connection was down and came back before anybody noticed. Ten seconds of extra latency in
+        /// a case that should not happen is a fair price for one call every ten seconds instead of
+        /// one a second.
+        /// </remarks>
+        private const double SocketGap = 10.0;
+
         private readonly RelayClient _relay;
         private readonly Func<System.Threading.Tasks.Task<Reply<Seating>>>? _arrive;
 
@@ -78,6 +90,7 @@ namespace Molehill.Online
         private long _heardUpTo;
         private double _sinceHeard;
 
+        private LiveDoorbell? _bell;
         private byte[]? _mine;
         private double _quiet;
         private List<Plan> _plans = new List<Plan>();
@@ -190,6 +203,20 @@ namespace Molehill.Online
             _quiet += seconds;
             Elapsed += seconds;
 
+            if (!Live)
+            {
+                // Finished, however it finished. The socket is no use to a match that is over and a
+                // reconnect loop nobody stopped would outlive the game.
+                Hush();
+            }
+            else if (_bell is not null && _bell.Rang())
+            {
+                // Something happened. Ask at once rather than at the end of whatever gap was left,
+                // which is the entire point of having a socket: four phones see the round at the
+                // same moment rather than up to a poll apart.
+                _quiet = double.MaxValue;
+            }
+
             Listen(seconds);
 
             switch (Stage)
@@ -274,7 +301,36 @@ namespace Molehill.Online
         /// <summary>Gives up on the match, without telling the relay, which does not care.</summary>
         public void Leave()
         {
+            Hush();
             Stage = OnlineStage.Done;
+        }
+
+        /// <summary>
+        /// Takes a doorbell, and with it responsibility for turning it off.
+        /// </summary>
+        /// <remarks>
+        /// Handed in rather than built here, so that nothing in this class has to know how to open a
+        /// socket and the whole online flow stays testable against an in-process relay. Ownership
+        /// comes with it: a reconnect loop that outlived the match it was listening to would carry on
+        /// dialling a finished game for as long as the process ran.
+        /// </remarks>
+        public void Listen(LiveDoorbell bell)
+        {
+            ArgumentNullException.ThrowIfNull(bell);
+
+            Hush();
+
+            _bell = bell;
+            _bell.Start();
+        }
+
+        /// <summary>Whether a socket is up, which is only ever of interest to a log.</summary>
+        public bool Hearing => _bell is not null && _bell.Listening;
+
+        private void Hush()
+        {
+            _bell?.Dispose();
+            _bell = null;
         }
 
         // ---- Saying something -------------------------------------------------------
@@ -628,7 +684,15 @@ namespace Molehill.Online
             }
         }
 
-        private double Gap() => Pace == MatchPace.Anytime ? AnytimeGap : LiveGap;
+        private double Gap()
+        {
+            double gap = Pace == MatchPace.Anytime ? AnytimeGap : LiveGap;
+
+            // The larger of the two, never the socket's own figure. Anytime already polls further
+            // apart than the safety net does, and a socket that made a client ask more often than it
+            // would have without one would be an optimisation with the sign the wrong way round.
+            return _bell is not null && _bell.Listening ? Math.Max(gap, SocketGap) : gap;
+        }
 
         /// <summary>
         /// Decides whether a failed call is worth trying again or is the end of the match.

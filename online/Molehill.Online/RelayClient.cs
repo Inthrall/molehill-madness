@@ -59,6 +59,16 @@ namespace Molehill.Online
         /// </remarks>
         public string Trouble { get; private set; } = string.Empty;
 
+        /// <summary>
+        /// Where this client points, so a socket can be pointed at the same relay.
+        /// </summary>
+        /// <remarks>
+        /// Exposed rather than passed around separately, because the two addresses have to agree and
+        /// a caller holding both is a caller who can get them out of step. The doorbell turns this
+        /// into a ws or wss address itself.
+        /// </remarks>
+        public Uri? Relay => _http.BaseAddress;
+
         public RelayClient(Uri relay)
             : this(new HttpClient { BaseAddress = relay, Timeout = Patience }, ownsHttp: true)
         {

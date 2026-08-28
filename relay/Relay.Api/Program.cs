@@ -49,7 +49,18 @@ else
 
 builder.Services.AddHostedService<NudgeDrain>();
 
+// The live hub, and the timer that rings its bell. Live pace worked by polling long before this
+// existed and still does: the socket carries no plans, only word that a round is ready, so a client
+// that never opens one or loses the one it had plays exactly as it did before, a beat later.
+builder.Services.AddSingleton<LiveHub>();
+builder.Services.AddHostedService<LiveWatcher>();
+
 WebApplication app = builder.Build();
+
+// Sockets have to be turned on before anything can be upgraded onto one. The keepalive is the
+// framework's own protocol-level ping, which is what stops a phone's network dropping an idle
+// connection during a planning phase nobody is typing into.
+app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) });
 
 app.MapGet("/health", () => Results.Ok(new { ok = true }));
 
@@ -295,6 +306,41 @@ app.MapGet("/matches/{code}/emotes", (string code, long since, MatchStore store)
         since = said.Count > 0 ? said[^1].Id : since,
         said = said.Select(one => new { seat = one.Seat, emote = one.Emote }),
     });
+});
+
+// ---- Being told at once ---------------------------------------------------------------
+
+// A socket that says when something has happened, and nothing else. It carries no plans: a client
+// hearing "round four is ready" fetches round four through the endpoint above, which is the same
+// endpoint it would have polled. So a dropped socket costs a second of latency rather than a match,
+// and the polling path stays the truth rather than becoming a branch that only runs when something
+// has already gone wrong.
+app.Map("/matches/{code}/live", async (
+    string code, HttpContext http, MatchStore store, LiveHub hub) =>
+{
+    if (!http.WebSockets.IsWebSocketRequest)
+    {
+        return Results.BadRequest(new { error = "That endpoint is a socket." });
+    }
+
+    if (GameCode.Parse(code) is not string tidy || store.Find(tidy) is not Match _)
+    {
+        return Results.NotFound(new { error = "No such game code." });
+    }
+
+    // The same seat token everything else uses. A socket is a way to hear about a match, so it wants
+    // the same proof of belonging to one that reading a round does.
+    if (store.SeatOf(tidy, http.Request.Headers["X-Seat-Token"].ToString()) is not int seat)
+    {
+        return Results.Unauthorized();
+    }
+
+    using System.Net.WebSockets.WebSocket socket =
+        await http.WebSockets.AcceptWebSocketAsync();
+
+    await hub.Hold(tidy, seat, socket, http.RequestAborted);
+
+    return Results.Empty;
 });
 
 // ---- Being told it is your turn -------------------------------------------------------

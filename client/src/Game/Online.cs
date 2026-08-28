@@ -102,6 +102,28 @@ public static class Online
         file.Save(Remembered);
     }
 
+    /// <summary>
+    /// Opens the socket that says when something has happened.
+    /// </summary>
+    /// <remarks>
+    /// Called at the same moment the seat is written down, because that is the first moment there is
+    /// a code and a token to open one with, and it is safe to call again: a session that is already
+    /// listening keeps the socket it has rather than stacking a second one on top of it.
+    ///
+    /// For both paces. Anytime benefits as much as Live does while the app is actually open, and the
+    /// only difference between them is how long the poll underneath waits, which the session works
+    /// out for itself.
+    /// </remarks>
+    public static void Listen()
+    {
+        if (Match?.Seating is null || Match.Hearing || Relay.Relay is not Uri where)
+        {
+            return;
+        }
+
+        Match.Listen(new LiveDoorbell(where, Match.Code, Match.Seating.Token));
+    }
+
     private static bool Recall(out string code, out string token)
     {
         code = string.Empty;

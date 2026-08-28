@@ -720,6 +720,36 @@ public sealed class MatchStore : IDisposable
         }
     }
 
+    /// <summary>
+    /// Changes how a match is paced, for a Live one that has lost somebody.
+    /// </summary>
+    /// <remarks>
+    /// The design's disconnect-to-Anytime downgrade, and it is the only thing that can rescue a Live
+    /// match from a player who walks off. Live pace has no deadline on purpose, because everybody is
+    /// present, so a Live round waiting on somebody who is gone waits for ever and takes three other
+    /// people's match with it. Moving the pace gives the round a window, and the forfeit sweep that
+    /// was already running does the rest without knowing anything about sockets.
+    ///
+    /// The window hangs off when the round opened rather than off now, which is what the deadline is
+    /// built from everywhere else, so a round that has been open ninety seconds gets a day from when
+    /// it started rather than a day from when somebody noticed.
+    ///
+    /// Guarded on the pace it is coming from, so this cannot run twice and cannot walk a match that
+    /// was always Anytime into a different window.
+    /// </remarks>
+    public void Downgrade(string code, Pace to, int windowSeconds)
+    {
+        lock (_gate)
+        {
+            Execute(
+                """
+                UPDATE matches SET pace = $pace, window_seconds = $window
+                WHERE code = $code AND pace <> $pace;
+                """,
+                ("$code", code), ("$pace", (int)to), ("$window", windowSeconds));
+        }
+    }
+
     // ---- Forfeits -------------------------------------------------------------------
 
     /// <summary>
