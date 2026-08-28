@@ -139,32 +139,55 @@ public partial class Lobby : Control
     }
 
     /// <summary>
-    /// Three dots going round. Something is happening, and here is the proof.
+    /// A bar filling and emptying. Something is happening, and here is the proof.
     /// </summary>
     /// <remarks>
-    /// It also says which kind of something: struggling to reach the relay is drawn dimmer than
-    /// waiting for a person, because a player who cannot tell a tunnel from a slow friend will
-    /// assume the game is broken.
+    /// Three dots before this, and dots turn out to be too small a promise: they are what a phone
+    /// shows while it thinks, so a player reads them as a wait of no particular length and, when it
+    /// does turn out to have no particular length, as a game that has hung. A bar is the shape of a
+    /// thing in progress even when it cannot say how far through it is.
+    ///
+    /// It cannot say, and it does not pretend to. There is no total to measure against: the wait is
+    /// for other people to arrive, and nobody knows how long that takes. So it sweeps rather than
+    /// fills, which is the honest version, and is why the fill is a moving band rather than a level.
+    ///
+    /// It also says which kind of something. Struggling to reach the relay is drawn dimmer and
+    /// slower than waiting for a person, because a player who cannot tell a tunnel from a slow
+    /// friend will assume the game is broken.
     /// </remarks>
     private void DrawPulse(Vector2 viewport)
     {
-        float size = Mathf.Clamp(viewport.X * 0.02f, 6f, 14f);
+        bool struggling = _online!.Struggling;
+        float wide = Mathf.Clamp(viewport.X * 0.26f, 140f, 420f);
+        float tall = Mathf.Clamp(viewport.X * 0.016f, 9f, 20f);
         Vector2 middle = new Vector2(viewport.X / 2f, viewport.Y * 0.78f);
-        // Ink rather than the panel cream: these sit on soil and on sky, not on a panel, and they are
-        // the only thing on the screen proving anything is happening.
-        Color ink = _online!.Struggling
-            ? new Color(Palette.Ink, 0.3f)
-            : Palette.Ink;
 
-        for (int dot = 0; dot < 3; dot++)
+        // Ink rather than the panel cream: this sits on soil and on sky, not on a panel.
+        //
+        // Struggling is told apart by the speed of the sweep and not, as it was, by drawing it
+        // fainter. Before the relay has answered there is nothing else on this screen at all, not
+        // even the row of seats, because nobody knows yet how many seats there are: a faint bar on
+        // an empty hillside is the picture of a game that has hung, which is the opposite of what
+        // it is for.
+        Color ink = new Color(Palette.Ink, 0.85f);
+        Rect2 track = new Rect2(middle.X - (wide / 2f), middle.Y - (tall / 2f), wide, tall);
+
+        DrawRect(track, new Color(ink, 0.22f));
+
+        // A band sweeping the length of it, easing at both ends so it reads as travelling rather
+        // than as jumping back to the start.
+        float sweep = (float)(_spun * (struggling ? 0.42d : 0.72d)) % 1f;
+        float band = wide * 0.34f;
+        float travel = (wide + band) * Ease(sweep);
+        float left = Mathf.Max(track.Position.X, track.Position.X + travel - band);
+        float right = Mathf.Min(track.End.X, track.Position.X + travel);
+
+        if (right > left)
         {
-            float phase = (float)(_spun * 2.2d) - (dot * 0.4f);
-            float lift = Mathf.Max(0f, Mathf.Sin(phase)) * size * 1.1f;
-
-            DrawCircle(
-                middle + new Vector2((dot - 1) * size * 2.4f, -lift),
-                size * 0.5f,
-                ink);
+            DrawRect(new Rect2(left, track.Position.Y, right - left, tall), ink);
         }
     }
+
+    /// <summary>Smoothed at both ends, so the sweep leaves and arrives rather than snapping.</summary>
+    private static float Ease(float along) => along * along * (3f - (2f * along));
 }

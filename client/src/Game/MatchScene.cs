@@ -121,6 +121,11 @@ public partial class MatchScene : Node2D
     private PauseMenu? _pause;
     private KeyGuide? _guide;
 
+    /// <summary>How long a relay gets to answer at all before the lobby stops waiting for it.</summary>
+    private const double GivingUpAfter = 12d;
+
+    private double _struggledFor;
+
     private Lobby? _lobby;
     private WaitingSign? _waiting;
     private EmoteWheel? _wheel;
@@ -874,7 +879,7 @@ public partial class MatchScene : Node2D
 
         if (_beat == Beat.Arriving)
         {
-            RunArriving();
+            RunArriving(delta);
             return;
         }
 
@@ -939,11 +944,31 @@ public partial class MatchScene : Node2D
     /// OnlineMatch this scene already owns. A separate scene would have to be handed the same
     /// session and would then have to hand it back.
     /// </remarks>
-    private void RunArriving()
+    private void RunArriving(double delta)
     {
         OnlineMatch online = Online.Match!;
 
         _lobby!.Show(online);
+
+        // Giving up, eventually. A relay that is not running never changes the session's stage, so
+        // Live stays true and the check below it never fires: the lobby waits for a machine that is
+        // not there, forever, which is the second thing this beat has been mistaken for a hang over.
+        // Pressing play with hosting selected and no relay on the desk is the ordinary way to reach
+        // it, and it should not be a dead end.
+        //
+        // Back to the menu rather than an error on this screen, for the reason the stage check
+        // already gives: the menu is the only screen that can do anything about it. Long enough
+        // that a slow connection is not thrown away, short enough that nobody thinks it has frozen.
+        _struggledFor = online.Struggling ? _struggledFor + delta : 0d;
+
+        if (_struggledFor > GivingUpAfter)
+        {
+            GD.Print($"relay never answered at {Flags.Relay()}, back to the menu");
+            Online.Forget();
+            GetTree().CallDeferred(
+                SceneTree.MethodName.ChangeSceneToFile, "res://scenes/Menu.tscn");
+            return;
+        }
 
         // The token arrives with the seat and cannot be reissued, so it is written down the moment
         // it exists rather than when the match ends. A player who loses it has lost their seat with

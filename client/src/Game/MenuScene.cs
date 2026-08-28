@@ -336,14 +336,24 @@ public partial class MenuScene : Control
         }
     }
 
+    /// <summary>Where the row of tables starts and how tall it is.</summary>
+    /// <remarks>
+    /// Named for the same reason the choices row's are: everything under it is placed by chaining
+    /// off it, and the moment any of that was written out as its own fraction of the screen the
+    /// rows started landing on top of each other whenever one of them changed height.
+    /// </remarks>
+    private float TablesTop(Vector2 viewport) => viewport.Y * 0.44f;
+
+    private float TablesHeight() => _button * 1.4f;
+
     /// <summary>Here together, hosting, or joining.</summary>
     private void DrawTables(Vector2 viewport)
     {
-        float height = _button * 1.4f;
+        float height = TablesHeight();
         float width = _button * 2.1f;
         float gap = _button * 0.42f;
         float left = (viewport.X - ((width * _tables.Length) + (gap * (_tables.Length - 1)))) / 2f;
-        float top = viewport.Y * 0.44f;
+        float top = TablesTop(viewport);
 
         for (int index = 0; index < _tables.Length; index++)
         {
@@ -426,11 +436,23 @@ public partial class MenuScene : Control
         Glyphs.Passing(this, at, size, ink);
     }
 
+    /// <summary>Where the row of platoon counts starts and how tall it is.</summary>
+    /// <remarks>
+    /// One place, because two things sit under it. The pace buttons had this height written out
+    /// again as a number, so making room under each platoon for what it plans with pushed the row
+    /// taller and left the paces overlapping it, which is exactly the kind of drift a second copy
+    /// of a number is for.
+    /// </remarks>
+    private float ChoicesTop(Vector2 viewport) =>
+        TablesTop(viewport) + TablesHeight() + (_button * 0.35f);
+
+    private float ChoicesHeight() => _button * 2.05f;
+
     /// <summary>Two, three or four, each shown as that many platoons.</summary>
     private void DrawChoices(Vector2 viewport)
     {
         float glyph = _button * 0.62f;
-        float height = _button * 2.05f;
+        float height = ChoicesHeight();
         float gap = _button * 0.5f;
         float[] widths = new float[_choices.Length];
         float total = 0f;
@@ -442,7 +464,7 @@ public partial class MenuScene : Control
         }
 
         float left = (viewport.X - total + gap) / 2f;
-        float top = viewport.Y * 0.585f;
+        float top = ChoicesTop(viewport);
 
         for (int index = 0; index < _choices.Length; index++)
         {
@@ -485,7 +507,7 @@ public partial class MenuScene : Control
         float width = _button * 1.5f;
         float gap = _button * 0.4f;
         float left = (viewport.X - ((width * 2) + gap)) / 2f;
-        float top = viewport.Y * 0.585f + (_button * 1.5f) + (_button * 0.3f);
+        float top = ChoicesTop(viewport) + ChoicesHeight() + (_button * 0.3f);
 
         for (int index = 0; index < _paces.Length; index++)
         {
@@ -519,15 +541,26 @@ public partial class MenuScene : Control
     /// that starts things and not with the ones that describe them. It also had to move: drawn above
     /// the table row it landed squarely on the badge and hid two of the four moles.
     /// </remarks>
+    /// <summary>
+    /// Play, in the bottom left corner.
+    /// </summary>
+    /// <remarks>
+    /// It used to sit centred at four fifths of the way down, directly under the stack of choices,
+    /// which worked at the shape of the project's own window and nowhere else: everything on this
+    /// screen is placed as a fraction of the canvas height, and an expanding stretch gives a wide
+    /// window a short canvas, so the whole column compresses into itself and the button ends up in
+    /// the row above it.
+    ///
+    /// A corner cannot do that. It is measured from the bottom and the left rather than from the
+    /// middle, so it stays a fixed distance from two edges whatever shape the window is, and it is
+    /// out of the way of a column that can be as tall as it likes.
+    /// </remarks>
     private void DrawPlay(Vector2 viewport)
     {
-        float middle = viewport.Y * 0.83f;
+        float margin = _button * 0.75f;
+        float middle = viewport.Y - margin - _button;
 
-        // Shifted off centre only when there are two buttons, so a fresh install has its play
-        // button where it has always been.
-        float nudge = _canResume ? _button * 1.35f : 0f;
-
-        _play = new Vector2((viewport.X / 2f) + nudge, middle);
+        _play = new Vector2(margin + _button, middle);
 
         DrawCircle(_play, _button, Palette.Panel);
         DrawArc(_play, _button, 0, Mathf.Tau, 40, new Color(Palette.OnPanel, 0.55f), 3f);
@@ -538,7 +571,9 @@ public partial class MenuScene : Control
             return;
         }
 
-        Vector2 back = new Vector2((viewport.X / 2f) - nudge, middle);
+        // Carrying on beside starting again, in the same corner, because they are the same kind of
+        // thing and a player looking for one is looking for the other.
+        Vector2 back = new Vector2(_play.X + (_button * 2.5f), middle);
 
         _resume = new Rect2(back - new Vector2(_button, _button), Vector2.One * _button * 2f);
 
