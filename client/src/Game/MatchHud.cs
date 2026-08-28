@@ -110,6 +110,12 @@ public partial class MatchHud : Control
             return;
         }
 
+        // Otherwise it goes in the top left corner. It used to sit centred along the bottom, above
+        // the key strip, which is the busiest edge of the screen and the one furthest from where the
+        // eye already is: the round clock is at the top, and how many moles each platoon has left is
+        // the other thing you glance at between plans. Cleared past the pane's own instruments by
+        // the same measurement the top strip uses, so the two cannot land on each other.
+
         int seats = _state.Standing.Length;
         float glyph = _state.HasSpareCell ? 26f : 17f;
         float rowHeight = glyph * 1.5f;
@@ -119,9 +125,7 @@ public partial class MatchHud : Control
         Vector2 origin = _state.HasSpareCell
             ? _state.SpareCell.Position
                 + ((_state.SpareCell.Size - new Vector2(width, height)) / 2f)
-            : new Vector2(
-                (viewport.X - width) / 2f,
-                viewport.Y - height - 14f - _state.BottomClearance);
+            : new Vector2(glyph * 1.4f, Mathf.Max(_state.TopClearance, 6f) + (glyph * 0.6f));
 
         DrawRect(
             new Rect2(origin - new Vector2(glyph * 0.5f, glyph * 0.4f),

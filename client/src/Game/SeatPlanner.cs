@@ -25,7 +25,16 @@ using MoleSim.Numerics;
 public sealed class SeatPlanner
 {
     /// <summary>Drag distance, in metres, that charges a shot fully.</summary>
-    public static Fix64 FullPowerDrag => Fix64.FromInt(20);
+    /// <summary>
+    /// How far out from the mole the aim point sits, in metres.
+    /// </summary>
+    /// <remarks>
+    /// Only a distance to put a point at now. It used to be the full-power drag, and the length of
+    /// the drag was the power: pointing further threw harder. That is gone, and the name went with
+    /// it, because leaving it called FullPowerDrag would have every reader of the pad and touch
+    /// paths believe a reach still means a power.
+    /// </remarks>
+    public static Fix64 AimReach => Fix64.FromInt(20);
 
     private readonly MoleMatch _match;
 
@@ -75,6 +84,9 @@ public sealed class SeatPlanner
     public bool Aiming { get; private set; }
 
     public Vec2 AimAt { get; private set; }
+
+    /// <summary>How long the aim has been held, as a fraction of a full charge.</summary>
+    public double AimHeld { get; private set; }
 
     /// <summary>How far through the hold-to-reset gesture, from zero to one.</summary>
     public double ResetHeld { get; private set; }
@@ -144,6 +156,7 @@ public sealed class SeatPlanner
         Committed = false;
         ResetHeld = 0;
         CommitHeld = 0;
+        AimHeld = 0;
         _tickDebt = 0;
         _freeResetSpent = false;
 
@@ -287,7 +300,43 @@ public sealed class SeatPlanner
 
         Aiming = true;
         AimAt = at;
+        AimHeld = 0;
     }
+
+    /// <summary>
+    /// Winds the shot up for as long as the button is held.
+    /// </summary>
+    /// <remarks>
+    /// Power used to be the length of the drag: point near the mole for a lob, point a long way off
+    /// to throw hard. Two things were wrong with that. It spent the aim gesture twice, so choosing a
+    /// direction and choosing a power were the same movement and neither could be adjusted without
+    /// disturbing the other; and it does not survive contact with a pad or a thumb, where the stick
+    /// has a fixed throw and the distance available is whatever the deadzone left over.
+    ///
+    /// Time is the honest axis for a wind-up, and every artillery game in the genre uses it. Point
+    /// where you want it to go, hold to decide how hard, let go to stamp the shot.
+    ///
+    /// Polled rather than counted from key events, like the reset and the commit, because a held
+    /// button is one press and then silence. Clamped at full rather than cycling: overshooting a
+    /// charge you cannot see the end of is a worse deal than waiting a moment with it full.
+    /// </remarks>
+    public void HoldAim(double delta)
+    {
+        if (!Aiming || !IsPlanning)
+        {
+            return;
+        }
+
+        AimHeld += delta / ChargeSeconds;
+
+        if (AimHeld > 1)
+        {
+            AimHeld = 1;
+        }
+    }
+
+    /// <summary>How long a full wind-up takes.</summary>
+    public const double ChargeSeconds = 1.2;
 
     public void MoveAim(Vec2 at)
     {
@@ -298,8 +347,8 @@ public sealed class SeatPlanner
     }
 
     /// <summary>
-    /// Stamps the turn's shot: a direction from the drag, a power from its length, and a
-    /// moment from wherever the mole has been steered to.
+    /// Stamps the turn's shot: a direction from where it is pointed, a power from how long it was
+    /// held, and a moment from wherever the mole has been steered to.
     /// </summary>
     public void ReleaseAim()
     {
@@ -317,22 +366,22 @@ public sealed class SeatPlanner
             return;
         }
 
-        Shot = PlanAction.Fire(Now(), aim, PowerFor(aim));
+        Shot = PlanAction.Fire(Now(), aim, PowerFor(AimHeld));
+        AimHeld = 0;
     }
 
     /// <summary>
-    /// How hard a given drag throws, as the byte the plan will carry.
+    /// How hard a given wind-up throws, as the byte the plan will carry.
     /// </summary>
     /// <remarks>
     /// Shared with <see cref="AimCharge"/> on purpose. The charge gauge is drawn from this rather
-    /// than from the raw drag length, so it cannot promise a throw the plan will not contain: the
-    /// clamp at either end is part of the answer, and a bar that ignored the floor would read as
-    /// empty for a shot that is about to go off at a fifth power anyway.
+    /// than from the raw hold, so it cannot promise a throw the plan will not contain: the clamp at
+    /// either end is part of the answer, and a bar that ignored the floor would read as empty for a
+    /// shot that is about to go off at a fifth power anyway.
     /// </remarks>
-    private static byte PowerFor(Vec2 aim)
+    private static byte PowerFor(double charged)
     {
-        Fix64 reach = Fix64.Min(aim.Length(), FullPowerDrag);
-        int power = Fix64.ToInt(reach / FullPowerDrag * Fix64.FromInt(byte.MaxValue));
+        int power = (int)(charged * byte.MaxValue);
 
         return (byte)(power < WeakestThrow ? WeakestThrow
             : power > byte.MaxValue ? byte.MaxValue : power);
@@ -359,7 +408,7 @@ public sealed class SeatPlanner
 
     /// <summary>How charged the shot is, from nothing to full.</summary>
     public double AimCharge =>
-        (Aiming ? PowerFor(AimAt - PlannedPosition) : Shot?.Power ?? 0) / (double)byte.MaxValue;
+        (Aiming ? PowerFor(AimHeld) : Shot?.Power ?? 0) / (double)byte.MaxValue;
 
     /// <summary>
     /// Plants the charge where the mole is standing, or picks it back up.

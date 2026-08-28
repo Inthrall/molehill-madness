@@ -410,9 +410,20 @@ public partial class TouchControls : Control
     }
 
     /// <summary>
-    /// The aim, while the fire button is held: a stick pulled out of the button, whose length
-    /// is the charge. One thumb, one gesture, direction and power together.
+    /// The aim, while the fire button is held: a stick out of the button saying which way, and the
+    /// ring around it filling as the throw winds up.
     /// </summary>
+    /// <remarks>
+    /// The stick's length used to be the charge, one thumb spending one gesture on direction and
+    /// power at once. That stopped being true when the power became a hold, and leaving the length
+    /// alone would have been worse than a dead control rather than merely useless: a thumb an inch
+    /// out and a thumb at full stretch would have drawn two different pictures of the same shot.
+    ///
+    /// So the stick reaches the ring whichever way it is pushed, and the ring fills the way the
+    /// reset's does. A hold on this screen announces itself by visibly filling, and there is no
+    /// reason for the fire button to say it in a second language. The fill is read off the planner
+    /// rather than off the clock here, so the clamp at either end of a throw is in it.
+    /// </remarks>
     private void DrawAimStick()
     {
         if (_pressed != TouchTarget.Fire || AimDrag.LengthSquared() < 1f)
@@ -420,11 +431,18 @@ public partial class TouchControls : Control
             return;
         }
 
-        float reach = Mathf.Min(AimDrag.Length(), _button * 2.4f);
+        float reach = _button * 2.4f;
         Vector2 tip = _fire + (AimDrag.Normalized() * reach);
+
+        DrawArc(_fire, reach, 0, Mathf.Tau, 40, new Color(Palette.Damage, 0.3f), 2f);
+
+        float charged = (float)(Planner?.AimCharge ?? 0);
+
+        DrawArc(
+            _fire, reach, -Mathf.Pi / 2f, (-Mathf.Pi / 2f) + (Mathf.Tau * charged),
+            40, Palette.Damage, 5f);
 
         DrawLine(_fire, tip, Palette.Damage, 5f);
         DrawCircle(tip, _button * 0.3f, Palette.Damage);
-        DrawArc(_fire, _button * 2.4f, 0, Mathf.Tau, 40, new Color(Palette.Damage, 0.3f), 2f);
     }
 }

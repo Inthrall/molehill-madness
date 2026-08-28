@@ -1605,7 +1605,23 @@ public partial class WorldView : Control
 
         if (highlight)
         {
-            DrawCircle(at, radius * 1.6f, new Color(colour, 0.3f));
+            // A ring on the ground under it rather than a wash behind it. The wash was a disc of the
+            // platoon's colour at a third alpha, centred on the mole's middle, so what showed was a
+            // faint halo peeking out around a body that covered most of it: on dirt it read as
+            // nothing much, and it lost every argument with anything else round on the screen.
+            //
+            // Under the feet, drawn before the sprite, is where every game puts this. It cannot be
+            // confused with a marker somewhere else because it is beneath the animal, and it is a
+            // ring so the mole is inside it rather than in front of it.
+            Vector2 feet = new Vector2(at.X, at.Y + (radius * 0.92f));
+            float wide = radius * 1.5f;
+
+            // Offset included: DrawSetTransform replaces the transform rather than composing with
+            // it, and everything in this pass is drawn under the world offset.
+            DrawSetTransform(Offset() + feet, 0f, new Vector2(1f, 0.42f));
+            DrawCircle(Vector2.Zero, wide, new Color(colour, 0.22f));
+            DrawArc(Vector2.Zero, wide, 0f, Mathf.Tau, 32, colour, Mathf.Max(radius * 0.16f, 2f));
+            DrawSetTransform(Offset(), 0f, Vector2.One);
         }
 
         // Which platoon a mole belongs to used to be the whole of what its picture said, because
@@ -1683,18 +1699,18 @@ public partial class WorldView : Control
         Sweep(run, bore);
     }
 
-    /// <summary>Lays one unbroken stretch of tunnel down, however short it is.</summary>
+    /// <summary>Lays one unbroken stretch of tunnel down.</summary>
+    /// <remarks>
+    /// Runs of a single tick are dropped rather than drawn, and that is the whole of the "the dot is
+    /// not on the mole" report. A mole walking the surface clips the inside of a corner for one tick
+    /// all the time, which is not a tunnel and does not need showing, and drawn as a lone dark disc a
+    /// body wide it looked exactly like a marker that had come adrift from the mole it belonged to.
+    /// Two points is also what DrawPolyline needs, so nothing is lost by asking for them.
+    /// </remarks>
     private void Sweep(List<Vector2> run, float bore)
     {
-        if (run.Count == 0)
+        if (run.Count < 2)
         {
-            return;
-        }
-
-        // A single point is a dugout rather than a tunnel, and DrawPolyline wants two.
-        if (run.Count == 1)
-        {
-            DrawCircle(run[0], bore / 2f, Palette.Planned);
             return;
         }
 

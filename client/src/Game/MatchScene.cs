@@ -1120,6 +1120,7 @@ public partial class MatchScene : Node2D
         TrackIdle(delta);
         TrackPointerReset(delta);
         TrackCommitHold(delta);
+        TrackAimHold(delta);
         DriveIfAsked(delta);
 
         // The pointer moves on the moment its platoon is done, and the clock starts again
@@ -1791,8 +1792,9 @@ public partial class MatchScene : Node2D
                 break;
 
             case TouchTarget.Fire:
-                // Direction and power out of one thumb: the further the stick is pulled, the
-                // harder the throw, exactly as a mouse drag works.
+                // Direction only, like the stick beside it and for the same reason. The power is
+                // how long the button is held, which a thumb can do while it is still choosing
+                // where to point, and which does not run out of room the way a pull does.
                 Vector2 pull = drag.Position - _touch!.FireAt;
                 _touch.AimDrag = pull;
                 planner.MoveAim(AimFromStick(planner, pull));
@@ -1928,7 +1930,15 @@ public partial class MatchScene : Node2D
         return found == 2;
     }
 
-    /// <summary>Turns a thumb stick into an aim point out in the world.</summary>
+    /// <summary>
+    /// Turns a thumb stick into an aim point out in the world.
+    /// </summary>
+    /// <remarks>
+    /// A direction and nothing else. How far the thumb had dragged used to set the power, which on a
+    /// stick with a fixed throw meant the useful range of powers lived in the last few millimetres
+    /// of travel. The power is the hold now, so the point goes out at the full reach whichever way
+    /// the stick is pushed.
+    /// </remarks>
     private Vec2 AimFromStick(SeatPlanner planner, Vector2 drag)
     {
         if (drag.LengthSquared() < 1f)
@@ -1936,14 +1946,11 @@ public partial class MatchScene : Node2D
             return planner.PlannedPosition;
         }
 
-        float full = Mathf.Max(_touch!.WheelNotch * 3f, 1f);
-        float charge = Mathf.Min(drag.Length() / full, 1f);
         Vector2 direction = drag.Normalized();
-        Fix64 reach = SeatPlanner.FullPowerDrag * Fix64.Ratio((int)(charge * 256), 256);
 
         return planner.PlannedPosition + new Vec2(
-            Fix64.Ratio((int)(direction.X * 256), 256) * reach,
-            Fix64.Ratio((int)(direction.Y * 256), 256) * reach);
+            Fix64.Ratio((int)(direction.X * 256), 256) * SeatPlanner.AimReach,
+            Fix64.Ratio((int)(direction.Y * 256), 256) * SeatPlanner.AimReach);
     }
 
     // ---- Steering --------------------------------------------------------------------
@@ -2142,6 +2149,24 @@ public partial class MatchScene : Node2D
         else
         {
             planner.ReleaseCommit();
+        }
+    }
+
+    /// <summary>
+    /// Winds up whoever is aiming. Every seat, not just the pointer's.
+    /// </summary>
+    /// <remarks>
+    /// A pad seat aims by holding its right stick out and a pointer seat by holding the right
+    /// button, and both are held rather than pressed, so neither has an event to count. Walked
+    /// across every planner because a pad platoon aims at the same time as the pointer's does, and a
+    /// charge that only advanced for whoever had the mouse would leave three of four seats throwing
+    /// at the floor.
+    /// </remarks>
+    private void TrackAimHold(double delta)
+    {
+        foreach (SeatPlanner planner in _planners)
+        {
+            planner.HoldAim(delta);
         }
     }
 
@@ -2390,18 +2415,19 @@ public partial class MatchScene : Node2D
 
         if (aim.Length() > PadDeadZone)
         {
-            Fix64 reach = SeatPlanner.FullPowerDrag
-                * Fix64.Ratio((int)(Mathf.Min(aim.Length(), 1f) * 256), 256);
-
             if (!planner.Aiming)
             {
                 planner.BeginAim(planner.PlannedPosition);
             }
 
+            // Direction only. How far the stick is pushed no longer says anything about power, so
+            // the aim point goes out at the full reach and the charge comes from how long the stick
+            // is held out there.
             Vector2 direction = aim.Normalized();
+
             planner.MoveAim(planner.PlannedPosition + new Vec2(
-                Fix64.Ratio((int)(direction.X * 256), 256) * reach,
-                Fix64.Ratio((int)(direction.Y * 256), 256) * reach));
+                Fix64.Ratio((int)(direction.X * 256), 256) * SeatPlanner.AimReach,
+                Fix64.Ratio((int)(direction.Y * 256), 256) * SeatPlanner.AimReach));
         }
         else if (planner.Aiming)
         {
@@ -2553,7 +2579,11 @@ public partial class MatchScene : Node2D
 
             WalkThrough(planner, intent);
 
+            // Through the same door a player uses: begin, hold, release. Handed the whole wind-up
+            // in one delta rather than a frame at a time, because the driver plans a turn inside a
+            // single frame and HoldAim clamps at full anyway.
             planner.BeginAim(intent.AimAt);
+            planner.HoldAim(intent.Power * SeatPlanner.ChargeSeconds);
             planner.ReleaseAim();
 
             if (intent.PlantCharge)

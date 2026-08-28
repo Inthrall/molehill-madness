@@ -39,13 +39,17 @@ public sealed class AutoPilot
     /// </remarks>
     public sealed class Intent
     {
-        public Intent(List<Vec2> route, Vec2 aimAt, bool plantCharge, bool hop)
+        public Intent(List<Vec2> route, Vec2 aimAt, double power, bool plantCharge, bool hop)
         {
             Route = route;
             AimAt = aimAt;
+            Power = power;
             PlantCharge = plantCharge;
             Hop = hop;
         }
+
+        /// <summary>How hard to throw, from nothing to full, as a wind-up rather than a reach.</summary>
+        public double Power { get; }
 
         public List<Vec2> Route { get; }
 
@@ -88,9 +92,11 @@ public sealed class AutoPilot
 
         if (quarry is null)
         {
+            // Nothing to shoot at, so a token lob at half power: the shot still has to exist, or
+            // the driver never exercises the firing path at all.
             return new Intent(
                 route, actor.Position + new Vec2(Fix64.One, -Fix64.One),
-                plantCharge: false, hop);
+                power: 0.5, plantCharge: false, hop: hop);
         }
 
         bool rightward = quarry.Position.X > actor.Position.X;
@@ -112,20 +118,22 @@ public sealed class AutoPilot
         double wanted = System.Math.Sqrt(System.Math.Max(range, 1) * gravity);
         double power = full <= 0 ? 1 : System.Math.Min(1, System.Math.Max(0.15, wanted / full));
 
-        // A forty-five degree drag, its length carrying the power.
-        double drag = power * FullPowerDrag;
-        Fix64 reach = Fix64.Ratio((int)(drag * Diagonal * 256), 256);
+        // A forty-five degree aim, out at the full reach. The power used to be hidden in the
+        // length of this and is handed over on its own now, because the planning screen charges by
+        // time rather than by distance and a driver that encoded power as a reach would have thrown
+        // everything at the same strength.
+        Fix64 reach = Fix64.Ratio((int)(AimReach * Diagonal * 256), 256);
 
         // Leave a beet behind when the quarry is close enough for it to matter. Crude, and
         // frequently suicidal, which is a fair imitation of how it gets used.
         bool plant = Vec2.Distance(quarry.Position, from) < Fix64.FromInt(6);
 
         return new Intent(
-            route, new Vec2(from.X + (sign * reach), from.Y - reach), plant, hop);
+            route, new Vec2(from.X + (sign * reach), from.Y - reach), power, plant, hop);
     }
 
-    /// <summary>Must match the drag distance the planning screen treats as full power.</summary>
-    private const double FullPowerDrag = 20;
+    /// <summary>Must match the distance the planning screen puts an aim point at.</summary>
+    private const double AimReach = 20;
 
     /// <summary>Root two over two, so a diagonal drag has the length it looks like.</summary>
     private const double Diagonal = 0.7071067811865476;
