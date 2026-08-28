@@ -23,13 +23,35 @@ namespace MoleSim.Match
     /// lists things had got by that tick, so the client can pop a damage number at the
     /// moment it actually happened without a second copy of anything.
     /// </remarks>
+    /// <summary>
+    /// Something in the air, and what fired it.
+    /// </summary>
+    /// <remarks>
+    /// The weapon as well as the position, because a clod, an indignant beetle, three acorns, a
+    /// bunch of beetroots wired to a sparkler and a drill going through a hillside are five
+    /// different pictures and used to be one circle. Taken off the projectile, so nothing here
+    /// decides anything.
+    /// </remarks>
+    public readonly struct Shot
+    {
+        public Shot(Vec2 position, WeaponId weapon)
+        {
+            Position = position;
+            Weapon = weapon;
+        }
+
+        public Vec2 Position { get; }
+
+        public WeaponId Weapon { get; }
+    }
+
     public sealed class RoundRecording
     {
         private readonly Vec2[] _positions;
         private readonly Vec2[] _velocities;
         private readonly int[] _pluck;
         private readonly bool[] _offDuty;
-        private readonly List<Vec2>[] _shots;
+        private readonly List<Shot>[] _shots;
         private readonly int[] _hitsUpTo;
         private readonly int[] _knockoutsUpTo;
         private readonly int[] _changesUpTo;
@@ -47,7 +69,7 @@ namespace MoleSim.Match
             _velocities = new Vec2[moleCount * ticks];
             _pluck = new int[moleCount * ticks];
             _offDuty = new bool[moleCount * ticks];
-            _shots = new List<Vec2>[ticks];
+            _shots = new List<Shot>[ticks];
             _hitsUpTo = new int[ticks];
             _knockoutsUpTo = new int[ticks];
             _changesUpTo = new int[ticks];
@@ -78,8 +100,8 @@ namespace MoleSim.Match
         public bool IsOffDutyAt(int tick, int moleSlot) => _offDuty[Index(tick, moleSlot)];
 
         /// <summary>Everything in the air at a given tick.</summary>
-        public IReadOnlyList<Vec2> ShotsAt(int tick) =>
-            _shots[Clamp(tick)] ?? (IReadOnlyList<Vec2>)Array.Empty<Vec2>();
+        public IReadOnlyList<Shot> ShotsAt(int tick) =>
+            _shots[Clamp(tick)] ?? (IReadOnlyList<Shot>)Array.Empty<Shot>();
 
         /// <summary>
         /// How far into the round's hit list things had got by this tick, so a client can
@@ -164,13 +186,13 @@ namespace MoleSim.Match
 
             if (shots.Count > 0)
             {
-                List<Vec2> flying = new List<Vec2>(shots.Count);
+                List<Shot> flying = new List<Shot>(shots.Count);
 
                 foreach (Projectile shot in shots)
                 {
                     if (!shot.HasDetonated)
                     {
-                        flying.Add(shot.Position);
+                        flying.Add(new Shot(shot.Position, shot.Weapon));
                     }
                 }
 

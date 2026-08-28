@@ -61,6 +61,12 @@ public static class Art
     /// <summary>What is behind the ground above the surface: countryside, tiling sideways.</summary>
     public static Texture2D Surface => _surface ??= Load("backdrop-surface.png");
 
+    /// <summary>The lava's crusted surface, tiling sideways along the bottom of the map.</summary>
+    public static Texture2D LavaFloor => Held("lava-floor.png", 1).Art;
+
+    /// <summary>The same for the walls that close in from the sides, which are crust most of the way down.</summary>
+    public static Texture2D LavaWall => Held("lava-wall.png", 1).Art;
+
     /// <summary>Tufts of grass. Interchangeable, so the garden picks one by index.</summary>
     public static Texture2D[] Grass => _grass ??= new[]
     {
@@ -116,6 +122,7 @@ public static class Art
             { "stand", 1 },
             { "ko", 1 },
             { "aim", 5 },
+            { "walk", 8 },
             { "airborne", 8 },
             { "dig", 6 },
             { "hit", 3 },
@@ -181,6 +188,70 @@ public static class Art
 
     /// <summary>An interface glyph, white, to be tinted.</summary>
     public static Texture2D Glyph(string name) => Held($"glyph/{name}.png", 1).Art;
+
+    /// <summary>
+    /// Loads everything a match can ask for, before it asks.
+    /// </summary>
+    /// <remarks>
+    /// This is the difference between a game that stutters and one that does not, and it is worth
+    /// spelling out because the numbers are not obvious. Every strip and sprite here adds up to
+    /// about a hundred and forty megabytes of texture once it is decompressed and mipmapped, out of
+    /// thirty-one megabytes on disk. Loaded on first use, that cost arrives in pieces, on the frame
+    /// each piece is first needed: the first time a mole is snared, the first time a crate falls,
+    /// the first time each of the eight exits plays. Every one of those is a synchronous decompress
+    /// and upload in the middle of a draw, and a match spends its opening minute hitching through
+    /// them.
+    ///
+    /// An average frame rate hides that completely, which is why it took a while to find. Sixty
+    /// hitches spread over a minute barely move the average and are the only thing a player
+    /// notices.
+    ///
+    /// Only the platoons actually playing, because a two player match has no use for the other two
+    /// and they are half the total. Whether the pause this makes at match setup is worth hiding
+    /// behind something is a question for when there is a loading screen to hide it behind.
+    /// </remarks>
+    public static void Warm(int players)
+    {
+        for (int seat = 0; seat < Mathf.Min(players, Seats.Length); seat++)
+        {
+            foreach (string pose in MoleFrames.Keys)
+            {
+                Mole(seat, pose);
+            }
+
+            foreach (string exit in ExitFrames.Keys)
+            {
+                Exit(seat, exit);
+            }
+        }
+
+        foreach (string effect in EffectFrames.Keys)
+        {
+            Effect(effect);
+        }
+
+        foreach (string name in InTheWorld)
+        {
+            Object(name);
+        }
+
+        _ = LavaFloor;
+        _ = LavaWall;
+    }
+
+    /// <summary>
+    /// Everything in the world that is not a mole, an effect or the ground.
+    /// </summary>
+    /// <remarks>
+    /// Listed rather than discovered, because a directory listing at runtime would work in the
+    /// editor and not in an export, where these are inside a package.
+    /// </remarks>
+    private static readonly string[] InTheWorld =
+    {
+        "clod", "beetle", "acorn", "acorns", "beetroot", "relic", "gnome", "sack",
+        "mound", "snaptrap", "snare", "vent", "sandbag",
+        "chute-0", "chute-1", "chute-2", "landed", "open", "closed", "marker",
+    };
 
     private static Strip Held(string name, int frames)
     {

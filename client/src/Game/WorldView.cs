@@ -723,7 +723,12 @@ public partial class WorldView : Control
         float height = _stage.MapHeightCells * cell;
         float top = ToPixels(new Vec2(Fix64.Zero, match.LavaLine)).Y;
 
+        // The flat fill first and the crust over it, rather than the crust alone. The strip is
+        // about seven metres deep and the lava is thirty by the end of a match, so the fill is what
+        // makes it a lake rather than a ribbon, and the two agree on colour because the fill's
+        // colour was picked off this artwork in the first place.
         DrawRect(new Rect2(0, top, width, height - top), Palette.Lava);
+        Crust(Art.LavaFloor, 0f, width, top, 0f);
 
         if (match.LavaLeftEdge == Fix64.MinValue)
         {
@@ -735,7 +740,49 @@ public partial class WorldView : Control
 
         DrawRect(new Rect2(0, 0, left, height), Palette.Lava);
         DrawRect(new Rect2(right, 0, width - right, height), Palette.Lava);
+
+        // Turned a quarter each way, so the crust faces the shrinking middle from both sides. The
+        // walls have their own strip because a wall is crust most of the way down where a floor is
+        // crust on top of a lake.
+        // Opposite quarter turns, so both crusts face the middle. Turned the same way, the right
+        // hand strip ran up off the top of the pane and showed as a sliver over the instruments.
+        Crust(Art.LavaWall, 0f, height, left, Mathf.Pi / 2f);
+        Crust(Art.LavaWall, -height, 0f, right, -Mathf.Pi / 2f);
     }
+
+    /// <summary>
+    /// Lays a lava strip along an edge, tiled, at whatever angle the edge runs.
+    /// </summary>
+    /// <remarks>
+    /// A handful of copies rather than a tiling rect, because a tiling rect repeats a texture at its
+    /// own pixel size and the size wanted here is a size in the world: thirty-two metres to a tile,
+    /// so the crust's waves stay about five metres across however far the camera has zoomed in.
+    /// Across a sixty metre map that is three draws.
+    ///
+    /// The rotation goes through the canvas transform rather than into the rectangles, which is why
+    /// the view's own offset has to be put back afterwards: setting a transform replaces the one the
+    /// view had already set to put world pixels on the pane.
+    /// </remarks>
+    private void Crust(Texture2D strip, float from, float to, float along, float turn)
+    {
+        float tile = LavaTileCells * _scale / WorldScale.CellsPerMetre;
+        float deep = tile * strip.GetHeight() / strip.GetWidth();
+
+        DrawSetTransform(
+            Offset() + (turn == 0f ? new Vector2(0f, along) : new Vector2(along, 0f)),
+            turn,
+            Vector2.One);
+
+        for (float at = from; at < to; at += tile)
+        {
+            DrawTextureRect(strip, new Rect2(at, 0f, tile, deep), false);
+        }
+
+        DrawSetTransform(Offset(), 0, Vector2.One);
+    }
+
+    /// <summary>How much map a lava tile spans, in cells. Thirty-two metres, as for the sky.</summary>
+    private const float LavaTileCells = 512f;
 
     /// <summary>
     /// Traps, snares and capped vents, as suspicious little mounds of fresh soil.
@@ -787,48 +834,63 @@ public partial class WorldView : Control
     private void Draw(Placement placement)
     {
         Vector2 at = ToPixels(placement.Position);
-        float wide = MoleRadius() * 1.15f;
-        float tall = wide * 0.62f;
         Color seat = Palette.Seat(placement.OwnerSeat);
         bool armed = placement.IsArmed(_stage.Match.Round);
 
-        // Freshly disturbed soil, which is what the whole game is about looking for.
-        DrawColoredPolygon(
-            new[]
-            {
-                at + new Vector2(-wide, tall),
-                at + new Vector2(-wide * 0.55f, -tall * 0.55f),
-                at + new Vector2(0, -tall),
-                at + new Vector2(wide * 0.55f, -tall * 0.55f),
-                at + new Vector2(wide, tall),
-            },
-            Palette.Of(MoleSim.Terrain.Material.LooseSoil));
+        // A heap of fresh soil while it is arming and the thing itself once it is live, which is
+        // exactly what the design's round of delay is for: until it arms there is nothing to see
+        // but disturbed earth, and after it arms there is no doubt what is sitting there.
+        Texture2D art = Art.Object(armed ? ArmedArt(placement.Weapon) : "mound");
+        float wide = art.GetWidth() / Art.MolePixelsPerMetre * _scale;
+        float tall = art.GetHeight() / Art.MolePixelsPerMetre * _scale;
 
-        // Whose it is, and whether it can catch anybody yet. A mound that is not live yet is
-        // outlined; once it arms it gets a solid eye, which is the round the design gives everybody
-        // to decide whether to respect it or test it.
-        DrawPolyline(
-            new[]
-            {
-                at + new Vector2(-wide, tall),
-                at + new Vector2(-wide * 0.55f, -tall * 0.55f),
-                at + new Vector2(0, -tall),
-                at + new Vector2(wide * 0.55f, -tall * 0.55f),
-                at + new Vector2(wide, tall),
-            },
-            new Color(seat, armed ? 0.95f : 0.45f),
-            Mathf.Max(wide * 0.16f, 1.5f));
+        DrawTextureRect(art, new Rect2(at.X - (wide / 2f), at.Y - tall, wide, tall), false);
 
-        if (armed)
+        // Whose it is. The artwork cannot say, because a snap trap is a snap trap whoever put it
+        // down, and whose it is decides whether to walk round it or over it.
+        DrawCircle(at + new Vector2(0f, -tall - (wide * 0.16f)), Mathf.Max(wide * 0.14f, 2f), seat);
+
+        // A snare is a zone rather than an object, so it gets a ring the size of the zone. Nothing
+        // else in the game says how far a snare reaches, and walking into one costs a round of
+        // digging.
+        if (armed && placement.Weapon == WeaponId.RootSnare)
         {
-            DrawCircle(at + new Vector2(0, -tall * 0.15f), wide * 0.22f, seat);
+            float reach = (float)WeaponTable.Of(WeaponId.RootSnare).BlastRadius.ToDecimal() * _scale;
+
+            Art.Effect("ring").Draw(
+                this,
+                new Rect2(at.X - reach, at.Y - reach, reach * 2f, reach * 2f),
+                Beat() / 4,
+                mirrored: false);
+        }
+
+        // A capped vent throws things upward, and an armed one is doing that whether or not
+        // anybody is standing on it, so it gets its plume.
+        if (armed && placement.Weapon == WeaponId.GeyserCap)
+        {
+            Strip plume = Art.Effect("geyser");
+            Vector2 size = plume.FrameSize * (_scale / Art.MolePixelsPerMetre);
+
+            plume.Draw(
+                this,
+                new Rect2(at.X - (size.X / 2f), at.Y - size.Y, size),
+                Beat() / 6,
+                mirrored: false);
         }
     }
 
+    /// <summary>What a placement looks like once it is live.</summary>
+    private static string ArmedArt(WeaponId weapon) => weapon switch
+    {
+        WeaponId.SnapTrap => "snaptrap",
+        WeaponId.RootSnare => "snare",
+        WeaponId.GeyserCap => "vent",
+        WeaponId.Sandbag => "sandbag",
+        _ => "mound",
+    };
+
     private void DrawCrates()
     {
-        float half = _scale * 0.3f;
-
         foreach (Crate crate in _stage.Match.Crates)
         {
             if (crate.Gone)
@@ -838,23 +900,37 @@ public partial class WorldView : Control
 
             Vector2 at = ToPixels(crate.Position);
 
+            // Under a parachute on the way down, in three frames of it swinging, and a plain crate
+            // once it is down. The chute is not decoration: a crate arriving under one is a crate
+            // everybody can see coming, which is what telegraphing it is for.
+            Texture2D art = Art.Object(crate.HasLanded ? "closed" : ChuteArt());
+            float wide = art.GetWidth() / Art.MolePixelsPerMetre * _scale;
+            float tall = art.GetHeight() / Art.MolePixelsPerMetre * _scale;
+
             if (!crate.HasLanded)
             {
-                // The telegraph. The design wants the scramble for a crate to be something
-                // everybody scheduled in advance rather than a surprise.
-                for (float y = at.Y - (_scale * 7f); y < at.Y - half; y += _scale * 0.4f)
-                {
-                    DrawLine(
-                        new Vector2(at.X, y), new Vector2(at.X, y + (_scale * 0.2f)),
-                        new Color(Palette.Crate, 0.5f), 2f);
-                }
+                // Where it is going to land, marked on the ground rather than on the crate,
+                // because the ground is where the scramble happens.
+                Texture2D mark = Art.Object("marker");
+                float markWide = mark.GetWidth() / Art.MolePixelsPerMetre * _scale;
+                float markTall = mark.GetHeight() / Art.MolePixelsPerMetre * _scale;
+
+                DrawTextureRect(
+                    mark,
+                    new Rect2(at.X - (markWide / 2f), at.Y - (markTall / 2f), markWide, markTall),
+                    false);
             }
 
-            Rect2 box = new Rect2(at.X - half, at.Y - half, half * 2f, half * 2f);
-            DrawRect(box, crate.HasLanded ? Palette.Crate : new Color(Palette.Crate, 0.45f));
-            DrawRect(box, Palette.Ink, false, 2f);
+            // Hung from the chute rather than centred in the picture, so the crate is at the
+            // position the simulation says and the parachute is the part that is above it.
+            float below = crate.HasLanded ? tall / 2f : tall - (wide * 0.28f);
+
+            DrawTextureRect(art, new Rect2(at.X - (wide / 2f), at.Y - below, wide, tall), false);
         }
     }
+
+    /// <summary>Which frame of the parachute swinging, off the engine clock.</summary>
+    private static string ChuteArt() => "chute-" + (Beat() / 6 % 3);
 
     private void DrawStandingMoles()
     {
@@ -878,18 +954,26 @@ public partial class WorldView : Control
             // simulation does not already say. A steered mole is drawn at the position its owner
             // has walked it to, so the pose is read from the same place: whether that position is
             // under ground rather than whether the mole's own is.
-            Vec2 where = acting ? _stage.Planners[mole.Seat].PlannedPosition : mole.Position;
-            bool left = (float)mole.Facing.X.ToDecimal() < 0f;
+            SeatPlanner planner = _stage.Planners[mole.Seat];
+            Vec2 where = acting ? planner.PlannedPosition : mole.Position;
+            bool aiming = acting && planner.Aiming;
+            bool left = aiming
+                ? (float)planner.AimAt.X.ToDecimal() < 0f
+                : (float)mole.Facing.X.ToDecimal() < 0f;
 
             string pose = Moles.Pose(
+                aiming,
                 mole.IsSnared,
                 mole.IsAirborne,
                 Moles.Underground(where, _stage.Ground),
-                mole.DiggingIsCheap);
+                mole.DiggingIsCheap,
+                Moles.Walking(mole.Velocity));
 
-            DrawMole(
-                at, mole.Seat, mole.Pluck, acting, Owns(mole.Seat),
-                pose, Moles.Frame(pose, Beat(), left), left);
+            int frame = aiming
+                ? Moles.AimFrame(planner.AimAt)
+                : Moles.Frame(pose, Beat(), left);
+
+            DrawMole(at, mole.Seat, mole.Pluck, acting, Owns(mole.Seat), pose, frame, left);
 
             // One bubble per platoon, not one per mole. A platoon has up to four of them and the
             // first version put the same picture over every one, which read as four moles all
@@ -984,7 +1068,12 @@ public partial class WorldView : Control
             bool airborne = Mathf.Abs((float)velocity.Y.ToDecimal()) > 1f;
 
             string pose = Moles.Pose(
-                snared: false, airborne, Moles.Underground(where, _stage.Ground), clawed: false);
+                aiming: false,
+                snared: false,
+                airborne,
+                Moles.Underground(where, _stage.Ground),
+                clawed: false,
+                Moles.Walking(velocity));
 
             DrawMole(
                 ToPixels(where),
@@ -997,15 +1086,109 @@ public partial class WorldView : Control
                 left);
         }
 
-        float shotRadius = Mathf.Max((float)Projectile.Radius.ToDecimal() * _scale, 3f);
-
-        foreach (Vec2 shot in recording.ShotsAt(_stage.Tick))
+        foreach (Shot shot in recording.ShotsAt(_stage.Tick))
         {
-            DrawCircle(ToPixels(shot), shotRadius, Palette.Ink);
+            DrawShot(shot);
         }
 
+        DrawBlasts(result);
         DrawDamageNumbers(recording, result);
     }
+
+    /// <summary>
+    /// One thing in the air, drawn as whatever fired it.
+    /// </summary>
+    /// <remarks>
+    /// Every shot in the game was one dark circle, which is what a projectile looks like when the
+    /// only thing known about it is where it is. The recording carries the weapon now, so a clod is
+    /// a clod, a beetle is an indignant beetle, and a Tunnel Torpedo is a drill: the one weapon
+    /// whose picture is a machine rather than a thing being thrown, and the reason the drill sheet
+    /// has anywhere to go at all.
+    ///
+    /// Sized off the weapon's own artwork rather than the projectile's collision radius, which is
+    /// two cells for everything and would draw a gnome the size of an acorn. Anything without a
+    /// picture falls back to the clod, so a weapon added later appears as something rather than
+    /// disappearing.
+    /// </remarks>
+    private void DrawShot(Shot shot)
+    {
+        Texture2D art = Art.Object(ShotArt(shot.Weapon));
+        float wide = art.GetWidth() / Art.MolePixelsPerMetre * _scale;
+        float tall = art.GetHeight() / Art.MolePixelsPerMetre * _scale;
+        Vector2 at = ToPixels(shot.Position);
+
+        DrawTextureRect(art, new Rect2(at.X - (wide / 2f), at.Y - (tall / 2f), wide, tall), false);
+    }
+
+    private static string ShotArt(WeaponId weapon) => weapon switch
+    {
+        WeaponId.BeetleLauncher => "beetle",
+        WeaponId.AcornMortar => "acorns",
+        WeaponId.TunnelTorpedo => "drill",
+        WeaponId.Sandbag => "sandbag",
+        WeaponId.BoomBeets => "beetroot",
+        WeaponId.SpecialDelivery => "sack",
+        WeaponId.MolyHandGrenade => "relic",
+        WeaponId.GnomeMercy => "gnome",
+        _ => "clod",
+    };
+
+    /// <summary>
+    /// The blasts that have gone off so far, each playing out from where it landed.
+    /// </summary>
+    /// <remarks>
+    /// Paired with the tick they went off on the same way the damage numbers are: the recording
+    /// counts detonations at every tick, and the round result lists them in order, so the first
+    /// tick the count reaches a blast's index is the tick that blast happened. Nothing new is
+    /// recorded to make that work, which is why the counter was worth keeping when the list arrived.
+    ///
+    /// Scaled to the weapon's own blast radius rather than drawn at a fixed size, so an explosion
+    /// says how far it reached. That is information a player can act on: the difference between a
+    /// Clod Lobber and a Moly Hand Grenade is most of a metre of blast.
+    /// </remarks>
+    private void DrawBlasts(RoundResult result)
+    {
+        int upTo = Mathf.Min(_stage.BlastTick.Length, result.Blasts.Count);
+        Strip blast = Art.Effect("blast");
+
+        for (int index = 0; index < upTo; index++)
+        {
+            int age = _stage.Tick - _stage.BlastTick[index];
+
+            if (age < 0 || age >= BlastTicks)
+            {
+                continue;
+            }
+
+            Detonation went = result.Blasts[index];
+            float across = (float)went.Radius.ToDecimal() * _scale * BlastOverdraw * 2f;
+
+            // The frame's own proportions rather than a square, because the artwork is a little
+            // taller than it is wide and stretched to a square the ring came out visibly oval.
+            Vector2 size = new Vector2(across, across * blast.FrameSize.Y / blast.FrameSize.X);
+            Vector2 at = ToPixels(went.At);
+
+            blast.Draw(
+                this,
+                new Rect2(at - (size / 2f), size),
+                age * blast.Frames / BlastTicks,
+                mirrored: false);
+        }
+    }
+
+    /// <summary>How long a blast is on screen, at thirty ticks a second. Half a second.</summary>
+    private const int BlastTicks = 15;
+
+    /// <summary>
+    /// How much wider than its blast radius the artwork is drawn.
+    /// </summary>
+    /// <remarks>
+    /// The picture is a ring of fire with debris thrown clear of it, so the ring itself sits inside
+    /// the frame rather than filling it. Drawn at exactly the radius the fire reads as smaller than
+    /// the crater it just made, which is the wrong way round for something meant to say how far it
+    /// reached.
+    /// </remarks>
+    private const float BlastOverdraw = 1.2f;
 
     /// <summary>
     /// Damage numbers, which rise from where they landed and then get out of the way. Digits
@@ -1034,13 +1217,13 @@ public partial class WorldView : Control
             }
 
             float life = age / (float)Stage.DamageNumberTicks;
+            // Centred on the mole rather than started at it, because these are drawn now rather
+            // than typeset and a number has a middle.
             Vector2 at = ToPixels(recording.PositionOf(_stage.HitTick[index], slot))
-                + new Vector2(-size * 0.35f, -(_scale * 0.9f) - (life * _scale * 0.7f));
+                + new Vector2(0f, -(_scale * 0.9f) - (life * _scale * 0.7f));
 
-            DrawString(
-                ThemeDB.FallbackFont, at, hit.Damage.ToString(),
-                HorizontalAlignment.Left, -1, (int)size,
-                new Color(Palette.Damage, 1f - (life * life)));
+            Glyphs.Number(
+                this, hit.Damage, at, size, new Color(Palette.Damage, 1f - (life * life)));
         }
     }
 
@@ -1065,12 +1248,37 @@ public partial class WorldView : Control
             return;
         }
 
-        Vector2 at = ToPixels(recording.PositionOf(exitTick, slot));
-        float life = Mathf.Clamp((_stage.Tick - exitTick) / (float)Stage.ExitTicks, 0f, 1f);
-        float radius = MoleRadius();
-        Color colour = Palette.Seat(mole.Seat);
+        Vec2 went = recording.PositionOf(exitTick, slot);
+        Vector2 at = ToPixels(
+            ExitReel.Grounded(exit.Value) ? new Vec2(went.X, GroundUnder(went)) : went);
 
-        ExitReel.Play(this, exit.Value, at, radius, colour, life);
+        float life = Mathf.Clamp((_stage.Tick - exitTick) / (float)Stage.ExitTicks, 0f, 1f);
+
+        ExitReel.Play(this, exit.Value, at, _scale, mole.Seat, life);
+    }
+
+    /// <summary>
+    /// The surface below a point, in world metres, or the point itself if there is none.
+    /// </summary>
+    /// <remarks>
+    /// Scanned down from where the mole was rather than read off the frozen skyline, because what
+    /// is wanted here is the ground as it stands now: a wall that stood on the original surface
+    /// would hang over the crater that put the mole through it.
+    /// </remarks>
+    private Fix64 GroundUnder(Vec2 from)
+    {
+        int cellX = WorldScale.ToCell(from.X);
+
+        for (int cellY = WorldScale.ToCell(from.Y); cellY < _stage.MapHeightCells; cellY++)
+        {
+            if (_stage.Ground.Contains(cellX, cellY)
+                && MoleSim.Terrain.MaterialTable.IsSolid(_stage.Ground[cellX, cellY]))
+            {
+                return WorldScale.ToMetres(cellY) - MatchSettings.Radius;
+            }
+        }
+
+        return from.Y;
     }
 
     private float MoleRadius() => (float)MatchSettings.Radius.ToDecimal() * _scale;

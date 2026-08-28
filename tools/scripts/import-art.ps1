@@ -967,6 +967,11 @@ $sheets = @(
        Grid = @(4, 2); Frames = 8; Scale = 0.64; Open = 4; Platoons = $true
        Crop = @(0, 0, 0, 35) }
 
+    # Eight frames of walking, which the set went without for a while: a mole crossing the surface
+    # stood still and slid along, and it was the most obvious gap in the whole of the art.
+    @{ From = 'Mole Walk.jpg'; Key = 'green'; Pack = 'strip'; Into = 'mole'; Name = 'walk'
+       Grid = @(4, 2); Frames = 8; Scale = 0.78; Open = 4; Platoons = $true }
+
     @{ From = 'mole dig.png'; Key = 'green'; Pack = 'strip'; Into = 'mole'; Name = 'dig'
        Grid = @(3, 2); Frames = 6; Scale = 0.62; Open = 4; Platoons = $true }
 
@@ -1000,11 +1005,20 @@ $sheets = @(
     @{ From = 'mole death 5.png'; Key = 'green'; Pack = 'strip'; Into = 'exit'; Name = 'balloon'
        Grid = @(4, 2); Frames = 8; Scale = 0.80; Open = 4; Platoons = $true }
 
+    # Imported and not used. Every cell of this sheet is a solid rectangle of dirt wall from edge to
+    # edge, because the gag is a mole punched through a wall and the wall is drawn rather than
+    # implied. Over a procedural hillside that is a pale slab dropped on the landscape whatever it is
+    # anchored to, so MoleShapedHole borrows the spin-and-poof frames until there is a version of
+    # this sheet with nothing behind the mole.
     @{ From = 'mole death 6.png'; Key = 'green'; Pack = 'strip'; Into = 'exit'; Name = 'hole'
        Grid = @(3, 2); Frames = 6; Scale = 0.62; Open = 4; Platoons = $true }
 
+    # Forty-two pixels off the bottom of every cell, which is a band of ground the artist drew in.
+    # Planted on the real surface it would lay a three metre slab of somebody else's soil over the
+    # actual ground, and the gag is a mole leaving rather than the ground it left from.
     @{ From = 'mole death 7.png'; Key = 'green'; Pack = 'strip'; Into = 'exit'; Name = 'helmet'
-       Grid = @(3, 2); Frames = 6; Scale = 0.70; Open = 4; Platoons = $true }
+       Grid = @(3, 2); Frames = 6; Scale = 0.70; Open = 4; Platoons = $true
+       Crop = @(0, 0, 0, 42) }
 
     @{ From = 'mole death 8.png'; Key = 'green'; Pack = 'strip'; Into = 'exit'; Name = 'sink'
        Grid = @(3, 2); Frames = 6; Scale = 0.72; Open = 4; Platoons = $true

@@ -25,6 +25,28 @@ namespace MoleSim.Match
     }
 
     /// <summary>A crate coming down next round, so it can be drawn during planning.</summary>
+    /// <summary>
+    /// A blast, where it went off and how far it reached.
+    /// </summary>
+    /// <remarks>
+    /// Recorded for the same reason the hits and the knockout exits are: so the client can draw
+    /// what happened without deciding any of it. A count was enough while an explosion was a noise
+    /// and a crater; it is not enough to put an explosion on the screen, which has to know where
+    /// and how big.
+    /// </remarks>
+    public readonly struct Detonation
+    {
+        public Detonation(Vec2 at, Fix64 radius)
+        {
+            At = at;
+            Radius = radius;
+        }
+
+        public Vec2 At { get; }
+
+        public Fix64 Radius { get; }
+    }
+
     public readonly struct CrateTelegraph
     {
         public CrateTelegraph(Vec2 position)
@@ -70,6 +92,7 @@ namespace MoleSim.Match
             Knockouts = new List<Knockout>();
             CrateClaims = new List<CrateClaim>();
             NextCrates = new List<CrateTelegraph>();
+            Blasts = new List<Detonation>();
             WinningSeat = -1;
         }
 
@@ -91,11 +114,14 @@ namespace MoleSim.Match
         /// </summary>
         public List<CrateTelegraph> NextCrates { get; }
 
+        /// <summary>Every blast this round, where it was and how far it reached.</summary>
+        public List<Detonation> Blasts { get; }
+
         /// <summary>
         /// How many things went off. Worth having for the aftermath tally, and it is the
         /// direct way to see that a shot cancelled by damage never happened.
         /// </summary>
-        public int Detonations { get; internal set; }
+        public int Detonations => Blasts.Count;
 
         /// <summary>
         /// True on the round the stalemate nudge bites, so the client can show everybody

@@ -28,111 +28,97 @@ public static class Glyphs
 
     public static void Weapon(CanvasItem into, WeaponId weapon, Vector2 at, float size, Color ink)
     {
-        switch (weapon)
+        Fit(into, Art.Weapon(weapon), at, size, ink);
+    }
+
+    /// <summary>An interface glyph, by the name the importer gave it.</summary>
+    public static void Icon(CanvasItem into, string name, Vector2 at, float size, Color ink)
+    {
+        Fit(into, Art.Glyph(name), at, size, ink);
+    }
+
+    /// <summary>
+    /// A number, in the game's own digits.
+    /// </summary>
+    /// <remarks>
+    /// Digits are the one numeral the design keeps, on the grounds that a numeral reads the same in
+    /// every language a seven-year-old might have, and until now they came out of the engine's
+    /// fallback font: a system typeface in a game that has no other type in it anywhere. These are
+    /// drawn, in the same hand as everything else.
+    ///
+    /// Laid out on each digit's own width rather than on a fixed advance, because the artist drew a
+    /// one narrower than a zero and monospacing them would leave it swimming.
+    /// </remarks>
+    public static void Number(CanvasItem into, int value, Vector2 middle, float size, Color ink)
+    {
+        string digits = value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        float gap = size * DigitGap;
+        float across = 0f;
+
+        foreach (char digit in digits)
         {
-            case WeaponId.ClodLobber:
-                ClodLobber(into, at, size, ink);
-                break;
+            across += Width(digit, size) + gap;
+        }
 
-            case WeaponId.BeetleLauncher:
-                Beetle(into, at, size, ink);
-                break;
+        float left = middle.X - ((across - gap) / 2f);
 
-            case WeaponId.AcornMortar:
-                Acorns(into, at, size, ink);
-                break;
+        foreach (char digit in digits)
+        {
+            float wide = Width(digit, size);
 
-            case WeaponId.Fracking:
-                Derrick(into, at, size, ink);
-                break;
+            Fit(
+                into,
+                Art.Glyph(Named(digit)),
+                new Vector2(left + (wide / 2f), middle.Y),
+                size,
+                ink);
 
-            case WeaponId.BigWhack:
-                Mallet(into, at, size, ink);
-                break;
-
-            case WeaponId.SnapTrap:
-                Jaws(into, at, size, ink);
-                break;
-
-            case WeaponId.RootSnare:
-                Snare(into, at, size, ink);
-                break;
-
-            case WeaponId.TunnelTorpedo:
-                Torpedo(into, at, size, ink);
-                break;
-
-            case WeaponId.PowerClaws:
-                Claws(into, at, size, ink);
-                break;
-
-            case WeaponId.Sandbag:
-                Sack(into, at, size, ink);
-                break;
-
-            case WeaponId.GeyserCap:
-                Geyser(into, at, size, ink);
-                break;
-
-            case WeaponId.BoomBeets:
-                Beet(into, at, size, ink);
-                break;
-
-            case WeaponId.SpecialDelivery:
-                Delivery(into, at, size, ink);
-                break;
-
-            case WeaponId.MolyHandGrenade:
-                HolyGrenade(into, at, size, ink);
-                break;
-
-            case WeaponId.GnomeMercy:
-                Gnome(into, at, size, ink);
-                break;
-
-            default:
-                Nothing(into, at, size, ink);
-                break;
+            left += wide + gap;
         }
     }
 
-    /// <summary>A clod of earth on its way up, with the arc it travels.</summary>
-    private static void ClodLobber(CanvasItem into, Vector2 at, float size, Color ink)
-    {
-        float unit = size / 2f;
-        float line = size * Stroke;
+    /// <summary>How much of a digit's height goes between it and the next one.</summary>
+    private const float DigitGap = 0.12f;
 
-        Arc(into, at + new Vector2(-unit * 0.1f, unit * 0.2f), unit * 0.95f, 200, 340, ink, line);
-        into.DrawCircle(at + new Vector2(unit * 0.45f, -unit * 0.5f), unit * 0.34f, ink);
-        into.DrawCircle(at + new Vector2(unit * 0.2f, -unit * 0.72f), unit * 0.17f, ink);
-        into.DrawCircle(at + new Vector2(unit * 0.72f, -unit * 0.24f), unit * 0.15f, ink);
+    private static float Width(char digit, float size)
+    {
+        Texture2D art = Art.Glyph(Named(digit));
+
+        return size * art.GetWidth() / art.GetHeight();
     }
 
-    /// <summary>A beetle, seen from above. Fast, hard, and goes off on arrival.</summary>
-    private static void Beetle(CanvasItem into, Vector2 at, float size, Color ink)
+    private static string Named(char digit) => digit switch
     {
-        float unit = size / 2f;
-        float line = size * Stroke;
+        '-' => "minus",
+        '+' => "plus",
+        '%' => "percent",
+        ':' => "colon",
+        '.' => "stop",
+        _ => "digit-" + digit,
+    };
 
-        Oval(into, at + new Vector2(0, unit * 0.15f), unit * 0.55f, unit * 0.72f, ink);
-        into.DrawCircle(at + new Vector2(0, -unit * 0.62f), unit * 0.28f, ink);
-        into.DrawLine(
-            at + new Vector2(0, -unit * 0.4f), at + new Vector2(0, unit * 0.8f),
-            new Color(1, 1, 1, 0.85f), line * 0.7f);
-        into.DrawLine(
-            at + new Vector2(-unit * 0.12f, -unit * 0.8f),
-            at + new Vector2(-unit * 0.6f, -unit * 1.0f), ink, line * 0.7f);
-        into.DrawLine(
-            at + new Vector2(unit * 0.12f, -unit * 0.8f),
-            at + new Vector2(unit * 0.6f, -unit * 1.0f), ink, line * 0.7f);
-    }
-
-    /// <summary>Three acorns, because this one splits on the way down.</summary>
-    private static void Acorns(CanvasItem into, Vector2 at, float size, Color ink)
+    /// <summary>
+    /// Draws a glyph inside a box of the given height, keeping its shape, tinted.
+    /// </summary>
+    /// <remarks>
+    /// The glyphs are white on the way in precisely so they can be tinted on the way out, which is
+    /// the property the versions drawn from primitives had and the reason it was safe to replace
+    /// them. A platoon's weapon wheel is still in the platoon's colour, and it costs a modulate
+    /// rather than a second set of files.
+    ///
+    /// Fitted to the height rather than to the box, because the sheets were trimmed to their
+    /// content and a mallet is wider than an acorn; squeezed into a square, every glyph would be a
+    /// different weight from the one next to it.
+    /// </remarks>
+    private static void Fit(CanvasItem into, Texture2D art, Vector2 middle, float size, Color ink)
     {
-        Acorn(into, at + new Vector2(0, -size * 0.16f), size * 0.52f, ink);
-        Acorn(into, at + new Vector2(-size * 0.29f, size * 0.24f), size * 0.38f, ink);
-        Acorn(into, at + new Vector2(size * 0.29f, size * 0.24f), size * 0.38f, ink);
+        float wide = size * art.GetWidth() / art.GetHeight();
+
+        into.DrawTextureRect(
+            art,
+            new Rect2(middle.X - (wide / 2f), middle.Y - (size / 2f), wide, size),
+            false,
+            ink);
     }
 
     private static void Acorn(CanvasItem into, Vector2 at, float size, Color ink)
@@ -145,131 +131,6 @@ public static class Glyphs
             at + new Vector2(-unit * 0.7f, -unit * 0.4f),
             at + new Vector2(unit * 0.7f, -unit * 0.4f),
             at + new Vector2(0, unit));
-    }
-
-    /// <summary>A derrick with the shock going out through the soil.</summary>
-    private static void Derrick(CanvasItem into, Vector2 at, float size, Color ink)
-    {
-        float unit = size / 2f;
-        float line = size * Stroke;
-
-        into.DrawPolyline(
-            new[]
-            {
-                at + new Vector2(-unit * 0.55f, unit * 0.2f),
-                at + new Vector2(0, -unit * 0.95f),
-                at + new Vector2(unit * 0.55f, unit * 0.2f),
-            },
-            ink, line);
-
-        into.DrawLine(
-            at + new Vector2(0, -unit * 0.3f), at + new Vector2(0, unit * 0.95f), ink, line);
-
-        for (int side = -1; side <= 1; side += 2)
-        {
-            Arc(into, at + new Vector2(0, unit * 0.5f), unit * 0.75f,
-                side < 0 ? 100 : 20, side < 0 ? 160 : 80, ink, line * 0.8f);
-        }
-    }
-
-    /// <summary>The Big Whack. A mallet, and nothing else needed.</summary>
-    private static void Mallet(CanvasItem into, Vector2 at, float size, Color ink)
-    {
-        float unit = size / 2f;
-        float line = size * Stroke;
-
-        into.DrawRect(
-            new Rect2(at.X - (unit * 0.85f), at.Y - (unit * 0.9f), unit * 1.7f, unit * 0.7f), ink);
-        into.DrawLine(
-            at + new Vector2(0, -unit * 0.2f), at + new Vector2(0, unit), ink, line * 1.6f);
-    }
-
-    /// <summary>Jaws waiting to shut.</summary>
-    private static void Jaws(CanvasItem into, Vector2 at, float size, Color ink)
-    {
-        float unit = size / 2f;
-        float line = size * Stroke;
-
-        for (int side = -1; side <= 1; side += 2)
-        {
-            float y = unit * 0.5f * side;
-            into.DrawLine(
-                at + new Vector2(-unit * 0.9f, y), at + new Vector2(unit * 0.9f, y), ink, line);
-
-            for (int tooth = -2; tooth <= 2; tooth++)
-            {
-                float x = tooth * unit * 0.36f;
-                Polygon(into, ink,
-                    at + new Vector2(x - (unit * 0.13f), y),
-                    at + new Vector2(x + (unit * 0.13f), y),
-                    at + new Vector2(x, y - (unit * 0.42f * side)));
-            }
-        }
-    }
-
-    /// <summary>A noose of root. Costs its victim exactly one turn.</summary>
-    private static void Snare(CanvasItem into, Vector2 at, float size, Color ink)
-    {
-        float unit = size / 2f;
-        float line = size * Stroke;
-
-        Arc(into, at + new Vector2(0, unit * 0.25f), unit * 0.62f, 0, 360, ink, line);
-
-        into.DrawPolyline(
-            new[]
-            {
-                at + new Vector2(-unit * 0.2f, -unit * 0.35f),
-                at + new Vector2(-unit * 0.5f, -unit * 0.7f),
-                at + new Vector2(-unit * 0.2f, -unit * 0.95f),
-            },
-            ink, line * 0.8f);
-
-        into.DrawLine(
-            at + new Vector2(unit * 0.5f, -unit * 0.2f),
-            at + new Vector2(unit * 0.95f, -unit * 0.75f), ink, line * 0.8f);
-    }
-
-    /// <summary>A shell driving through dirt, with the tunnel behind it.</summary>
-    private static void Torpedo(CanvasItem into, Vector2 at, float size, Color ink)
-    {
-        float unit = size / 2f;
-        float line = size * Stroke;
-
-        Polygon(into, ink,
-            at + new Vector2(unit * 0.95f, 0),
-            at + new Vector2(unit * 0.1f, -unit * 0.42f),
-            at + new Vector2(unit * 0.1f, unit * 0.42f));
-
-        into.DrawRect(
-            new Rect2(at.X - (unit * 0.45f), at.Y - (unit * 0.34f), unit * 0.55f, unit * 0.68f),
-            ink);
-
-        for (int trail = 0; trail < 3; trail++)
-        {
-            float x = -unit * (0.6f + (trail * 0.24f));
-            into.DrawLine(
-                at + new Vector2(x, -unit * 0.5f), at + new Vector2(x, unit * 0.5f),
-                new Color(ink, 0.45f), line * 0.7f);
-        }
-    }
-
-    /// <summary>Three claws, for digging cheap.</summary>
-    private static void Claws(CanvasItem into, Vector2 at, float size, Color ink)
-    {
-        float unit = size / 2f;
-        float line = size * Stroke;
-
-        for (int claw = -1; claw <= 1; claw++)
-        {
-            into.DrawPolyline(
-                new[]
-                {
-                    at + new Vector2(claw * unit * 0.5f, -unit * 0.9f),
-                    at + new Vector2(claw * unit * 0.62f, unit * 0.2f),
-                    at + new Vector2(claw * unit * 0.28f, unit * 0.9f),
-                },
-                ink, line * 1.1f);
-        }
     }
 
     /// <summary>A sack of loose soil, cheap for anybody to dig back out.</summary>
@@ -287,23 +148,6 @@ public static class Glyphs
         into.DrawLine(
             at + new Vector2(-unit * 0.5f, -unit * 0.55f),
             at + new Vector2(unit * 0.5f, -unit * 0.55f), ink, line * 1.4f);
-    }
-
-    /// <summary>A capped vent, and what comes out of it.</summary>
-    private static void Geyser(CanvasItem into, Vector2 at, float size, Color ink)
-    {
-        float unit = size / 2f;
-        float line = size * Stroke;
-
-        Arc(into, at + new Vector2(0, unit * 0.85f), unit * 0.55f, 180, 360, ink, line * 1.3f);
-
-        for (int jet = -1; jet <= 1; jet++)
-        {
-            into.DrawLine(
-                at + new Vector2(jet * unit * 0.34f, unit * 0.25f),
-                at + new Vector2(jet * unit * 0.62f, -unit * 0.9f),
-                ink, line * 0.9f);
-        }
     }
 
     /// <summary>Boom Beets: a beetroot with a fuse. Plant, run, regret.</summary>
@@ -326,59 +170,6 @@ public static class Glyphs
                 at + new Vector2(unit * 0.2f, -unit * 1.25f),
             },
             ink, line * 0.8f);
-    }
-
-    /// <summary>Three sacks arriving from above, out of reach of anybody buried.</summary>
-    private static void Delivery(CanvasItem into, Vector2 at, float size, Color ink)
-    {
-        for (int sack = -1; sack <= 1; sack++)
-        {
-            Sack(into, at + new Vector2(sack * size * 0.32f, size * 0.2f), size * 0.44f, ink);
-            into.DrawLine(
-                at + new Vector2(sack * size * 0.32f, -size * 0.48f),
-                at + new Vector2(sack * size * 0.32f, -size * 0.14f),
-                new Color(ink, 0.45f), size * Stroke * 0.7f);
-        }
-    }
-
-    /// <summary>The crate rarity, and it knows it.</summary>
-    private static void HolyGrenade(CanvasItem into, Vector2 at, float size, Color ink)
-    {
-        float unit = size / 2f;
-        float line = size * Stroke;
-
-        into.DrawCircle(at + new Vector2(0, unit * 0.2f), unit * 0.68f, ink);
-        into.DrawRect(
-            new Rect2(at.X - (unit * 0.22f), at.Y - (unit * 0.72f), unit * 0.44f, unit * 0.35f),
-            ink);
-
-        into.DrawLine(
-            at + new Vector2(0, -unit * 1.3f), at + new Vector2(0, -unit * 0.7f), ink, line);
-        into.DrawLine(
-            at + new Vector2(-unit * 0.3f, -unit * 1.05f),
-            at + new Vector2(unit * 0.3f, -unit * 1.05f), ink, line);
-    }
-
-    /// <summary>Gnome Mercy. Punches through and bounces three times.</summary>
-    private static void Gnome(CanvasItem into, Vector2 at, float size, Color ink)
-    {
-        float unit = size / 2f;
-
-        Polygon(into, ink,
-            at + new Vector2(-unit * 0.62f, -unit * 0.15f),
-            at + new Vector2(unit * 0.62f, -unit * 0.15f),
-            at + new Vector2(0, unit * -1.05f));
-        into.DrawCircle(at + new Vector2(0, unit * 0.15f), unit * 0.42f, ink);
-        Polygon(into, ink,
-            at + new Vector2(-unit * 0.42f, unit * 0.25f),
-            at + new Vector2(unit * 0.42f, unit * 0.25f),
-            at + new Vector2(0, unit * 1.05f));
-    }
-
-    /// <summary>No weapon on the wheel: an empty pair of hands.</summary>
-    private static void Nothing(CanvasItem into, Vector2 at, float size, Color ink)
-    {
-        Arc(into, at, size * 0.42f, 0, 360, new Color(ink, 0.5f), size * Stroke);
     }
 
     // ---- Gauges and controls --------------------------------------------------------

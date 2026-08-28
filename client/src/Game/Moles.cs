@@ -41,12 +41,19 @@ public static class Moles
     /// Then underground, where the claws pose replaces the digging one if the mole is wearing them,
     /// because that is the moment the claws are worth seeing. Standing is what is left.
     ///
-    /// There is no walking pose, because the artist did not draw one. A mole walking along the
-    /// surface stands, which reads as a mole sliding rather than walking and is the most obvious
-    /// gap in the set.
+    /// Aiming comes before all of it, because a mole lining up a shot is not doing anything else
+    /// and because it is the one pose the player is choosing rather than watching. Walking is last
+    /// but one: it only reads as walking if the mole is going somewhere, and standing is what is
+    /// left over.
     /// </remarks>
-    public static string Pose(bool snared, bool airborne, bool underground, bool clawed)
+    public static string Pose(
+        bool aiming, bool snared, bool airborne, bool underground, bool clawed, bool walking)
     {
+        if (aiming)
+        {
+            return "aim";
+        }
+
         if (snared)
         {
             return "rooted";
@@ -62,7 +69,35 @@ public static class Moles
             return clawed ? "claws" : "dig";
         }
 
-        return "stand";
+        return walking ? "walk" : "stand";
+    }
+
+    /// <summary>
+    /// Which of the five aims, from the direction the player is pointing.
+    /// </summary>
+    /// <remarks>
+    /// The artist drew sixty degrees down, thirty down, level, thirty up and sixty up, so the
+    /// nearest of those five is the answer and the aim is measured rather than stored. Which way
+    /// the mole is facing is handled by mirroring, so only the elevation matters here and the sign
+    /// of the horizontal is thrown away.
+    ///
+    /// Up is negative, because this world has its Y axis pointing down.
+    /// </remarks>
+    public static int AimFrame(Vec2 aim)
+    {
+        float across = Mathf.Abs((float)aim.X.ToDecimal());
+        float up = -(float)aim.Y.ToDecimal();
+        float degrees = Mathf.RadToDeg(Mathf.Atan2(up, across));
+
+        return Mathf.Clamp(Mathf.RoundToInt((degrees + 60f) / 30f), 0, 4);
+    }
+
+    /// <summary>Whether a mole is moving across the ground fast enough to be walking.</summary>
+    public static bool Walking(Vec2 velocity)
+    {
+        float across = (float)velocity.X.ToDecimal();
+
+        return across > MovingAt || across < -MovingAt;
     }
 
     /// <summary>

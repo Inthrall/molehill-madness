@@ -32,6 +32,7 @@ public sealed class Stage
         Planners = System.Array.Empty<SeatPlanner>();
         ExitTick = System.Array.Empty<int>();
         HitTick = System.Array.Empty<int>();
+        BlastTick = System.Array.Empty<int>();
 
         // Explicitly, because a default Climax is tick zero of mole zero rather than nothing.
         Climax = Climax.None;
@@ -82,6 +83,14 @@ public sealed class Stage
 
     /// <summary>When each hit landed. Indexed into the round's hit list.</summary>
     public int[] HitTick { get; set; }
+
+    /// <summary>When each blast went off. Indexed into the round's blast list.</summary>
+    /// <remarks>
+    /// Worked out the same way as <see cref="HitTick"/> and for the same reason: the recording
+    /// counts detonations at every tick and the result lists them in order, so the first tick the
+    /// count reaches a blast's index is the tick it happened on. Nothing extra is recorded.
+    /// </remarks>
+    public int[] BlastTick { get; set; }
 
     /// <summary>The moment of this round the replay slows down and pushes in on.</summary>
     public Climax Climax { get; set; }

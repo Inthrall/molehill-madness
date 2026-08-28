@@ -195,6 +195,9 @@ public partial class MatchScene : Node2D
             _match, _shadow, _terrain.Texture,
             Backdrop.Freeze(_match.Terrain, MatchSetup.Seed), MapWidthCells, MapHeightCells);
 
+        // Before the first frame rather than during the first minute of them. See Art.Warm.
+        Art.Warm(_players);
+
         _shoulderHeldUp = new bool[_players];
         _shoulderHeldDown = new bool[_players];
         _plantHeld = new bool[_players];
@@ -584,8 +587,21 @@ public partial class MatchScene : Node2D
             }
         }
 
+        int[] blasts = new int[_result!.Blasts.Count];
+        int gone = 0;
+
+        for (int tick = 0; tick < recording.Ticks && gone < blasts.Length; tick++)
+        {
+            while (gone < recording.DetonationsUpTo(tick) && gone < blasts.Length)
+            {
+                blasts[gone] = tick;
+                gone++;
+            }
+        }
+
         _stage.ExitTick = exits;
         _stage.HitTick = hits;
+        _stage.BlastTick = blasts;
         _stage.Climax = PickTheMoment(exits, hits);
     }
 

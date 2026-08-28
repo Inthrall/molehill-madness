@@ -665,7 +665,7 @@ namespace MoleSim.Match
 
             TerrainQuery.CollapseCavities(Terrain, actor.Position, spec.BlastRadius);
             Gush(actor.Position);
-            result.Detonations++;
+            result.Blasts.Add(new Detonation(actor.Position, spec.BlastRadius));
         }
 
         /// <summary>Throws everything in a narrow column straight up.</summary>
@@ -796,7 +796,7 @@ namespace MoleSim.Match
                 }
             }
 
-            result.Detonations++;
+            result.Blasts.Add(new Detonation(at, WeaponTable.Of(weapon).BlastRadius));
         }
 
         /// <summary>
@@ -894,7 +894,8 @@ namespace MoleSim.Match
                     continue;
                 }
 
-                result.Detonations++;
+                result.Blasts.Add(
+                    new Detonation(shot.Position, WeaponTable.Of(shot.Weapon).BlastRadius));
                 SplitCluster(shot);
 
                 foreach (BlastHit hit in Blast.Detonate(
