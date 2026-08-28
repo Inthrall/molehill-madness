@@ -491,4 +491,206 @@ public sealed class MoleMotionTests
         mole.BeginRound();
         return mole;
     }
+
+    /// <summary>
+    /// A hop can be steered sideways while it is in the air.
+    /// </summary>
+    /// <remarks>
+    /// A jump used to be a ballistic arc nobody could influence once it started, because the route
+    /// was withheld from the solver for as long as a mole was off the ground. Asserted against a
+    /// hop with nothing held, so the test says the push is what moved it rather than that it moved.
+    /// </remarks>
+    [Test]
+    public void AHopCanBeSteeredInTheAir()
+    {
+        TerrainGrid grid = FlatGround();
+
+        Fix64 drifted = Hopped(grid, lean: 0);
+        Fix64 steered = Hopped(FlatGround(), lean: 1);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(drifted.ToDecimal(), Is.EqualTo(0m).Within(0.05m), "an unsteered hop went sideways");
+            Assert.That(steered.ToDecimal(), Is.GreaterThan(2m), "a steered hop went nowhere");
+        });
+    }
+
+    /// <summary>
+    /// Landing is decided by how fast a mole is closing on the ground, not how fast it is going.
+    /// </summary>
+    /// <remarks>
+    /// The two were the same test until a mole could steer in the air, and then they were not: air
+    /// control adds up to walking pace sideways, which by itself exceeds the settle speed, so a mole
+    /// falling onto flat ground with a direction held never slowed enough to land. Measured, it
+    /// skittered along the surface, permanently airborne, for the rest of the round.
+    /// </remarks>
+    [Test]
+    public void AMoleFallingWhileSteeredStillLands()
+    {
+        TerrainGrid grid = FlatGround();
+        Vec2 high = new Vec2(
+            WorldScale.ToCentreMetres(100),
+            WorldScale.ToMetres(SurfaceCell) - Fix64.FromInt(6));
+
+        Mole mole = new Mole(seat: 0, index: 0, high);
+
+        for (int tick = 0; tick < 90; tick++)
+        {
+            mole.WaypointIndex = 0;
+            MoleMotion.Step(
+                mole, grid,
+                new[] { new Vec2(mole.Position.X + Fix64.FromInt(2), mole.Position.Y) });
+        }
+
+        Assert.That(mole.IsAirborne, Is.False, "it never settled");
+    }
+
+    /// <summary>
+    /// A mole that jumps into a ceiling while pushing at it digs in rather than bouncing off.
+    /// </summary>
+    /// <remarks>
+    /// The design's rule is that surface and underground are one seamless move and only the price
+    /// changes; being off the ground was the one case that never obeyed it, because a jump could
+    /// only ever bounce.
+    ///
+    /// This caught the fault that made the first attempt do nothing. A body counts as blocked as
+    /// soon as anything solid comes within its radius, so at the moment of contact its own centre
+    /// cell is still open air; asking what material is there answers air, which is not diggable, and
+    /// every contact declined the dig. The material has to be sampled a radius back along the escape
+    /// direction, which is the thing actually being hit.
+    /// </remarks>
+    [Test]
+    public void AJumpIntoACeilingBecomesADig()
+    {
+        TerrainGrid grid = FlatGround();
+
+        // A roof with thirteen cells of clearance over the mole's head.
+        grid.FillRectangle(0, SurfaceCell - 46, WidthCells, 20, Material.PackedSoil);
+
+        Mole mole = StandingOnSurface(grid, 100);
+        Fix64 startY = mole.Position.Y;
+        Fix64 stamina = mole.Stamina;
+
+        mole.AddImpulse(-Vec2.UnitY * MatchSettings.HopSpeed);
+
+        for (int tick = 0; tick < 90; tick++)
+        {
+            mole.WaypointIndex = 0;
+            MoleMotion.Step(
+                mole, grid,
+                new[] { new Vec2(mole.Position.X, mole.Position.Y - Fix64.FromInt(2)) });
+        }
+
+        int rose = Fix64.ToInt((startY - mole.Position.Y) * Fix64.FromInt(WorldScale.CellsPerMetre));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(rose, Is.GreaterThan(20), "it never got up through the roof");
+            Assert.That(
+                stamina - mole.Stamina, Is.GreaterThan(Fix64.Zero),
+                "it got through without paying to dig, so it did not dig");
+        });
+    }
+
+    /// <summary>
+    /// And falling onto a floor does not dig, however hard somebody is pushing.
+    /// </summary>
+    /// <remarks>
+    /// The other half of the rule, and the one that keeps it from being a nuisance. Digging on
+    /// contact is gated on the surface not being a floor, or every landing would punch a hole in the
+    /// ground the mole was trying to land on.
+    ///
+    /// Pushed sideways rather than downward, and the first version of this test got that wrong. Held
+    /// downward, a mole lands and then digs down, which is not the contact rule misfiring: it is the
+    /// walking solver doing exactly what the design asks of it, since a route that points down is an
+    /// instruction to tunnel. What is being checked here is that arriving at a floor is not itself a
+    /// reason to dig.
+    /// </remarks>
+    [Test]
+    public void FallingOntoTheGroundDoesNotDigThroughIt()
+    {
+        TerrainGrid grid = FlatGround();
+        Vec2 high = new Vec2(
+            WorldScale.ToCentreMetres(100),
+            WorldScale.ToMetres(SurfaceCell) - Fix64.FromInt(6));
+
+        Mole mole = new Mole(seat: 0, index: 0, high);
+        ulong before = grid.Hash;
+
+        for (int tick = 0; tick < 90; tick++)
+        {
+            mole.WaypointIndex = 0;
+            MoleMotion.Step(
+                mole, grid,
+                new[] { new Vec2(mole.Position.X + Fix64.FromInt(2), mole.Position.Y) });
+        }
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(grid.Hash, Is.EqualTo(before), "landing carved the ground");
+            Assert.That(
+                mole.Position.Y, Is.LessThan(WorldScale.ToMetres(SurfaceCell)),
+                "it ended up under the surface");
+        });
+    }
+
+    /// <summary>Hops a mole off flat ground, optionally leaning, and reports how far it travelled.</summary>
+    private static Fix64 Hopped(TerrainGrid grid, int lean)
+    {
+        Mole mole = StandingOnSurface(grid, 100);
+        Fix64 startX = mole.Position.X;
+
+        mole.AddImpulse(-Vec2.UnitY * MatchSettings.HopSpeed);
+
+        for (int tick = 0; tick < 60 && mole.IsAirborne; tick++)
+        {
+            Vec2[]? route = lean == 0
+                ? null
+                : new[] { new Vec2(mole.Position.X + Fix64.FromInt(2 * lean), mole.Position.Y) };
+
+            mole.WaypointIndex = 0;
+            MoleMotion.Step(mole, grid, route);
+        }
+
+        return mole.Position.X - startX;
+    }
+
+    /// <summary>
+    /// A jump into a ceiling right overhead still gets somewhere, on the jump's own momentum.
+    /// </summary>
+    /// <remarks>
+    /// The case the first version of contact-digging was worst at, and the reason it now keeps its
+    /// velocity. Hitting a roof used to stop a mole dead and hand it to the walking solver, so a hop
+    /// into a ceiling bought one body length of tunnel however hard it was going, and with only a
+    /// hand's breadth of clearance it measured at minus one cell for twenty-three stamina: it dug,
+    /// fell back down its own shaft, and ground away at it for the rest of the round.
+    ///
+    /// With the rise carried through it is thirty-eight cells for thirteen. Cheaper as well as
+    /// further, which is the tell that the jump is doing the work rather than the digging.
+    /// </remarks>
+    [Test]
+    public void AJumpWithNoHeadroomStillCarriesIntoTheCeiling()
+    {
+        TerrainGrid grid = FlatGround();
+
+        // Seven cells of clearance over the mole's head, which is about a hand's breadth.
+        grid.FillRectangle(0, SurfaceCell - 40, WidthCells, 20, Material.PackedSoil);
+
+        Mole mole = StandingOnSurface(grid, 100);
+        Fix64 startY = mole.Position.Y;
+
+        mole.AddImpulse(-Vec2.UnitY * MatchSettings.HopSpeed);
+
+        for (int tick = 0; tick < 90; tick++)
+        {
+            mole.WaypointIndex = 0;
+            MoleMotion.Step(
+                mole, grid,
+                new[] { new Vec2(mole.Position.X, mole.Position.Y - Fix64.FromInt(2)) });
+        }
+
+        int rose = Fix64.ToInt((startY - mole.Position.Y) * Fix64.FromInt(WorldScale.CellsPerMetre));
+
+        Assert.That(rose, Is.GreaterThan(20), "the jump was thrown away on impact");
+    }
 }

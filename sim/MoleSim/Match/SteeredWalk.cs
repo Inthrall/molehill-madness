@@ -118,18 +118,48 @@ namespace MoleSim.Match
                 return;
             }
 
+            bool pushing = direction.LengthSquared() != Fix64.Zero;
+
             if (_ghost.IsAirborne)
             {
-                Step(route: null);
+                // The push goes through while off the ground, so the preview steers a jump and digs
+                // into what it hits exactly as the round will. Handed nothing when nobody is
+                // pushing, which is still a fall.
+                Step(pushing ? new[] { _ghost.Position + (direction.Normalised() * PushReach) } : null);
                 return;
             }
 
-            if (direction.LengthSquared() == Fix64.Zero)
+            if (!pushing)
             {
                 return;
             }
 
             Step(new[] { _ghost.Position + (direction.Normalised() * PushReach) });
+        }
+
+        /// <summary>
+        /// Hops the ghost, exactly as resolution will hop the mole.
+        /// </summary>
+        /// <remarks>
+        /// Without this, booking a hop did nothing anybody could see. The action went into the plan
+        /// and a marker appeared where it was booked, but the walk carried on along the ground as
+        /// though nothing had been asked for, so the mole only ever jumped once the round resolved
+        /// and the key read as broken. It is the same impulse resolution applies, off the same
+        /// setting, and refused in the air for the same reason, because a preview that disagrees
+        /// with the round is worse than no preview.
+        ///
+        /// Returns whether the ghost actually left the ground, so a caller can decline to book an
+        /// action the simulation would ignore.
+        /// </remarks>
+        public bool Hop()
+        {
+            if (_ghost.IsAirborne)
+            {
+                return false;
+            }
+
+            _ghost.AddImpulse(-Vec2.UnitY * MatchSettings.HopSpeed);
+            return true;
         }
 
         /// <summary>

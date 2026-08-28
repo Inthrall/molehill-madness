@@ -146,7 +146,22 @@ public sealed class CorpusTests
         return match.StateHash();
     }
 
-    // Repinned 2026-08-28: a crate no longer carves a hole when it lands. It used
+    // Repinned 2026-08-28, fourth commit: a jump keeps its momentum through a dig, and landing
+    // snaps down. Hitting a ceiling used to stop a mole dead, so a hop into a roof bought one body
+    // length of tunnel however hard it was going; the rise is spent going through it now and is
+    // charged by the substep. And an airborne mole that has stopped rising with something under it
+    // lands and sits on it, rather than sailing to the apex and falling back down its own shaft.
+    //
+    // Repinned earlier the same day: being off the ground stopped meaning being a passenger.
+    // A mole can steer sideways in mid-air, capped at walking pace, and one pushed into a ceiling or
+    // a wall while airborne digs into it instead of bouncing off, which is the design's seamless
+    // move finally applied to the one case that never obeyed it. Landing changed with it: it is
+    // decided by how fast a body is closing on the surface rather than how fast it is going, because
+    // air control by itself exceeds the settle speed and a steered fall never landed at all.
+    //
+    // Every route through the air is different, so all five moved. Four rule tests went in with it.
+    //
+    // Repinned earlier the same day: a crate no longer carves a hole when it lands. It used
     // to punch one of the claim radius so the last stretch had to be dug, which was right while a
     // crate buried itself and became actively wrong once one rested on a ledge: the hole was
     // centred on the crate, six cells above its floor, so a landing crate removed the ground it was
@@ -184,19 +199,19 @@ public sealed class CorpusTests
     [Test]
     public void TwoPlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 2, seed: 1UL, rounds: 12), Is.EqualTo(0x0FB94C98302175DDUL));
+        Assert.That(Play(playerCount: 2, seed: 1UL, rounds: 12), Is.EqualTo(0x3792F41161CD5626UL));
     }
 
     [Test]
     public void ThreePlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 3, seed: 20260826UL, rounds: 14), Is.EqualTo(0x1232AA2E2EE6B9B4UL));
+        Assert.That(Play(playerCount: 3, seed: 20260826UL, rounds: 14), Is.EqualTo(0xA83915562C4D270EUL));
     }
 
     [Test]
     public void FourPlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 4, seed: 4242UL, rounds: 16), Is.EqualTo(0x44F4B4D62F54C7CDUL));
+        Assert.That(Play(playerCount: 4, seed: 4242UL, rounds: 16), Is.EqualTo(0x8446995C8C96907CUL));
     }
 
     [Test]
@@ -204,7 +219,7 @@ public sealed class CorpusTests
     {
         // Past Boiling Point, so the rise, the closing sides and the three-strike rule are
         // all in the hash rather than only the early game.
-        Assert.That(Play(playerCount: 4, seed: 777UL, rounds: 26), Is.EqualTo(0x8E49E9208A84317EUL));
+        Assert.That(Play(playerCount: 4, seed: 777UL, rounds: 26), Is.EqualTo(0xA3A0FDA1CA5348D6UL));
     }
 
     [Test]
@@ -212,7 +227,7 @@ public sealed class CorpusTests
     {
         Assert.That(
             Play(playerCount: 2, seed: 31337UL, rounds: 24, widthCells: 600, heightCells: 320),
-            Is.EqualTo(0x3121AC7F897F9A91UL));
+            Is.EqualTo(0x4AC0B83A048412E3UL));
     }
 
     [Test]

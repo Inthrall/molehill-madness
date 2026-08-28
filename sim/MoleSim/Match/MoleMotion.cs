@@ -30,7 +30,10 @@ namespace MoleSim.Match
 
             if (mole.IsAirborne)
             {
-                StepBallistic(mole, terrain);
+                // The route goes in now. A mole off the ground used to be handed nothing, so a jump
+                // was a ballistic arc with no steering in it and no way to do anything with what it
+                // hit.
+                StepBallistic(mole, terrain, route);
                 return;
             }
 
@@ -42,7 +45,7 @@ namespace MoleSim.Match
                         terrain, mole.Position, MatchSettings.Radius, MatchSettings.GroundSnap, out Vec2 snapped))
                 {
                     mole.IsAirborne = true;
-                    StepBallistic(mole, terrain);
+                    StepBallistic(mole, terrain, route);
                     return;
                 }
 
@@ -270,10 +273,12 @@ namespace MoleSim.Match
 
         // ---- Falling ------------------------------------------------------------------
 
-        private static void StepBallistic(Mole mole, TerrainGrid terrain)
+        private static void StepBallistic(Mole mole, TerrainGrid terrain, Vec2[]? route)
         {
             Vec2 velocity = mole.Velocity
                 + (Vec2.UnitY * (MatchSettings.Gravity * MatchSettings.TickDuration));
+
+            velocity = Steered(mole, velocity, route);
             velocity = velocity.WithMaxLength(MatchSettings.TerminalSpeed);
 
             // A mole in the air points where it is going. This is what makes a shot fired
@@ -281,6 +286,32 @@ namespace MoleSim.Match
             if (velocity.LengthSquared() > Fix64.Zero)
             {
                 mole.Facing = velocity.Normalised();
+            }
+
+            // Stopped going up, and something underneath or walls either side. This is what catches
+            // a mole at the top of a shaft it has just punched through a ceiling: while airborne
+            // nothing consults the terrain about being held up, so without this it sailed to the
+            // apex and then fell back down its own hole, which measured as a jump-dig that achieved
+            // nothing. Asked only once the rise is spent, so it cannot cut a jump short.
+            if (velocity.Y >= Fix64.Zero
+                && TerrainQuery.IsSupported(terrain, mole.Position, MatchSettings.Radius))
+            {
+                mole.IsAirborne = false;
+                mole.Velocity = Vec2.Zero;
+
+                // Sat neatly on it, the same way Collide settles a landing. Support reaches two
+                // cells further than a body does, so without this a mole came to rest a fifth of
+                // its own height above the ground and hung there: the grounded solver agrees it is
+                // supported and so never snaps it down either. A brace in a shaft has nothing to
+                // snap to and keeps the position it stopped at.
+                if (TerrainQuery.TrySnapDown(
+                        terrain, mole.Position, MatchSettings.Radius, MatchSettings.GroundSnap,
+                        out Vec2 settled))
+                {
+                    mole.Position = settled;
+                }
+
+                return;
             }
 
             Vec2 travel = velocity * MatchSettings.TickDuration;
@@ -312,6 +343,22 @@ namespace MoleSim.Match
                     continue;
                 }
 
+                // Something in the way, in mid-air. A ceiling or a wall the mole is being pushed
+                // into is dug rather than bounced off, which is the whole of "surface and
+                // underground are one seamless move" applied to the one case that never obeyed it.
+                if (TryDigIntoIt(mole, terrain, target, route, stride, velocity))
+                {
+                    if (!mole.IsAirborne)
+                    {
+                        return;
+                    }
+
+                    // Still going up, and now inside the dirt it just opened. Carry on through:
+                    // the rest of the jump is spent tunnelling rather than thrown away on impact.
+                    mole.Position = target;
+                    continue;
+                }
+
                 velocity = Collide(mole, terrain, velocity);
 
                 if (!mole.IsAirborne)
@@ -327,6 +374,140 @@ namespace MoleSim.Match
         }
 
         /// <summary>
+        /// Steers a body that is off the ground, sideways only.
+        /// </summary>
+        /// <remarks>
+        /// Sideways only on purpose: gravity owns the vertical while a mole is in the air, and a
+        /// push that could fight it would be flight rather than a jump.
+        ///
+        /// The cap is walking pace, and it is a cap on what this adds rather than a cap on the
+        /// mole's speed. A mole thrown sideways by a blast is already going faster than it can walk,
+        /// and air control must not quietly become an air brake that bleeds off somebody else's
+        /// knockback.
+        /// </remarks>
+        private static Vec2 Steered(Mole mole, Vec2 velocity, Vec2[]? route)
+        {
+            if (route is null || !mole.AcceptsInput || mole.WaypointIndex >= route.Length)
+            {
+                return velocity;
+            }
+
+            Fix64 wanted = route[mole.WaypointIndex].X - mole.Position.X;
+
+            if (wanted == Fix64.Zero)
+            {
+                return velocity;
+            }
+
+            Fix64 step = MatchSettings.AirControl * MatchSettings.TickDuration;
+            Fix64 across = wanted > Fix64.Zero ? velocity.X + step : velocity.X - step;
+
+            // Whichever is the larger allowance: walking pace, or whatever it was already doing.
+            Fix64 already = velocity.X > Fix64.Zero ? velocity.X : -velocity.X;
+            Fix64 ceiling = already > MatchSettings.WalkSpeed ? already : MatchSettings.WalkSpeed;
+
+            if (across > ceiling)
+            {
+                across = ceiling;
+            }
+            else if (across < -ceiling)
+            {
+                across = -ceiling;
+            }
+
+            return new Vec2(across, velocity.Y);
+        }
+
+        /// <summary>
+        /// Turns a mid-air collision into a dig, when the thing hit is not a floor and somebody is
+        /// pushing into it. Returns whether it did.
+        /// </summary>
+        /// <remarks>
+        /// Jump at a ceiling and start tunnelling up it; jump at a wall and go through. The two
+        /// conditions are what stop it being a nuisance. Only when the player is actually pushing,
+        /// because a mole that merely falls against a wall should slide down it rather than
+        /// excavate; and never on a floor, or every landing would punch a hole in the ground the
+        /// mole was trying to land on.
+        ///
+        /// Which of the two a contact is comes off the escape direction, since solid below pushes a
+        /// body upward. That is measured rather than assumed from the velocity, because a mole
+        /// tumbling sideways into a slope is moving sideways while standing on something.
+        ///
+        /// The mole stops being airborne when it works, which is the point: it hands over to the
+        /// walking solver, in the dirt, and everything about tunnelling from there is the code that
+        /// already does it.
+        /// </remarks>
+        private static bool TryDigIntoIt(
+            Mole mole, TerrainGrid terrain, Vec2 target, Vec2[]? route, Fix64 stride, Vec2 velocity)
+        {
+            if (route is null || !mole.AcceptsInput || mole.IsSnared || mole.Stamina <= Fix64.Zero)
+            {
+                return false;
+            }
+
+            Vec2 escape = TerrainQuery.EscapeDirection(terrain, target, MatchSettings.Radius);
+
+            if (escape.Y <= -MatchSettings.FloorContact)
+            {
+                return false;
+            }
+
+            // Against the surface rather than under the middle. A body is blocked as soon as
+            // anything solid comes within its radius, so at the moment of contact its centre cell
+            // is still open air, and asking what is there answers "air", which is not diggable.
+            // Measured before this was fixed: jumping into a ceiling while holding up rose nothing
+            // at all, because the dig was declined on every contact.
+            //
+            // The escape direction points out of the solid, so a radius back along it is the thing
+            // actually being hit. Same reasoning as the leading-edge sample in TryAdvance, arrived
+            // at from the normal instead of from the heading, because a tumbling mole's heading and
+            // the surface it lands against are not related.
+            Material ahead = TerrainQuery.MaterialAt(
+                terrain, target - (escape * MatchSettings.Radius));
+
+            if (!MaterialTable.IsDiggable(ahead))
+            {
+                return false;
+            }
+
+            TerrainQuery.CarveBody(terrain, target, MatchSettings.Radius);
+
+            if (TerrainQuery.IsBlocked(terrain, target, MatchSettings.Radius))
+            {
+                // Bedrock behind whatever was diggable. Nothing happened, so nothing is charged.
+                return false;
+            }
+
+            // Still on the way up, so the jump keeps its momentum and the dig continues on it.
+            // Hitting a ceiling used to stop a mole dead and hand it to the walking solver, which
+            // meant a hop into a roof bought one body length of tunnel however hard it was going.
+            // Now the rise is spent going through, which is what a mole with a run-up should get,
+            // and it is charged by the substep exactly as walking through dirt is.
+            bool rising = velocity.Y < Fix64.Zero;
+            Material charged = mole.DiggingIsCheap ? Material.Air : ahead;
+            Fix64 paidFor = rising ? stride : MatchSettings.Radius;
+
+            mole.Stamina -= MaterialTable.CostPerMetre(charged) * paidFor;
+
+            if (mole.Stamina < Fix64.Zero)
+            {
+                mole.Stamina = Fix64.Zero;
+            }
+
+            if (rising && mole.Stamina > Fix64.Zero)
+            {
+                // Left airborne, and the caller moves it and carries on. Out of puff drops through
+                // to the settle below, because a mole that cannot pay has stopped digging.
+                return true;
+            }
+
+            mole.Position = target;
+            mole.IsAirborne = false;
+            mole.Velocity = Vec2.Zero;
+            return true;
+        }
+
+        /// <summary>
         /// Handles arriving at something solid: settle onto it if slow, bounce off it if
         /// not. Returns the velocity to carry on with.
         /// </summary>
@@ -334,7 +515,17 @@ namespace MoleSim.Match
         {
             Vec2 escape = TerrainQuery.EscapeDirection(terrain, mole.Position, MatchSettings.Radius);
 
-            if (velocity.Length() <= MatchSettings.SettleSpeed)
+            // How fast it is closing on the surface, rather than how fast it is going. These used
+            // to be the same test and the difference did not matter until a mole could steer in the
+            // air: air control adds up to walking pace sideways, which is more than the settle
+            // speed on its own, so a mole falling onto flat ground while a direction was held never
+            // slowed enough to land. Measured, it skittered along the surface permanently airborne.
+            //
+            // The component into the surface is the honest question anyway. A mole sliding along a
+            // slope is on the ground however fast it is sliding.
+            Fix64 closing = -Vec2.Dot(velocity, escape);
+
+            if (closing <= MatchSettings.SettleSpeed)
             {
                 mole.IsAirborne = false;
 

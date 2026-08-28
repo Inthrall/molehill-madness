@@ -60,6 +60,40 @@ namespace MoleSim.Match
         public static Fix64 StepHeight => Fix64.Ratio(8, WorldScale.CellsPerMetre);
 
         /// <summary>
+        /// How hard a hop pushes off, in metres a second.
+        /// </summary>
+        /// <remarks>
+        /// Lived privately in <see cref="MoleMatch"/> while resolution was the only thing that
+        /// jumped. The planning preview jumps too now, and two copies of a number that has to agree
+        /// is how a preview starts lying about what a plan will do.
+        /// </remarks>
+        public static Fix64 HopSpeed => Fix64.FromInt(9);
+
+        /// <summary>
+        /// How hard a mole can push sideways while off the ground, in metres a second squared.
+        /// </summary>
+        /// <remarks>
+        /// A jump used to be a ballistic arc nobody could influence once it started, which made the
+        /// hop a commitment rather than a move: you could not clear a gap you had misjudged by a
+        /// foot, and you could not aim a jump at anything. Twelve gets a mole to walking pace
+        /// sideways in about half a second of air, so a hop can be steered without a jump turning
+        /// into flight.
+        /// </remarks>
+        public static Fix64 AirControl => Fix64.FromInt(12);
+
+        /// <summary>
+        /// How much of the escape direction has to point upward for a contact to count as a floor.
+        /// </summary>
+        /// <remarks>
+        /// Which decides whether hitting something in mid-air lands the mole or starts it digging.
+        /// Solid below pushes a body upward, so an escape that is mostly up is a floor and gets the
+        /// old settle-or-bounce; anything else is a ceiling or a wall and gets dug into. Six tenths
+        /// puts the boundary at about fifty degrees, so a steep bank counts as a wall and a shallow
+        /// one counts as ground, which is the same place the walking solver draws the line.
+        /// </remarks>
+        public static Fix64 FloorContact => Fix64.Ratio(6, 10);
+
+        /// <summary>
         /// How far below its feet the mole looks for ground before deciding it is falling.
         /// Also how far it drops to follow a slope down without going ballistic.
         /// </summary>
