@@ -172,13 +172,20 @@ jobs:
           curl -fsSL -o /tmp/godot.zip "$base/${name}_linux_x86_64.zip"
           curl -fsSL -o /tmp/templates.tpz "$base/${name}_export_templates.tpz"
 
+          # Extracted and left where it lands. A mono build keeps a GodotSharp directory
+          # beside its executable and will not run without it, so the binary cannot be moved
+          # out to a tidy name: the first attempt at this did exactly that and guessed the
+          # name wrong as well, since a Linux binary is called linux.x86_64 with a dot while
+          # the archive around it uses an underscore.
           unzip -q /tmp/godot.zip -d ~/godot
-          mv ~/godot/${name}_linux_x86_64/${name}_linux_x86_64 ~/godot/godot
-          chmod +x ~/godot/godot
+
+          binary=$(find ~/godot -type f -name 'Godot_v*_mono_linux*' ! -name '*_console*' | head -1)
+          test -n "$binary" || { echo "::error::No Godot binary in the archive."; exit 1; }
+          chmod +x "$binary"
 
           # A .tpz is a zip whose contents live under templates/, and Godot wants them in a
           # directory named for the version exactly as it reports it.
-          version=$(~/godot/godot --version | head -1)
+          version=$("$binary" --version | head -1)
           version=${version%.official*}
           unzip -q /tmp/templates.tpz -d /tmp/templates
           templates="$HOME/.local/share/godot/export_templates"
@@ -188,8 +195,20 @@ jobs:
           echo "Installed templates as $version"
           ls "$HOME/.local/share/godot/export_templates/"
 
-      - name: Put the editor on the path
-        run: echo "$HOME/godot" >> "$GITHUB_PATH"
+      # Its own step because it has to happen on a cache hit as well, when the fetch above is
+      # skipped and nothing has worked out where the binary ended up. Carried as a path rather
+      # than added to PATH, since the executable keeps its archive's directory name.
+      - name: Find the editor
+        run: |
+          binary=$(find ~/godot -type f -name 'Godot_v*_mono_linux*' ! -name '*_console*' | head -1)
+          test -n "$binary" || { echo "::error::No Godot binary under ~/godot."; exit 1; }
+
+          chmod +x "$binary"
+          echo "GODOT_BIN=$binary" >> "$GITHUB_ENV"
+
+          echo "editor    $binary"
+          echo "version   $("$binary" --version | head -1)"
+          echo "templates $(ls ~/.local/share/godot/export_templates/ 2>/dev/null || echo none)"
 
       # Godot keeps the Android SDK path and the debug keystore in editor settings rather than in
       # the export preset, so a headless machine has to be told both. The runner ships an SDK; the
@@ -228,7 +247,7 @@ jobs:
       # import that has not finished produces a package with missing resources rather than an
       # error.
       - name: Import the project
-        run: godot --headless --path client --import || true
+        run: "$GODOT_BIN" --headless --path client --import || true
 
       # Godot does not always exit after an export, which is a known headless quirk and the reason
       # the exit code is not what gets believed here. Every export is judged by whether the files
@@ -237,7 +256,7 @@ jobs:
       - name: Export for Windows
         run: |
           mkdir -p build/windows
-          timeout 900 godot --headless --path client \
+          timeout 900 "$GODOT_BIN" --headless --path client \
             --export-release "Windows Desktop" "../build/windows/Molehill Madness.exe" || true
 
           test -f "build/windows/Molehill Madness.exe" \
@@ -260,7 +279,7 @@ jobs:
           # export without a release keystore fails. Same reason tools/scripts/deploy-android.sh
           # has always used --export-debug. A store build wants a real keystore in a secret, and
           # then this becomes --export-release.
-          timeout 900 godot --headless --path client \
+          timeout 900 "$GODOT_BIN" --headless --path client \
             --export-debug "Android" "../build/android/molehill-madness.apk" || true
 
           test -f build/android/molehill-madness.apk \
