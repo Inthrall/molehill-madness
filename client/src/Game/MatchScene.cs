@@ -365,13 +365,32 @@ public partial class MatchScene : Node2D
     }
 
     /// <summary>How many platoons can plan at the same moment.</summary>
-    private int SimultaneousSeats()
+    /// <summary>
+    /// How many platoons are being planned on this screen, whatever they are planning with.
+    /// </summary>
+    /// <remarks>
+    /// This replaced a count of seats holding a device of their own, and the difference between the
+    /// two is the whole of why local play never split. On a single keyboard exactly one seat holds
+    /// anything: the first gets the pointer and the rest are handed nothing and queue for it. So the
+    /// old count answered one, the layout stayed shared, and four people round a screen watched a
+    /// single camera follow whoever's turn it happened to be.
+    ///
+    /// Sharing a pointer is a fact about input, not about who is playing. The design has always
+    /// asked for a pane each on the couch, with open plans and everybody able to see everybody
+    /// else's, and it is the more useful arrangement precisely because the turn passes around: three
+    /// players waiting can watch their own platoon and work out what they are going to do with it,
+    /// rather than watching a camera that belongs to somebody else.
+    ///
+    /// Online seats are excluded because their plans arrive from the relay and there is nothing on
+    /// this device to draw a pane for, so a two-player online match stays one full-screen view.
+    /// </remarks>
+    private int LocalSeats()
     {
         int count = 0;
 
         for (int seat = 0; seat < _players; seat++)
         {
-            if (_devices[seat] != Device.Shared && _match.SeatIsAlive(seat))
+            if (_devices[seat] != Device.Elsewhere && _match.SeatIsAlive(seat))
             {
                 count++;
             }
@@ -501,8 +520,9 @@ public partial class MatchScene : Node2D
             }
         }
 
-        // This device has now planned a turn, which is what stops the drawn paw appearing again and is
-        // what "first matches are seeded together" would consult once there is matchmaking to seed.
+        // This device has now planned a turn. Both halves of what that used to be for have moved on:
+        // the drawn paw it silenced has been removed, and the matchmaking it was waiting for exists,
+        // so seeding beginners together is now a thing that could actually be done with this.
         if (_autoPilot is null)
         {
             Player.Planned1More();
@@ -895,7 +915,6 @@ public partial class MatchScene : Node2D
             _touch.QueueRedraw();
         }
 
-        // After the layout, so the paw points at where the controls actually ended up.
     }
 
     // ---- Playing apart ---------------------------------------------------------------
@@ -1221,7 +1240,10 @@ public partial class MatchScene : Node2D
 
         _beat = Beat.Finished;
         _finishedFor = 0;
-        _scoreboard?.Show(FinalStandings());
+        _scoreboard?.Show(
+            FinalStandings(),
+            Molehill.Clip.Awards.MoleOfTheMatch(
+                _rounds, _players, MatchSettings.MolesPerPlatoon));
 
         if (Flags.Clip())
         {
@@ -1519,7 +1541,10 @@ public partial class MatchScene : Node2D
                 return SplitLayout.Shared(band);
             }
 
-            return _forceSplit || SimultaneousSeats() >= 2
+            // Local seats rather than seats with their own controller, so a couch full of people
+            // sharing one keyboard gets a pane each. --split still forces it, which is now only
+            // useful for looking at the layout with a single player.
+            return _forceSplit || LocalSeats() >= 2
                 ? SplitLayout.PerSeat(_players, band)
                 : SplitLayout.Shared(band);
         }

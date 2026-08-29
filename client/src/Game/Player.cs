@@ -135,14 +135,18 @@ public static class Player
     /// Whether this device has ever finished a planning phase.
     /// </summary>
     /// <remarks>
-    /// The design's beginner flag, and it does two jobs. It decides whether the drawn paw appears,
-    /// which is the whole tutorial. And it is what "first matches are seeded together where the
-    /// population allows" would consult, so a beginner's first game is against other beginners rather
-    /// than somebody who has been reading dirt for six months.
+    /// The design's beginner flag. It had two jobs and has one left, which is worth saying rather
+    /// than leaving the reader to find out.
     ///
-    /// The seeding half has nowhere to happen yet, because there is no matchmaking: codes travel in
-    /// friend groups and couch play works at a population of zero. Like the age band, the flag is not
-    /// sent anywhere until something asks for it.
+    /// It used to decide whether the drawn paw appeared, and that was the whole of the tutorial. The
+    /// paw is gone: it demonstrated the drag that laid a route, and that gesture stopped existing when
+    /// steering moved to the keys, so what it was left teaching was how to pan a camera. Nothing
+    /// teaches a first round now.
+    ///
+    /// What remains is the half the design calls "first matches are seeded together where the
+    /// population allows", so a beginner's first game is against other beginners rather than against
+    /// somebody who has been reading dirt for six months. There is matchmaking to seed now, and this
+    /// flag is still not sent anywhere, because nothing on the pool side asks for it yet.
     /// </remarks>
     public static bool Beginner
     {
