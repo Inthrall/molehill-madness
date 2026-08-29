@@ -43,6 +43,7 @@ public partial class Scoreboard : Control
     }
 
     private Standing[] _rows = System.Array.Empty<Standing>();
+    private Molehill.Clip.Award _honoured = Molehill.Clip.Award.Nobody;
     private Vector2 _back;
     private float _button;
     private bool _shown;
@@ -55,9 +56,10 @@ public partial class Scoreboard : Control
     }
 
     /// <summary>Puts the match's result up, in finishing order.</summary>
-    public void Show(Standing[] rows)
+    public void Show(Standing[] rows, Molehill.Clip.Award honoured)
     {
         _rows = rows;
+        _honoured = honoured;
         _shown = true;
         Visible = true;
         QueueRedraw();
@@ -84,7 +86,8 @@ public partial class Scoreboard : Control
 
         float rowHeight = Mathf.Clamp(viewport.Y * 0.13f, 44f, 96f);
         float width = Mathf.Min(viewport.X * 0.72f, rowHeight * 9f);
-        float height = (rowHeight * _rows.Length) + (rowHeight * 1.5f);
+        float honours = _honoured.Exists ? rowHeight * 1.15f : 0f;
+        float height = (rowHeight * _rows.Length) + honours + (rowHeight * 1.5f);
         Vector2 origin = new Vector2(
             (viewport.X - width) / 2f, (viewport.Y - height) / 2f);
 
@@ -103,12 +106,104 @@ public partial class Scoreboard : Control
                 origin.X, origin.Y + (index * rowHeight), width, rowHeight), worst);
         }
 
+        if (_honoured.Exists)
+        {
+            Honour(new Rect2(
+                origin.X, origin.Y + (rowHeight * _rows.Length), width, honours));
+        }
+
         _back = new Vector2(
             origin.X + (width / 2f), origin.Y + height - (rowHeight * 0.7f));
 
         DrawCircle(_back, _button, new Color(Palette.OnPanel, 0.14f));
         DrawArc(_back, _button, 0, Mathf.Tau, 32, new Color(Palette.OnPanel, 0.5f), 2f);
         Glyphs.Back(this, _back, _button * 1.15f, Palette.OnPanel);
+    }
+
+    /// <summary>
+    /// The mole of the match, and what it is remembered for.
+    /// </summary>
+    /// <remarks>
+    /// Wordless, like the rest of this screen, which is a departure from the design and a deliberate
+    /// one. The design describes this award as a generated title, "Private Nibbles, Hero of the Third
+    /// Flowerbed", and that wants two things the game has not got: a name generator for the moles,
+    /// and a decision about whether the results screen is inside the no-words rule or outside it.
+    /// Both are worth settling on their own rather than being settled in passing by whoever wired the
+    /// award up.
+    ///
+    /// So what is drawn is the mole, in its platoon's colour, a star to say this is an honour rather
+    /// than another row of results, and a glyph for the feat: the shot for damage dealt, the dynamite
+    /// for damage dealt to one's own, a heart for taking the most and still standing, and the pack for
+    /// getting to the most crates. Then the number, which is the one numeral the design keeps.
+    /// </remarks>
+    private void Honour(Rect2 into)
+    {
+        float glyph = into.Size.Y * 0.5f;
+        float middle = into.Position.Y + (into.Size.Y / 2f);
+        Color colour = Palette.Seat(_honoured.Seat);
+
+        DrawLine(
+            new Vector2(into.Position.X + (glyph * 0.6f), into.Position.Y),
+            new Vector2(into.Position.X + into.Size.X - (glyph * 0.6f), into.Position.Y),
+            new Color(Palette.OnPanel, 0.14f), 2f);
+
+        float at = into.Position.X + (glyph * 1.1f);
+
+        Glyphs.Icon(this, "star", new Vector2(at, middle), glyph * 0.95f, colour);
+
+        // The mole itself, on a disc of its platoon's colour, which is how a head carries a team.
+        at += glyph * 1.5f;
+
+        DrawCircle(new Vector2(at, middle), glyph * 0.62f, colour);
+        DrawArc(new Vector2(at, middle), glyph * 0.62f, 0f, Mathf.Tau, 30,
+            new Color(Palette.Ink, 0.45f), 2f);
+
+        Strip faces = Art.Faces;
+        Vector2 box = faces.FrameSize * (glyph * 1.05f / faces.FrameSize.Y);
+
+        faces.Draw(
+            this,
+            new Rect2(at - (box.X / 2f), middle - (box.Y / 2f), box),
+            Award(_honoured.Feat),
+            mirrored: false);
+
+        // What it did.
+        at += glyph * 1.5f;
+        Feat(_honoured.Feat, new Vector2(at, middle), glyph);
+
+        at += glyph * 1.4f;
+        Glyphs.Number(this, _honoured.Score, new Vector2(at, middle), glyph * 0.8f, Palette.OnPanel);
+    }
+
+    /// <summary>Which face suits the feat, because the sheet has one for each of these.</summary>
+    private static int Award(Molehill.Clip.Feat feat) => feat switch
+    {
+        Molehill.Clip.Feat.Ordnance => Art.Face.Pleased,
+        Molehill.Clip.Feat.OwnGoal => Art.Face.Startled,
+        Molehill.Clip.Feat.Survivor => Art.Face.Weary,
+        _ => Art.Face.Level,
+    };
+
+    private void Feat(Molehill.Clip.Feat feat, Vector2 at, float glyph)
+    {
+        switch (feat)
+        {
+            case Molehill.Clip.Feat.Ordnance:
+                Glyphs.Fire(this, at, glyph, Palette.OnPanel);
+                break;
+
+            case Molehill.Clip.Feat.OwnGoal:
+                Glyphs.Dynamite(this, at, glyph, Palette.Damage);
+                break;
+
+            case Molehill.Clip.Feat.Survivor:
+                Glyphs.Icon(this, "heart", at, glyph * 0.9f, Palette.OnPanel);
+                break;
+
+            default:
+                Glyphs.Icon(this, "pack", at, glyph * 0.9f, Palette.OnPanel);
+                break;
+        }
     }
 
     private void Row(Standing row, Rect2 into, int worst)
