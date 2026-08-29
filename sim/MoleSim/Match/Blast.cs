@@ -7,12 +7,16 @@ namespace MoleSim.Match
     /// <summary>What one mole took from one blast.</summary>
     public readonly struct BlastHit
     {
-        public BlastHit(int seat, int moleIndex, int damage, bool wentOffDuty)
+        public BlastHit(
+            int seat, int moleIndex, int damage, bool wentOffDuty,
+            int bySeat = -1, int byMoleIndex = -1)
         {
             Seat = seat;
             MoleIndex = moleIndex;
             Damage = damage;
             WentOffDuty = wentOffDuty;
+            BySeat = bySeat;
+            ByMoleIndex = byMoleIndex;
         }
 
         public int Seat { get; }
@@ -22,6 +26,31 @@ namespace MoleSim.Match
         public int Damage { get; }
 
         public bool WentOffDuty { get; }
+
+        /// <summary>
+        /// Who caused it, or -1 when nobody did.
+        /// </summary>
+        /// <remarks>
+        /// A hit used to say only who took it, which is everything the rules need and not enough for
+        /// anything that wants to talk about the match afterwards. Friendly fire is always on and
+        /// nothing about the damage depends on who fired, so the blast itself still does not ask; the
+        /// answer is carried in from the caller, which always knows.
+        ///
+        /// Nobody is a real answer rather than a gap. Lava has no attacker. A trap knows the seat
+        /// that laid it and not which mole did, because a placement outlives the turn that made it,
+        /// so those arrive with a seat and <see cref="ByMoleIndex"/> of -1.
+        /// </remarks>
+        public int BySeat { get; }
+
+        /// <summary>Which of that seat's moles, or -1 when only the seat is known.</summary>
+        public int ByMoleIndex { get; }
+
+        /// <summary>Whether a mole did this to itself, which is the funniest thing in the game.</summary>
+        public bool SelfInflicted =>
+            BySeat == Seat && ByMoleIndex == MoleIndex && BySeat >= 0;
+
+        /// <summary>Whether it came from the victim's own platoon, itself included.</summary>
+        public bool FriendlyFire => BySeat == Seat && BySeat >= 0;
     }
 
     /// <summary>Craters the ground and knocks moles about.</summary>
@@ -43,7 +72,8 @@ namespace MoleSim.Match
         /// to collapse.
         /// </param>
         public static List<BlastHit> Detonate(
-            TerrainGrid terrain, Mole[] moles, Vec2 centre, WeaponSpec spec, bool crater = true)
+            TerrainGrid terrain, Mole[] moles, Vec2 centre, WeaponSpec spec, bool crater = true,
+            int bySeat = -1, int byMoleIndex = -1)
         {
             // Who is shielded has to be decided against the ground as it stands, before
             // the crater removes the very dirt that was doing the shielding.
@@ -112,7 +142,8 @@ namespace MoleSim.Match
                 bool wentOffDuty = mole.TakeDamage(damage);
                 mole.AddImpulse(push * (spec.Knockback * closeness));
 
-                hits.Add(new BlastHit(mole.Seat, mole.Index, damage, wentOffDuty));
+                hits.Add(new BlastHit(
+                    mole.Seat, mole.Index, damage, wentOffDuty, bySeat, byMoleIndex));
             }
 
             return hits;

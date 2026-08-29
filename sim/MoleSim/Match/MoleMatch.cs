@@ -630,7 +630,8 @@ namespace MoleSim.Match
 
                 bool wentOffDuty = mole.TakeDamage(spec.Damage);
                 mole.AddImpulse(aim * spec.Knockback);
-                result.Hits.Add(new BlastHit(mole.Seat, mole.Index, spec.Damage, wentOffDuty));
+                result.Hits.Add(new BlastHit(
+                    mole.Seat, mole.Index, spec.Damage, wentOffDuty, actor.Seat, actor.Index));
 
                 if (wentOffDuty)
                 {
@@ -653,7 +654,8 @@ namespace MoleSim.Match
             // the ground rather than removing it, and cratering here would blow the roof
             // off the very tunnels it is supposed to bring down.
             foreach (BlastHit hit in Blast.Detonate(
-                         Terrain, _moles, actor.Position, spec, crater: false))
+                         Terrain, _moles, actor.Position, spec, crater: false,
+                         bySeat: actor.Seat, byMoleIndex: actor.Index))
             {
                 result.Hits.Add(hit);
 
@@ -780,7 +782,9 @@ namespace MoleSim.Match
             actor.Position = at;
             actor.Facing = aim;
 
-            foreach (BlastHit hit in Blast.Detonate(Terrain, _moles, at, WeaponTable.Of(weapon)))
+            foreach (BlastHit hit in Blast.Detonate(
+                         Terrain, _moles, at, WeaponTable.Of(weapon),
+                         bySeat: actor.Seat, byMoleIndex: actor.Index))
             {
                 if (hit.Seat == actor.Seat && hit.MoleIndex == actor.Index)
                 {
@@ -833,7 +837,8 @@ namespace MoleSim.Match
                             bool wentOffDuty = mole.TakeDamage(spec.Damage);
                             mole.AddImpulse(-Vec2.UnitY * spec.Knockback);
                             result.Hits.Add(new BlastHit(
-                                mole.Seat, mole.Index, spec.Damage, wentOffDuty));
+                                mole.Seat, mole.Index, spec.Damage, wentOffDuty,
+                                placement.OwnerSeat, -1));
 
                             if (wentOffDuty)
                             {
@@ -900,7 +905,8 @@ namespace MoleSim.Match
                 SplitCluster(shot);
 
                 foreach (BlastHit hit in Blast.Detonate(
-                             Terrain, _moles, shot.Position, WeaponTable.Of(shot.Weapon)))
+                             Terrain, _moles, shot.Position, WeaponTable.Of(shot.Weapon),
+                             bySeat: shot.OwnerSeat, byMoleIndex: shot.OwnerMole))
                 {
                     result.Hits.Add(hit);
 
