@@ -11,10 +11,30 @@ name: Release
 # have worked: the attach step names the release after the ref, and on a branch run that is "main",
 # which is not a release. Removed rather than fixed, because what it appeared to offer does not
 # exist. A manual run leaves its artifacts on the run; a release comes from a tag.
+#
+# Every push builds all three, so a change that breaks an export is found by the commit that broke
+# it rather than by somebody cutting a release weeks later. Public repositories get free runners, so
+# what this costs is queue time rather than money.
+#
+# No path filter, and that is deliberate rather than an omission. Excluding documentation would
+# save a quarter of an hour on a README edit, but a path filter on a push trigger applies to tag
+# pushes as well, so a release tag whose diff happened to be documentation could silently not
+# build. A release that does not happen is far more expensive than a build nobody needed, and the
+# failure mode is much harder to notice. If the wasted runs become annoying, the honest fix is a
+# separate workflow for tags rather than a filter that guesses.
 on:
   push:
+    branches: ['**']
     tags: ['v*']
   workflow_dispatch:
+
+# One run per ref, and a new push cancels the one it supersedes. Two exports and a 1.2 GB download
+# per push means a busy afternoon would otherwise queue builds nobody wants the answer to any more.
+# Tags are exempt: a release build is never superseded, and cancelling one would leave a tag with no
+# artifacts attached.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
 
 env:
   DOTNET_NOLOGO: true
@@ -58,9 +78,19 @@ jobs:
             version="$(git rev-parse --short HEAD)"
           fi
 
+          # A moving tag per branch, and latest reserved for releases. Pointing latest at every
+          # push would quietly change what a self-hosted relay pulls on its next restart, and the
+          # laptop hosting a match should not be updated by an unrelated commit.
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            moving=latest
+          else
+            moving=$(echo "$GITHUB_REF_NAME" | tr '/' '-')
+          fi
+
           echo "image=$image" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Tagging $image:$version"
+          echo "moving=$moving" >> "$GITHUB_OUTPUT"
+          echo "Tagging $image:$version and $image:$moving"
 
       # The build context is relay/ rather than the repository root, and the Dockerfile explains
       # why at length: the relay must not be able to see MoleSim, because the moment it can see a
@@ -72,7 +102,7 @@ jobs:
           push: true
           tags: |
             ${{ steps.tags.outputs.image }}:${{ steps.tags.outputs.version }}
-            ${{ steps.tags.outputs.image }}:latest
+            ${{ steps.tags.outputs.image }}:${{ steps.tags.outputs.moving }}
 
       # A container that starts is not a relay that works, so the published image is asked the
       # question the design rests on: a partial round must release nothing.
@@ -301,6 +331,8 @@ jobs:
           cd ../..
           du -h build/molehill-madness-windows.zip
 
+      # Kept for a fortnight on a tag and a few days otherwise. Every push produces about 230 MB
+      # and almost all of it is only interesting until the next push.
       - name: Upload the builds
         uses: actions/upload-artifact@v7
         with:
@@ -309,6 +341,7 @@ jobs:
             build/molehill-madness-windows.zip
             build/android/molehill-madness.apk
           if-no-files-found: error
+          retention-days: ${{ github.ref_type == 'tag' && 14 || 5 }}
 
       # Steam wants credentials nobody has set yet, so this announces itself as skipped rather
       # than failing the release. The build above is the part that has to work; uploading it is a
