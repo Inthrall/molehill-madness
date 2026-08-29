@@ -323,7 +323,7 @@ namespace MoleSim.Match
         /// a clip. Off by default, because the headless runners and the corpus resolve
         /// thousands of rounds and have no use for it.
         /// </param>
-        public RoundResult ResolveRound(bool record = false)
+        public RoundResult ResolveRound(bool record = false, ITickWatcher? watching = null)
         {
             Round++;
             RoundResult result = new RoundResult(Round);
@@ -377,11 +377,36 @@ namespace MoleSim.Match
                 result.Recording?.Capture(
                     tick, _moles, _shots, result.Hits.Count, result.Knockouts.Count,
                     result.Detonations);
+
+                // After everything has moved, so a tick's hash is the state at the end of it.
+                watching?.Ticked(Round, tick, this);
             }
 
             Terrain.StopJournal();
             Aftermath(actors, result);
             return result;
+        }
+
+        /// <summary>
+        /// Something that wants to see every tick as it happens.
+        /// </summary>
+        /// <remarks>
+        /// Only the divergence bisector uses this, and it exists because a round is atomic from the
+        /// outside: ResolveRound goes in and a result comes out, so the finest grain anything could
+        /// compare was a whole round. When two platforms disagree, a round is 240 ticks of somewhere
+        /// to look, and the plan is blunt about what that costs, calling determinism debugging
+        /// without a bisector "despair".
+        ///
+        /// An interface rather than a delegate so that MoleSim keeps its own company: nothing here
+        /// needs System, and the shape of what an observer wants to record is the observer's problem.
+        ///
+        /// Handed the match rather than a snapshot, deliberately. A hash says two machines disagree
+        /// and nothing about what they disagree over, so a bisector has to be able to read the state
+        /// itself, and copying it out first would mean deciding here what is worth copying.
+        /// </remarks>
+        public interface ITickWatcher
+        {
+            void Ticked(int round, int tick, MoleMatch match);
         }
 
         /// <summary>

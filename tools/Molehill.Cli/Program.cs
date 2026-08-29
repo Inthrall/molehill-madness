@@ -31,6 +31,13 @@ internal static class Program
             "walk" => WalkRound(args.Length > 1 ? args[1] : "dumps/walk.bmp"),
             "match" => PlayMatch(args.Length > 1 ? args[1] : "dumps/match.bmp"),
             "costs" => PrintCostTable(),
+
+            // The two halves of the divergence bisector. Separate commands because they happen on
+            // different machines: trace on each, then bisect the pair on either.
+            "trace" => Bisector.Trace(Named(args, "--out=", "dumps/trace.tsv")),
+            "bisect" => args.Length > 2
+                ? Bisector.Bisect(args[1], args[2])
+                : PrintUsage(2),
             "help" or "--help" or "-h" => PrintUsage(0),
             _ => PrintUnknown(command),
         };
@@ -42,6 +49,20 @@ internal static class Program
     /// them is impossible. This is the check that Phase 0 turns on before anything else
     /// gets built, and it wants running on a desktop and a phone.
     /// </summary>
+    /// <summary>A named switch, or its default when nobody passed one.</summary>
+    private static string Named(string[] args, string prefix, string fallback)
+    {
+        foreach (string argument in args)
+        {
+            if (argument.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                return argument.Substring(prefix.Length);
+            }
+        }
+
+        return fallback;
+    }
+
     private static int SelfTest()
     {
         DeterminismFingerprint print = DeterminismProbe.Run();
@@ -462,6 +483,9 @@ internal static class Program
         Console.WriteLine("  walk [path]     run one mole through one round and draw its path");
         Console.WriteLine("  match [path]    play a whole four-player match headlessly");
         Console.WriteLine("  costs           print the movement cost table and reaches");
+        Console.WriteLine();
+        Console.WriteLine("  trace [--out=P] play a fixed match and write a hash per tick");
+        Console.WriteLine("  bisect A B      find the first tick two traces disagree on");
         return exitCode;
     }
 }

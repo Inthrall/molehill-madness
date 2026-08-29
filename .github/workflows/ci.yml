@@ -18,7 +18,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        # ARM64 is the row that earns this matrix. x86-64 against ARM64 is exactly where IEEE 754
+        # arithmetic diverges in practice, and being integer-only is the entire reason the
+        # simulation can promise it does not. Two x86 platforms agreeing proves the build is
+        # reproducible; it does not test the claim.
+        #
+        # The Phase 0 gate checked it by hand on an Android phone and nothing has checked it since,
+        # so every commit between then and now was unverified on the one boundary that matters. A
+        # native ARM64 runner puts it back on every push.
+        #
+        # ARM64 Linux rather than Android, and the difference is worth knowing. This tests the
+        # simulation's arithmetic, which is what the determinism matrix is for: MoleSim is plain
+        # netstandard2.1 with no engine dependency, so the CPU is the whole of what varies. It does
+        # not test Godot's Android export or the Mono runtime that ships with it. That is a client
+        # packaging question, it needs a device or an emulator, and tools/scripts/deploy-android.sh
+        # is how it gets asked.
+        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest]
 
     steps:
       - uses: actions/checkout@v7
@@ -57,11 +72,24 @@ jobs:
           grep -E '^(fix64|vec2|rng|terrain)' full-fingerprint.txt > fingerprint.txt
           cat fingerprint.txt
 
-      - name: Upload fingerprint
+      # A fingerprint says whether two machines agree. When they do not, the next question is
+      # always "where", and a round is atomic from the outside, so without this the answer was a
+      # whole match. The trace is a hash and every mole's raw numbers per tick, about 1.2 MB, kept
+      # from every run so that a disagreement can be bisected from the artifacts of the build that
+      # found it rather than by trying to reproduce it afterwards.
+      - name: Record a per-tick trace
+        shell: bash
+        run: |
+          dotnet run --project tools/Molehill.Cli --configuration Release --no-build -- \
+            trace --out=trace.tsv
+
+      - name: Upload fingerprint and trace
         uses: actions/upload-artifact@v7
         with:
           name: fingerprint-${{ matrix.os }}
-          path: fingerprint.txt
+          path: |
+            fingerprint.txt
+            trace.tsv
           if-no-files-found: error
 
   determinism:
@@ -70,7 +98,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download fingerprints
+      - uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Download fingerprints and traces
         uses: actions/download-artifact@v8
         with:
           pattern: fingerprint-*
@@ -93,12 +128,52 @@ jobs:
               echo
               echo "::error::Simulation results differ between platforms. Online play is"
               echo "::error::impossible until this is fixed. Bisect the first differing tick"
-              echo "::error::before doing anything else."
+              echo "::error::before doing anything else:"
+              echo "::error::  molehill trace  --out=a.tsv   (on each platform)"
+              echo "::error::  molehill bisect a.tsv b.tsv"
               exit 1
             fi
           done
 
           echo "All platforms computed identical results."
+
+      # Belt and braces, and they check different things. The fingerprint above is a handful of
+      # probes over the arithmetic, the generator and the terrain hash; this is a whole four-player
+      # match compared tick by tick. A run that passes the first and fails this one has a divergence
+      # in the rules rather than in the primitives, which is the harder half and the half that used
+      # to be invisible.
+      - name: Bisect the traces against each other
+        run: |
+          dotnet build tools/Molehill.Cli --configuration Release
+
+          first=""
+          status=0
+
+          for file in $(find fingerprints -name trace.tsv | sort); do
+            if [ -z "$first" ]; then
+              first="$file"
+              echo "Reference trace: $first"
+              continue
+            fi
+
+            echo
+            echo "=== $first  against  $file"
+
+            if ! dotnet run --project tools/Molehill.Cli --configuration Release --no-build -- \
+                   bisect "$first" "$file"; then
+              status=1
+            fi
+          done
+
+          if [ "$status" -ne 0 ]; then
+            echo
+            echo "::error::The simulation diverges between platforms. The tick and the field are"
+            echo "::error::named above. Online play is impossible until this is fixed."
+            exit 1
+          fi
+
+          echo
+          echo "Every platform computed the same match, tick by tick."
 
   guards:
     name: Simulation guards
