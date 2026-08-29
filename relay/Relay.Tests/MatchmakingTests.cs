@@ -406,6 +406,10 @@ public sealed class MatchmakingTests
     {
         HttpResponseMessage queued = await Queue(client, account, 2, Pace.Live);
 
+        string body = await queued.Content.ReadAsStringAsync();
+
+        TestContext.Out.WriteLine($"queue said {(int)queued.StatusCode}: '{body}'");
+
         return (await queued.Json()).GetProperty("ticket").GetString()!;
     }
 
