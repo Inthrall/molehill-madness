@@ -6,15 +6,15 @@ name: Release
 # Tag a version to cut a release, or run it by hand to check the pipeline still works without
 # publishing anything. A tag attaches the artifacts to the GitHub release; a manual run leaves
 # them as build artifacts and nothing else.
+#
+# There was a publish input here, offering to attach artifacts from a manual run, and it could not
+# have worked: the attach step names the release after the ref, and on a branch run that is "main",
+# which is not a release. Removed rather than fixed, because what it appeared to offer does not
+# exist. A manual run leaves its artifacts on the run; a release comes from a tag.
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
-    inputs:
-      publish:
-        description: 'Attach artifacts to a GitHub release'
-        type: boolean
-        default: false
 
 env:
   DOTNET_NOLOGO: true
@@ -344,7 +344,7 @@ jobs:
   publish:
     name: Attach to the release
     needs: [relay, game]
-    if: github.ref_type == 'tag' || inputs.publish
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
 
     steps:
@@ -360,7 +360,19 @@ jobs:
         run: |
           find builds -type f | sort
 
+          # A tag is usually pushed before its release exists, which is the order anybody tagging
+          # from a terminal will use. Made rather than assumed, and left as a draft so a person
+          # writes the notes: this file knows what was built and nothing about what changed.
+          if ! gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "No release for ${GITHUB_REF_NAME} yet, opening a draft."
+            gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" \
+              --draft --title "${GITHUB_REF_NAME}" --notes "Built by the Release workflow."
+          fi
+
           gh release upload "${GITHUB_REF_NAME}" \
             "builds/molehill-madness-windows.zip" \
             "builds/android/molehill-madness.apk" \
             --repo "${GITHUB_REPOSITORY}" --clobber
+
+          gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" \
+            --json assets -q '.assets[] | "attached  \(.name)  \(.size) bytes"'
