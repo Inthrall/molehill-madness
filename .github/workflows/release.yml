@@ -247,7 +247,8 @@ jobs:
       # import that has not finished produces a package with missing resources rather than an
       # error.
       - name: Import the project
-        run: "$GODOT_BIN" --headless --path client --import || true
+        run: |
+          "$GODOT_BIN" --headless --path client --import || true
 
       # Godot does not always exit after an export, which is a known headless quirk and the reason
       # the exit code is not what gets believed here. Every export is judged by whether the files
