@@ -51,3 +51,4 @@ renderer/rendering_method.mobile="gl_compatibility"
 ; Required for any Android export. Costs nothing here because the probe draws with
 ; primitives rather than textures, but the real client will need it regardless.
 textures/vram_compression/import_etc2_astc=true
+textures/vram_compression/import_s3tc_bptc=true

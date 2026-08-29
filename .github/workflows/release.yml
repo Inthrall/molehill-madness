@@ -1,0 +1,346 @@
+name: Release
+
+# Three things get built here and they are deliberately in one file: a release is the set of
+# them, and a Steam build that shipped while the Android one failed is worse than neither.
+#
+# Tag a version to cut a release, or run it by hand to check the pipeline still works without
+# publishing anything. A tag attaches the artifacts to the GitHub release; a manual run leaves
+# them as build artifacts and nothing else.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Attach artifacts to a GitHub release'
+        type: boolean
+        default: false
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  GODOT_VERSION: 4.7.2-stable
+  GODOT_FLAVOUR: mono
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  # ---- The host -------------------------------------------------------------------
+  #
+  # The relay's image, to the registry that comes with the repository. GHCR rather than anywhere
+  # else because it needs no credential beyond the token this workflow already has, and a
+  # deployment target that needs a secret nobody has set is a deployment target that does not
+  # work.
+  relay:
+    name: Relay image
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Log in to the registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Work out the tags
+        id: tags
+        run: |
+          image=ghcr.io/${{ github.repository_owner }}/molehill-relay
+          image=$(echo "$image" | tr '[:upper:]' '[:lower:]')
+          version="${GITHUB_REF_NAME#v}"
+
+          if [ "${{ github.ref_type }}" != "tag" ]; then
+            version="$(git rev-parse --short HEAD)"
+          fi
+
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Tagging $image:$version"
+
+      # The build context is relay/ rather than the repository root, and the Dockerfile explains
+      # why at length: the relay must not be able to see MoleSim, because the moment it can see a
+      # Plan type it becomes possible for it to start having opinions about one.
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: relay
+          push: true
+          tags: |
+            ${{ steps.tags.outputs.image }}:${{ steps.tags.outputs.version }}
+            ${{ steps.tags.outputs.image }}:latest
+
+      # A container that starts is not a relay that works, so the published image is asked the
+      # question the design rests on: a partial round must release nothing.
+      - name: Smoke the published image
+        run: |
+          docker run -d --name relay -p 8080:8080 \
+            ${{ steps.tags.outputs.image }}:${{ steps.tags.outputs.version }}
+
+          until curl -sf -o /dev/null http://localhost:8080/health; do sleep 1; done
+          echo "health: $(curl -s http://localhost:8080/health)"
+
+          lobby=$(curl -sf -X POST http://localhost:8080/lobbies \
+            -H 'Content-Type: application/json' -d '{"playerCount":2,"pace":"Anytime"}')
+          code=$(echo "$lobby" | python3 -c 'import json,sys; print(json.load(sys.stdin)["code"])')
+          host=$(echo "$lobby" | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+
+          joiner=$(curl -sf -X POST "http://localhost:8080/lobbies/$code/seats" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+
+          curl -sf -X POST "http://localhost:8080/matches/$code/rounds/1/plan" \
+            -H "X-Seat-Token: $joiner" --data-binary $'\x01\x02' -o /dev/null
+
+          partial=$(curl -sf "http://localhost:8080/matches/$code/rounds/1" \
+            -H "X-Seat-Token: $joiner")
+
+          echo "one seat in: $partial"
+
+          if echo "$partial" | grep -q '"plans"'; then
+            echo "::error::A partial round released its plans. That is the one thing simultaneous"
+            echo "::error::turns exist to prevent."
+            exit 1
+          fi
+
+          curl -sf -X POST "http://localhost:8080/matches/$code/rounds/1/plan" \
+            -H "X-Seat-Token: $host" --data-binary $'\x03\x04' -o /dev/null
+
+          full=$(curl -sf "http://localhost:8080/matches/$code/rounds/1" \
+            -H "X-Seat-Token: $host")
+
+          echo "both in:    $full"
+          echo "$full" | grep -q '"complete":true' || { echo "::error::Round never completed."; exit 1; }
+
+  # ---- The two game builds --------------------------------------------------------
+  #
+  # One job, two exports, because the expensive part is shared: the editor is 108 MB and the
+  # export templates are 1.2 GB, and downloading them twice to save a few minutes of runner
+  # time would be a poor trade.
+  game:
+    name: Steam and Android builds
+    runs-on: ubuntu-latest
+
+    # Through env because the secrets context is not available to a step's if condition, and a
+    # condition that silently evaluates to empty would either always run or never run.
+    env:
+      STEAM_USERNAME: ${{ secrets.STEAM_USERNAME }}
+      STEAM_CONFIG_VDF: ${{ secrets.STEAM_CONFIG_VDF }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      # Godot's Android export template accepts net9.0 only, though the editor's own assemblies
+      # are net8.0, so the client targets net9.0 and needs that runtime present as well.
+      - name: Set up .NET 9 for the client
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Set up JDK 17 for the Android export
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Cache the editor and templates
+        id: godot-cache
+        uses: actions/cache@v4
+        with:
+          # Both paths, because they are downloaded by the same step and a hit that restored only
+          # the editor would skip fetching templates that are not there.
+          path: |
+            ~/godot
+            ~/.local/share/godot/export_templates
+          key: godot-${{ env.GODOT_VERSION }}-${{ env.GODOT_FLAVOUR }}
+
+      - name: Fetch Godot and its export templates
+        if: steps.godot-cache.outputs.cache-hit != 'true'
+        run: |
+          base=https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}
+          name=Godot_v${GODOT_VERSION}_${GODOT_FLAVOUR}
+          mkdir -p ~/godot
+
+          curl -fsSL -o /tmp/godot.zip "$base/${name}_linux_x86_64.zip"
+          curl -fsSL -o /tmp/templates.tpz "$base/${name}_export_templates.tpz"
+
+          unzip -q /tmp/godot.zip -d ~/godot
+          mv ~/godot/${name}_linux_x86_64/${name}_linux_x86_64 ~/godot/godot
+          chmod +x ~/godot/godot
+
+          # A .tpz is a zip whose contents live under templates/, and Godot wants them in a
+          # directory named for the version exactly as it reports it.
+          version=$(~/godot/godot --version | head -1)
+          version=${version%.official*}
+          unzip -q /tmp/templates.tpz -d /tmp/templates
+          templates="$HOME/.local/share/godot/export_templates"
+          mkdir -p "$templates"
+          mv /tmp/templates/templates "$templates/$version"
+
+          echo "Installed templates as $version"
+          ls "$HOME/.local/share/godot/export_templates/"
+
+      - name: Put the editor on the path
+        run: echo "$HOME/godot" >> "$GITHUB_PATH"
+
+      # Godot keeps the Android SDK path and the debug keystore in editor settings rather than in
+      # the export preset, so a headless machine has to be told both. The runner ships an SDK; the
+      # keystore is generated because a signature that changes between builds is fine for a
+      # sideloaded playtest and wrong for a store, and the store path wants a real secret.
+      - name: Tell Godot where the Android toolchain is
+        run: |
+          keystore="$HOME/debug.keystore"
+
+          keytool -keyalg RSA -genkeypair -alias androiddebugkey \
+            -keypass android -keystore "$keystore" -storepass android \
+            -dname "CN=Android Debug,O=Android,C=US" -validity 9999 -deststoretype pkcs12
+
+          mkdir -p ~/.config/godot
+          cat > ~/.config/godot/editor_settings-4.7.tres <<TRES
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$ANDROID_HOME"
+          export/android/debug_keystore = "$keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          TRES
+
+          echo "SDK  $ANDROID_HOME"
+          echo "JDK  $JAVA_HOME"
+
+      - name: Restore and build the C#
+        run: |
+          dotnet restore
+          dotnet build --no-restore --configuration Release
+
+      # Twice on purpose. The first pass imports the project and the second exports it: a cold
+      # import and an export in one invocation is where Godot is least reliable headless, and an
+      # import that has not finished produces a package with missing resources rather than an
+      # error.
+      - name: Import the project
+        run: godot --headless --path client --import || true
+
+      # Godot does not always exit after an export, which is a known headless quirk and the reason
+      # the exit code is not what gets believed here. Every export is judged by whether the files
+      # it was supposed to write exist, and the Android one is judged again on whether the C#
+      # actually got in: a missing .sln silently produces a signed APK with no managed code at all.
+      - name: Export for Windows
+        run: |
+          mkdir -p build/windows
+          timeout 900 godot --headless --path client \
+            --export-release "Windows Desktop" "../build/windows/Molehill Madness.exe" || true
+
+          test -f "build/windows/Molehill Madness.exe" \
+            || { echo "::error::No Windows executable was produced."; exit 1; }
+
+          data=build/windows/data_Molehill.Client_windows_x86_64
+
+          for assembly in MoleSim.dll Molehill.Client.dll Molehill.Online.dll Molehill.Clip.dll; do
+            test -f "$data/$assembly" \
+              || { echo "::error::$assembly is missing from the Windows build."; exit 1; }
+          done
+
+          echo "Windows build:"
+          du -sh build/windows
+
+      - name: Export for Android
+        run: |
+          mkdir -p build/android
+          # Debug rather than release: the only keystore here is a debug one, and a release
+          # export without a release keystore fails. Same reason tools/scripts/deploy-android.sh
+          # has always used --export-debug. A store build wants a real keystore in a secret, and
+          # then this becomes --export-release.
+          timeout 900 godot --headless --path client \
+            --export-debug "Android" "../build/android/molehill-madness.apk" || true
+
+          test -f build/android/molehill-madness.apk \
+            || { echo "::error::No APK was produced."; exit 1; }
+
+          if ! unzip -l build/android/molehill-madness.apk | grep -q 'MoleSim\.dll'; then
+            echo "::error::The APK contains no MoleSim.dll, so it has no game in it. Godot does"
+            echo "::error::this silently when the classic .sln beside the client csproj is missing."
+            exit 1
+          fi
+
+          echo "APK: $(du -h build/android/molehill-madness.apk | cut -f1)"
+
+      - name: Package the Windows build
+        run: |
+          cd build/windows
+          zip -qr ../molehill-madness-windows.zip .
+          cd ../..
+          du -h build/molehill-madness-windows.zip
+
+      - name: Upload the builds
+        uses: actions/upload-artifact@v7
+        with:
+          name: builds
+          path: |
+            build/molehill-madness-windows.zip
+            build/android/molehill-madness.apk
+          if-no-files-found: error
+
+      # Steam wants credentials nobody has set yet, so this announces itself as skipped rather
+      # than failing the release. The build above is the part that has to work; uploading it is a
+      # login and an app id.
+      # Nothing here has ever run this step, because no credentials are set, so the action
+      # reference and its inputs are the one part of this file that is unverified. Check them
+      # against the action's own README the first time a real upload is attempted.
+      - name: Upload to Steam
+        if: >
+          github.ref_type == 'tag'
+          && env.STEAM_USERNAME != ''
+          && env.STEAM_CONFIG_VDF != ''
+          && vars.STEAM_APP_ID != ''
+        uses: game-ci/steam-deploy@v3
+        with:
+          username: ${{ secrets.STEAM_USERNAME }}
+          configVdf: ${{ secrets.STEAM_CONFIG_VDF }}
+          appId: ${{ vars.STEAM_APP_ID }}
+          buildDescription: ${{ github.ref_name }}
+          rootPath: build
+          depot1Path: windows
+          releaseBranch: playtest
+
+      - name: Say if Steam was skipped
+        if: >
+          github.ref_type == 'tag'
+          && (env.STEAM_USERNAME == '' || vars.STEAM_APP_ID == '')
+        run: |
+          echo "::notice::Steam upload skipped: no credentials configured. Set the secrets"
+          echo "::notice::STEAM_USERNAME and STEAM_CONFIG_VDF and the variable STEAM_APP_ID."
+
+  # ---- The release ----------------------------------------------------------------
+  publish:
+    name: Attach to the release
+    needs: [relay, game]
+    if: github.ref_type == 'tag' || inputs.publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download the builds
+        uses: actions/download-artifact@v8
+        with:
+          name: builds
+          path: builds
+
+      - name: Attach
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          find builds -type f | sort
+
+          gh release upload "${GITHUB_REF_NAME}" \
+            "builds/molehill-madness-windows.zip" \
+            "builds/android/molehill-madness.apk" \
+            --repo "${GITHUB_REPOSITORY}" --clobber
