@@ -373,6 +373,55 @@ jobs:
           echo "::notice::Steam upload skipped: no credentials configured. Set the secrets"
           echo "::notice::STEAM_USERNAME and STEAM_CONFIG_VDF and the variable STEAM_APP_ID."
 
+
+  # ---- The newest build, somewhere a phone can reach it ---------------------------
+  #
+  # Artifacts are the wrong shape for the thing anybody actually wants, which is to open GitHub on
+  # a phone and install the current build. They need a signed-in session, and they arrive as a zip
+  # with the APK inside it, which a phone cannot install. A release asset is a plain URL to a plain
+  # file, so that is where the newest build goes.
+  #
+  # One rolling release rather than one per push, replaced each time, and marked as a prerelease so
+  # it never displaces a real version as Latest. Main only: a feature branch overwriting the build
+  # everybody is testing would be worse than not having this at all.
+  rolling:
+    name: Newest build
+    needs: game
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download the builds
+        uses: actions/download-artifact@v8
+        with:
+          name: builds
+          path: builds
+
+      - name: Replace the rolling release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          find builds -type f | sort
+
+          # Deleted and remade rather than edited, because the tag has to move to this commit and
+          # editing a release does not move a tag. Both are allowed to fail: the first run has
+          # nothing to delete.
+          gh release delete build-latest --repo "${GITHUB_REPOSITORY}" --cleanup-tag --yes || true
+
+          gh release create build-latest \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${GITHUB_SHA}" \
+            --prerelease \
+            --title "Newest build (main)" \
+            --notes "$(printf 'Built from %s on every push to main.\n\nDebug signed, so Android will warn about an unknown source, and it installs alongside a store build rather than over it. This is replaced by the next push: for something that stays put, use a tagged release.\n\n- molehill-madness.apk for a phone, tap it and allow the install\n- molehill-madness-windows.zip for a desktop\n' "${GITHUB_SHA:0:8}")"
+
+          gh release upload build-latest \
+            "builds/molehill-madness-windows.zip" \
+            "builds/android/molehill-madness.apk" \
+            --repo "${GITHUB_REPOSITORY}" --clobber
+
+          gh release view build-latest --repo "${GITHUB_REPOSITORY}" \
+            --json assets -q '.assets[] | "attached  \(.name)  \(.size) bytes"'
   # ---- The release ----------------------------------------------------------------
   publish:
     name: Attach to the release
