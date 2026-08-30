@@ -483,7 +483,28 @@ namespace Molehill.Online
                     return Reply.Bad<T>(Failure(response.StatusCode, conflictMeans));
                 }
 
-                string body = await response.Content.ReadAsStringAsync(cancel).ConfigureAwait(false);
+                string body;
+
+                try
+                {
+                    body = await response.Content.ReadAsStringAsync(cancel).ConfigureAwait(false);
+                }
+                catch (HttpRequestException trouble)
+                {
+                    // A connection dropped part way through the body, which is the archetypal
+                    // failure on a phone and the one shape this method did not turn into an
+                    // outcome: the guard above covers sending and getting a status back, and the
+                    // body is read after it.
+                    Trouble = trouble.Message;
+
+                    return Reply.Bad<T>(RelayOutcome.Unreachable);
+                }
+                catch (TaskCanceledException)
+                {
+                    Trouble = "The relay stopped part way through answering.";
+
+                    return Reply.Bad<T>(RelayOutcome.Unreachable);
+                }
 
                 if (string.IsNullOrWhiteSpace(body))
                 {

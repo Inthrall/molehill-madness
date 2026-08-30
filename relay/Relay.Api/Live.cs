@@ -152,7 +152,20 @@ public sealed class LiveHub
                 return;
             }
 
-            await _sending.WaitAsync().ConfigureAwait(false);
+            // Inside the guard, because the wait is the thing most likely to throw. A listener is
+            // removed and disposed by its own receive loop the moment its socket goes, and a
+            // broadcast walks a snapshot taken before that happened, so the semaphore can be
+            // disposed between the state check above and this line. It used to throw straight out
+            // of Say and out of Tell with it, which stopped the broadcast: one player hanging up at
+            // the wrong instant cost everybody else in the match that notice.
+            try
+            {
+                await _sending.WaitAsync().ConfigureAwait(false);
+            }
+            catch (ObjectDisposedException)
+            {
+                return;
+            }
 
             try
             {

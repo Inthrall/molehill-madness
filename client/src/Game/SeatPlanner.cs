@@ -1022,6 +1022,15 @@ public sealed class SeatPlanner
 
         if (_freeResetSpent)
         {
+            // The one place the client writes simulation state, and it is on the wrong side of
+            // the line the architecture draws: the simulation grants these from crates and nothing
+            // in it ever spends one, so the planning UI is the only thing that does.
+            //
+            // It survives because there is nowhere better yet. A plan does not carry how many resets
+            // it used, so no other client can apply the same spend, which is also why ResetTokens is
+            // kept out of the state hash: this field legitimately differs between clients that agree
+            // about everything else. Both halves of that go away together, when a plan carries its
+            // resets and the simulation spends them on submission.
             Actor.ResetTokens--;
         }
         else

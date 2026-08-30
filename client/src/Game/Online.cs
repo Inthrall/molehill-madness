@@ -42,11 +42,15 @@ public static class Online
 
     public static void Host(int playerCount, MatchPace pace, int windowSeconds = 0)
     {
+        Drop();
+
         Match = OnlineMatch.Hosting(Relay, playerCount, pace, windowSeconds);
     }
 
     public static void Join(string code)
     {
+        Drop();
+
         Match = OnlineMatch.Joining(Relay, code);
     }
 
@@ -65,6 +69,8 @@ public static class Online
     /// </remarks>
     public static void Matchmake(int playerCount, MatchPace pace)
     {
+        Drop();
+
         Match = OnlineMatch.Matchmaking(
             Relay, RelayAccount, Player.Band, playerCount, pace, Player.RememberRelay);
     }
@@ -92,6 +98,8 @@ public static class Online
             return false;
         }
 
+        Drop();
+
         Match = OnlineMatch.Resuming(Relay, code, token);
 
         return true;
@@ -100,6 +108,14 @@ public static class Online
     /// <summary>
     /// Stops playing this online match, and keeps the seat.
     /// </summary>
+    /// <remarks>
+    /// Called before any new session replaces the old one, which is what stops them piling up. A
+    /// session that is dropped on the floor rather than left keeps its doorbell dialling and its
+    /// place in the matchmaking pool: the doorbell's own notes warn that "a reconnect loop that
+    /// outlived the match it was listening to would carry on dialling a finished game for as long as
+    /// the process ran", and an abandoned ticket has the pool seat somebody into a match nobody is
+    /// coming to. Finishing a match and starting another used to add one of each, every time.
+    /// </remarks>
     /// <remarks>
     /// The one to reach for when something went wrong on the way to the relay, or when the player
     /// simply wants to be on the couch instead. The session goes, which hands back a pool ticket and

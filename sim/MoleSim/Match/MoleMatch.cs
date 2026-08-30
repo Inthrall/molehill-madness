@@ -568,12 +568,23 @@ namespace MoleSim.Match
                     hash = Fold(hash, (ulong)mole.Facing.X.Raw);
                     hash = Fold(hash, (ulong)mole.Facing.Y.Raw);
 
-                    // Whose turn it is within a platoon, and how many resets are left. Both decide
-                    // which plans are legal, and SubmitPlan validates against them: two machines
-                    // disagreeing here would accept different plans from the same bytes, which is a
-                    // worse divergence than a mole in the wrong place.
+                    // Whose turn it is within a platoon. It decides which plans are legal and
+                    // SubmitPlan validates against it, so two machines disagreeing here would accept
+                    // different plans from the same bytes, which is a worse divergence than a mole
+                    // in the wrong place.
                     hash = Fold(hash, mole.HasActedThisCycle ? 1UL : 0UL);
-                    hash = Fold(hash, (ulong)mole.ResetTokens);
+
+                    // ResetTokens is deliberately not here, and it is the one omission left that is
+                    // a decision rather than an oversight. The simulation only ever grants tokens,
+                    // from a crate; the spending is done by the planning UI on the device whose turn
+                    // it is, and by nothing on anybody else's. So the field genuinely differs
+                    // between clients that agree about everything that matters, and hashing it would
+                    // report a desync every time somebody used a crate reset.
+                    //
+                    // The real fix is for a plan to carry how many resets it used, so that every
+                    // client applies the spend from the same bytes the way it applies everything
+                    // else. That is a wire format change and wants doing on its own. Until then this
+                    // stays out, and SeatPlanner carries the other half of this note.
                 }
 
                 // What each platoon is holding decides which plans are legal, so two machines

@@ -122,7 +122,38 @@ namespace MoleSim.Numerics
                     nameof(exclusiveUpper), "Upper bound must exceed lower bound.");
             }
 
-            return inclusiveLower + NextInt(exclusiveUpper - inclusiveLower);
+            // Widened before subtracting. From int.MinValue to int.MaxValue the difference does
+            // not fit in an int and wraps to a negative, which the single-argument overload then
+            // refuses as a non-positive bound: a legitimate range came back as an exception. No
+            // caller in the game asks for one that wide, which is why it has never been seen, and
+            // the arithmetic is a long either way.
+            long span = (long)exclusiveUpper - inclusiveLower;
+
+            return (int)(inclusiveLower + NextInt64(span));
+        }
+
+        /// <summary>
+        /// The same unbiased draw as <see cref="NextInt(int)"/>, over a range that needs a long.
+        /// </summary>
+        /// <remarks>
+        /// Shares the rejection threshold rather than reimplementing it, because the whole reason
+        /// that loop exists is that a naive modulo over-represents the low results, and two copies
+        /// of it would be two chances to get the correction wrong.
+        /// </remarks>
+        private long NextInt64(long exclusiveUpperBound)
+        {
+            ulong range = (ulong)exclusiveUpperBound;
+            ulong threshold = (0UL - range) % range;
+
+            while (true)
+            {
+                ulong drawn = NextUInt64();
+
+                if (drawn >= threshold)
+                {
+                    return (long)(drawn % range);
+                }
+            }
         }
 
         public bool NextBool() => (NextUInt64() >> 63) != 0;
