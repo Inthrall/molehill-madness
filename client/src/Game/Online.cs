@@ -97,13 +97,63 @@ public static class Online
         return true;
     }
 
-    /// <summary>Puts the game back on the couch.</summary>
-    public static void Forget()
+    /// <summary>
+    /// Stops playing this online match, and keeps the seat.
+    /// </summary>
+    /// <remarks>
+    /// The one to reach for when something went wrong on the way to the relay, or when the player
+    /// simply wants to be on the couch instead. The session goes, which hands back a pool ticket and
+    /// stops the doorbell, and the written-down seat stays where it is.
+    /// </remarks>
+    public static void Drop()
     {
         Match?.Leave();
         Match = null;
+    }
+
+    /// <summary>
+    /// Gives the seat up for good.
+    /// </summary>
+    /// <remarks>
+    /// Irreversible, and worth being deliberate about: the token is handed over once and cannot be
+    /// reissued, so a player who loses it has lost their seat with no way to prove it was theirs.
+    /// </remarks>
+    public static void Forget()
+    {
+        Drop();
         Erase();
     }
+
+    /// <summary>
+    /// Decides which of those a finished session has earned.
+    /// </summary>
+    /// <remarks>
+    /// Every failure path used to erase, which threw away seats that were perfectly alive. Turning
+    /// the wifi off during an Anytime match and pressing continue deleted the credential for a match
+    /// still sitting on the relay; so did mistyping a join code, which took an unrelated saved match
+    /// with it; and so did starting an ordinary couch game.
+    ///
+    /// Two things save it now. A relay we could not reach says nothing about whether the seat is
+    /// still there, so that keeps it. And a session that is not the one written down cannot speak
+    /// for it at all: a failed attempt at somebody else's code is not evidence about the match this
+    /// device was already in.
+    /// </remarks>
+    public static void Finished(OnlineMatch match)
+    {
+        if (match is null || match.Trouble == RelayOutcome.Unreachable || !IsRemembered(match))
+        {
+            Drop();
+            return;
+        }
+
+        Forget();
+    }
+
+    /// <summary>Whether that session is the match this device has written down.</summary>
+    private static bool IsRemembered(OnlineMatch match) =>
+        Recall(out string code, out string _)
+        && match.Code.Length > 0
+        && string.Equals(code, match.Code, StringComparison.Ordinal);
 
     /// <summary>
     /// Writes the match down, so closing the game is not the same as leaving it.

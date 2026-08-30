@@ -341,7 +341,9 @@ public partial class MenuScene : Control
                 return;
 
             default:
-                Online.Forget();
+                // Going to the couch puts the online session down without giving the seat up. A
+                // match in progress is still in progress, and the player can come back to it.
+                Online.Drop();
                 break;
         }
 

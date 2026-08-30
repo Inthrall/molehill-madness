@@ -258,24 +258,36 @@ public sealed class OnlineMatchTests
 
         // Seat one's application is gone. A fresh one starts holding only the stored code and token.
         Player returned = Player.Resuming(_client, code, token);
-        RunUntil(returned, () => returned.Online.Stage == OnlineStage.Planning);
+
+        // It arrives at the first round rather than the current one, and works forward. This used
+        // to arrive at round two with a world built from the seed alone, which is a pristine map: it
+        // looked like a resume and was a different game. The catching-up flag is how the client
+        // knows to replay these rounds rather than draw them.
+        RunUntil(returned, () => returned.Online.Seating is not null);
+        returned.BuildWorld();
 
         Assert.That(returned.Online.Seat, Is.EqualTo(1), "Came back as somebody else.");
         Assert.That(returned.Online.Seed, Is.EqualTo(table[0].Online.Seed));
-        Assert.That(returned.Online.Round, Is.EqualTo(2), "Would have replayed a round already played.");
+        Assert.That(returned.Online.CatchingUp, Is.True, "There is a round it did not see.");
 
-        // And it can carry on: rebuild the world from the seed, replay the round it missed, and the
-        // two simulations agree again.
-        returned.BuildWorld();
+        RunUntil(
+            returned,
+            () =>
+            {
+                if (returned.Online.Stage == OnlineStage.RoundReady)
+                {
+                    returned.TakeRound();
+                }
 
-        foreach (Plan plan in table[0].Online.Plans)
-        {
-            _ = plan;
-        }
+                return !returned.Online.CatchingUp
+                    && returned.Online.Stage == OnlineStage.Planning;
+            });
 
-        Player[] carriedOn = { table[0], returned };
-        Assert.That(returned.Online.PlayerCount, Is.EqualTo(2));
-        Assert.That(carriedOn.Length, Is.EqualTo(2));
+        Assert.That(returned.Online.Round, Is.EqualTo(2), "Caught up to the round being played.");
+
+        // And the world it rebuilt is the world everybody else is in, which is the only measure of
+        // a resume that means anything.
+        Assert.That(returned.Match!.StateHash(), Is.EqualTo(first[0]));
     }
 
     // ---- Helpers ------------------------------------------------------------------------

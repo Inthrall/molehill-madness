@@ -987,7 +987,10 @@ public partial class MatchScene : Node2D
         if (_struggledFor > GivingUpAfter)
         {
             GD.Print($"relay never answered at {Flags.Relay()}, back to the menu");
-            Online.Forget();
+
+            // Dropped rather than forgotten. A relay we could not reach says nothing about whether
+            // the seat is still there, and the token cannot be reissued.
+            Online.Drop();
             GetTree().CallDeferred(
                 SceneTree.MethodName.ChangeSceneToFile, "res://scenes/Menu.tscn");
             return;
@@ -1027,10 +1030,33 @@ public partial class MatchScene : Node2D
         if (!online.Live)
         {
             // A wrong code, a full lobby, or a relay that is not there. Back to the menu, which is
-            // the only screen that can do anything about any of them.
-            Online.Forget();
+            // the only screen that can do anything about any of them. Whether the saved seat goes
+            // with it depends on which of those happened, and on whether this was even that match.
+            Online.Finished(online);
             GetTree().CallDeferred(
                 SceneTree.MethodName.ChangeSceneToFile, "res://scenes/Menu.tscn");
+            return;
+        }
+
+        // Built as soon as there is a seat to build from, rather than only once the match is ready
+        // to be played. A player rejoining a match in progress has rounds to replay before they can
+        // plan anything, and there is nowhere to replay them into until the world exists.
+        if (_match is null)
+        {
+            // Everybody is seated. The relay's numbers win over anything the menu guessed.
+            MatchSetup.PlayerCount = online.PlayerCount;
+            MatchSetup.Seed = online.Seed;
+            _ours = online.Seat;
+
+            Build();
+        }
+
+        // Rounds that happened before this device arrived, resolved rather than watched. Nobody
+        // wants to sit through six rounds of animation to rejoin a game, and until they are all in
+        // the simulation this player's world is not the one everybody else is playing in.
+        if (online.Stage == OnlineStage.RoundReady)
+        {
+            CatchUp(online);
             return;
         }
 
@@ -1039,13 +1065,33 @@ public partial class MatchScene : Node2D
             return;
         }
 
-        // Everybody is seated. The relay's numbers win over anything the menu guessed.
-        MatchSetup.PlayerCount = online.PlayerCount;
-        MatchSetup.Seed = online.Seed;
-        _ours = online.Seat;
-
         _lobby.Visible = false;
-        Build();
+    }
+
+    /// <summary>
+    /// Replays one round that happened before this device arrived.
+    /// </summary>
+    /// <remarks>
+    /// The same feed and the same resolve the live path uses, without the playback: the plans go
+    /// into the simulation and the round is resolved outright, so a match rejoined at round seven
+    /// walks through six rounds in a few frames rather than six replays.
+    ///
+    /// The hash is reported for each of them, exactly as it would have been had this device been
+    /// here at the time. That is the point of reporting it at all: if replaying the recorded inputs
+    /// produces a different world from the one the other clients built live, the two hashes differ
+    /// and the relay has the disagreement on record, which is a determinism bug caught with a
+    /// perfect reproduction attached.
+    /// </remarks>
+    private void CatchUp(OnlineMatch online)
+    {
+        RoundFeeder.Feed(_match!, online.Plans);
+
+        int round = online.Round;
+
+        _match!.ResolveRound();
+
+        online.ReportHash(round, _match.StateHash());
+        online.RoundTaken();
     }
 
     /// <summary>
@@ -1057,7 +1103,7 @@ public partial class MatchScene : Node2D
 
         if (!online.Live)
         {
-            Online.Forget();
+            Online.Finished(online);
             GetTree().CallDeferred(
                 SceneTree.MethodName.ChangeSceneToFile, "res://scenes/Menu.tscn");
             return;

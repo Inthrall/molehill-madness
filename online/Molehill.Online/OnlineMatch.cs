@@ -64,6 +64,9 @@ namespace Molehill.Online
     /// </remarks>
     public sealed class OnlineMatch
     {
+        /// <summary>The round a match starts at, which is where a returning player starts too.</summary>
+        private const int FirstRound = 1;
+
         /// <summary>How often to ask about a round in Live pace, in seconds.</summary>
         private const double LiveGap = 1.0;
 
@@ -301,7 +304,11 @@ namespace Molehill.Online
             _plans = new List<Plan>();
             _forfeited = Array.Empty<int>();
             _mine = null;
-            Stage = OnlineStage.Planning;
+
+            // Straight back to asking while there is still history to collect. Dropping into
+            // planning after each replayed round would put a returning player at the controls in the
+            // middle of somebody else's round four.
+            Stage = CatchingUp ? OnlineStage.WaitingForOthers : OnlineStage.Planning;
             _quiet = 0;
         }
 
@@ -500,6 +507,16 @@ namespace Molehill.Online
         /// cheat.
         /// </remarks>
         public int Refused { get; private set; }
+
+        /// <summary>
+        /// Whether this session is still replaying rounds that happened before it arrived.
+        /// </summary>
+        /// <remarks>
+        /// True from arriving into a running match until the replay reaches the round being played.
+        /// Worth knowing because those rounds want resolving rather than watching: nobody wants to
+        /// sit through six rounds of animation to rejoin a game they were already in.
+        /// </remarks>
+        public bool CatchingUp => Seating is not null && Round < Seating.Round;
 
         /// <summary>How long this player has been in the pool, in seconds.</summary>
         public int Waited { get; private set; }
@@ -741,11 +758,31 @@ namespace Molehill.Online
             }
 
             Seating = reply.Value;
-            Round = Seating!.Round;
 
-            // A resuming player can arrive into a match that is already running, so the started flag
-            // decides whether there is anything to wait for rather than the fact of having arrived.
-            Stage = Seating.Started ? OnlineStage.Planning : OnlineStage.WaitingForPlayers;
+            // From the beginning, not from wherever the match has got to. A player coming back to an
+            // Anytime match on round seven has a device that knows the seed and nothing else, and
+            // the world they need is the one seven rounds of plans built. Starting at the current
+            // round handed them a pristine map with full-pluck moles while the relay fed them round
+            // seven, so everything they saw was fiction and every state hash they reported was a
+            // mismatch, silently.
+            //
+            // Nothing else is needed to catch up: a past round is complete, so the ordinary loop
+            // asks for it, hands it over and moves on, one round at a time, until it reaches the one
+            // still being played and waits there like any other client. Round is what that loop asks
+            // about, so it is the only thing that has to change.
+            Round = FirstRound;
+
+            // Three ways to arrive. Into a lobby still filling, which waits for people; into a
+            // match already several rounds old, which has history to collect before it can play; and
+            // into one at its first round, which just plans.
+            //
+            // Catching up borrows the waiting stage rather than inventing one, because what it needs
+            // is exactly what that stage does: ask the relay for a round, and hand it over when it
+            // is complete. A past round is always complete, so the loop walks through them without
+            // pausing until it reaches the one still being played.
+            Stage = !Seating!.Started ? OnlineStage.WaitingForPlayers
+                : CatchingUp ? OnlineStage.WaitingForOthers
+                : OnlineStage.Planning;
             _quiet = 0;
         }
 
