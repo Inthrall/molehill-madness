@@ -46,8 +46,23 @@ public partial class PauseMenu : Control
         Visible = false;
     }
 
-    /// <summary>Whether the sound is on, which only decides which speaker is drawn.</summary>
-    public bool Sounding { get; set; } = true;
+    /// <summary>
+    /// Whether the sound is on.
+    /// </summary>
+    /// <remarks>
+    /// This used to be a field of its own, and its comment said what it did: it "only decides which
+    /// speaker is drawn". It drew a crossed-out speaker and left the audio playing, which is worse
+    /// than not having the button, because a control that acknowledges a press and then does nothing
+    /// reads as a broken game rather than a missing feature.
+    ///
+    /// It is the real setting now, shared with the one on the menu, and it is written down between
+    /// runs. One setting, two places to reach it.
+    /// </remarks>
+    public bool Sounding
+    {
+        get => Options.Sound;
+        set => Options.Sound = value;
+    }
 
     /// <summary>Whether the menu is up, which is also whether the match is frozen.</summary>
     public bool Showing => Visible;

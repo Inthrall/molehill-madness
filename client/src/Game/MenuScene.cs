@@ -32,6 +32,7 @@ public partial class MenuScene : Control
 
     private Vector2 _play;
     private float _button;
+    private MenuSheet? _sheet;
     private bool _startAtOnce;
     private bool _needsGate;
 
@@ -39,6 +40,13 @@ public partial class MenuScene : Control
     {
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
+
+        // Before anything can play. A remembered mute that only takes effect once the player opens
+        // the settings would let the game shout once on every launch.
+        Options.Apply();
+
+        _sheet = new MenuSheet();
+        AddChild(_sheet);
 
         // The driver has nobody to press anything, so it walks straight through. Deferred by a
         // frame rather than done here, because changing scene from inside _Ready tears down the
@@ -174,6 +182,24 @@ public partial class MenuScene : Control
 
     private void HandlePress(Vector2 at)
     {
+        // The sheet is over everything, so while it is up nothing behind it can be pressed.
+        if (_sheet?.Showing == true)
+        {
+            return;
+        }
+
+        if (_settings.HasPoint(at))
+        {
+            _sheet?.Show(MenuSheet.Page.Settings);
+            return;
+        }
+
+        if (_credits.HasPoint(at))
+        {
+            _sheet?.Show(MenuSheet.Page.Credits);
+            return;
+        }
+
         // Resume first. Once both buttons are on screen their generous touch targets overlap in the
         // middle, and the one that would win by accident should not be the one that abandons a match
         // in progress.
@@ -363,6 +389,7 @@ public partial class MenuScene : Control
         DrawTables(viewport);
         DrawSecondRow(viewport);
         DrawPlay(viewport);
+        DrawAside(viewport);
     }
 
     /// <summary>
@@ -466,29 +493,97 @@ public partial class MenuScene : Control
                 ? (chosen ? Palette.OnPanel : new Color(Palette.OnPanel, 0.4f))
                 : new Color(Palette.OnPanel, 0.16f);
 
+            // The picture sits a little high in the panel now, to leave room for its name
+            // underneath. Four icons in a row asking where a match is played is four guesses
+            // otherwise: a couch, an aerial, two strangers and a grid of tiles are each a reasonable
+            // picture of their option and not one of them is unambiguous.
+            Vector2 icon = middle - new Vector2(0f, height * 0.14f);
+
             switch ((MatchSetup.Table)index)
             {
                 case MatchSetup.Table.Couch:
-                    Glyphs.Couch(this, middle, height * 0.72f, ink);
+                    Glyphs.Couch(this, icon, height * 0.6f, ink);
                     break;
 
                 case MatchSetup.Table.Hosting:
-                    Glyphs.Broadcast(this, middle, height * 0.72f, ink);
+                    Glyphs.Broadcast(this, icon, height * 0.6f, ink);
                     break;
 
                 case MatchSetup.Table.Strangers:
-                    Glyphs.Strangers(this, middle, height * 0.78f, ink);
+                    Glyphs.Strangers(this, icon, height * 0.64f, ink);
                     break;
 
                 default:
-                    Glyphs.Tiles(this, middle, height * 0.86f, ink);
+                    Glyphs.Tiles(this, icon, height * 0.7f, ink);
                     break;
             }
+
+            Words.Under(
+                this, TableName((MatchSetup.Table)index),
+                new Vector2(middle.X, _tables[index].Position.Y + (height * 0.62f)),
+                height * 0.2f, ink);
 
             left += width + gap;
         }
 
     }
+
+    /// <summary>
+    /// Settings and credits, in the corner opposite the one that starts a match.
+    /// </summary>
+    /// <remarks>
+    /// Opposite on purpose. Play is bottom right and is the only thing most people ever press here,
+    /// so the two that are not play go as far from it as the screen allows: a thumb reaching for the
+    /// corner it always reaches for cannot catch either of these by accident.
+    ///
+    /// Smaller than play, too, which is the other half of saying the same thing.
+    /// </remarks>
+    private void DrawAside(Vector2 viewport)
+    {
+        float button = _button * 0.62f;
+        float margin = _button * 0.75f;
+        float middle = viewport.Y - margin - _button;
+
+        Vector2 gear = new Vector2(margin + button, middle);
+        Vector2 thanks = new Vector2(gear.X + (button * 2.5f), middle);
+
+        _settings = new Rect2(gear - (Vector2.One * button), Vector2.One * button * 2f);
+        _credits = new Rect2(thanks - (Vector2.One * button), Vector2.One * button * 2f);
+
+        Aside(gear, button, "settings", "Settings");
+        Aside(thanks, button, "heart", "Credits");
+    }
+
+    private void Aside(Vector2 at, float button, string icon, string label)
+    {
+        DrawCircle(at, button, Palette.Panel);
+        DrawArc(at, button, 0f, Mathf.Tau, 32, new Color(Palette.OnPanel, 0.5f), 2f);
+        Glyphs.Icon(this, icon, at - new Vector2(0f, button * 0.16f), button * 0.9f, Palette.OnPanel);
+
+        Words.Under(
+            this, label, new Vector2(at.X, at.Y + (button * 0.16f)),
+            button * 0.42f, Palette.OnPanel);
+    }
+
+    private Rect2 _settings;
+    private Rect2 _credits;
+
+    /// <summary>
+    /// What each venue is called, in as few words as it can be said in.
+    /// </summary>
+    /// <remarks>
+    /// One word each where one will do. "Here" rather than "same device", because the player is
+    /// holding it; "Host" and "Join" because those are the words every game in the genre uses for
+    /// these two, and borrowing them costs nothing and saves explaining; "Find game" for matchmaking,
+    /// which is the one that genuinely needs two.
+    /// </remarks>
+    private static string TableName(MatchSetup.Table table) => table switch
+    {
+        MatchSetup.Table.Couch => "Here",
+        MatchSetup.Table.Hosting => "Host",
+        MatchSetup.Table.Strangers => "Find game",
+        _ => "Join",
+    };
 
     /// <summary>
     /// Either how many are playing, or how fast a hosted match runs. A joiner gets neither.
@@ -620,13 +715,21 @@ public partial class MenuScene : Control
             Vector2 middle = _paces[index].Position + (_paces[index].Size / 2f);
             Color ink = chosen ? Palette.OnPanel : new Color(Palette.OnPanel, 0.4f);
 
+            Words.Under(
+                this,
+                (MatchPace)index == MatchPace.Live ? "Now" : "Daily",
+                new Vector2(middle.X, _paces[index].Position.Y + (height * 0.6f)),
+                height * 0.22f, ink);
+
+            middle -= new Vector2(0f, height * 0.16f);
+
             if ((MatchPace)index == MatchPace.Live)
             {
-                Glyphs.Time(this, middle, height * 0.66f, ink);
+                Glyphs.Time(this, middle, height * 0.56f, ink);
             }
             else
             {
-                Glyphs.Moon(this, middle, height * 0.72f, ink);
+                Glyphs.Moon(this, middle, height * 0.62f, ink);
             }
 
             left += width + gap;
