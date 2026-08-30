@@ -291,6 +291,9 @@ public sealed class SeatPlanner
 
     // ---- Aiming --------------------------------------------------------------------
 
+    /// <summary>What the selected weapon needs to be told before it can be used.</summary>
+    public AimStyle Style => WeaponTable.AimingFor(Weapon);
+
     public void BeginAim(Vec2 at)
     {
         if (!IsPlanning)
@@ -298,9 +301,35 @@ public sealed class SeatPlanner
             return;
         }
 
+        // A weapon with nothing to point and nothing to wind up is used by the press itself. Going
+        // through the aim states for it would ask for a drag and a hold and then discard both, and
+        // the Sandbag would appear to be a weapon you could throw further by leaning on the button.
+        if (Style == AimStyle.Press)
+        {
+            Shot = PlanAction.Fire(Now(), Heading(), byte.MaxValue);
+            return;
+        }
+
         Aiming = true;
         AimAt = at;
         AimHeld = 0;
+    }
+
+    /// <summary>
+    /// Which way the mole is facing, as the aim a press-only weapon carries.
+    /// </summary>
+    /// <remarks>
+    /// The resolver ignores it for every weapon that gets here, so any direction would do, and a
+    /// zero vector would be the honest one. The facing is used instead because the plan is encoded
+    /// as an angle: zero does not survive the trip, and a direction that arrives at resolution
+    /// meaning something other than what was sent is a trap for whoever next gives one of these
+    /// weapons a use for its aim.
+    /// </remarks>
+    private Vec2 Heading()
+    {
+        Vec2 facing = Actor?.Facing ?? Vec2.Zero;
+
+        return facing.LengthSquared() == Fix64.Zero ? new Vec2(Fix64.One, Fix64.Zero) : facing;
     }
 
     /// <summary>
@@ -322,7 +351,7 @@ public sealed class SeatPlanner
     /// </remarks>
     public void HoldAim(double delta)
     {
-        if (!Aiming || !IsPlanning)
+        if (!Aiming || !IsPlanning || Style != AimStyle.DirectionAndPower)
         {
             return;
         }
@@ -366,7 +395,12 @@ public sealed class SeatPlanner
             return;
         }
 
-        Shot = PlanAction.Fire(Now(), aim, PowerFor(AimHeld));
+        // A swing and a drill have exactly one strength, so they leave at full rather than at
+        // whatever the thumb happened to have accumulated on the way to choosing a direction.
+        Shot = PlanAction.Fire(
+            Now(), aim,
+            Style == AimStyle.DirectionAndPower ? PowerFor(AimHeld) : byte.MaxValue);
+
         AimHeld = 0;
     }
 
@@ -395,6 +429,14 @@ public sealed class SeatPlanner
     {
         get
         {
+            // Nothing to point means nothing to draw. The facing a press-only weapon carries is
+            // only there to survive the plan codec, and drawing an arrow off it would tell a player
+            // the Sandbag has a direction they can choose.
+            if (Style == AimStyle.Press)
+            {
+                return Vec2.Zero;
+            }
+
             if (Aiming)
             {
                 Vec2 aim = AimAt - PlannedPosition;
@@ -408,7 +450,9 @@ public sealed class SeatPlanner
 
     /// <summary>How charged the shot is, from nothing to full.</summary>
     public double AimCharge =>
-        (Aiming ? PowerFor(AimHeld) : Shot?.Power ?? 0) / (double)byte.MaxValue;
+        Style != AimStyle.DirectionAndPower
+            ? 0
+            : (Aiming ? PowerFor(AimHeld) : Shot?.Power ?? 0) / (double)byte.MaxValue;
 
     /// <summary>
     /// Plants the charge where the mole is standing, or picks it back up.

@@ -440,7 +440,24 @@ namespace MoleSim.Match
         private static bool TryDigIntoIt(
             Mole mole, TerrainGrid terrain, Vec2 target, Vec2[]? route, Fix64 stride, Vec2 velocity)
         {
-            if (route is null || !mole.AcceptsInput || mole.IsSnared || mole.Stamina <= Fix64.Zero)
+            if (!mole.AcceptsInput || mole.IsSnared || mole.Stamina <= Fix64.Zero)
+            {
+                return false;
+            }
+
+            // The jump is the input, on the way up. This used to require a direction to be held as
+            // well, which read as broken on a touchscreen for the plainest reason: the stick springs
+            // back to the middle the moment the thumb leaves it, so tapping hop and watching the
+            // mole go had no direction held at all, and a jump into a ceiling stopped dead. Measured
+            // at minus one cell for the whole rise, against thirty-eight cells with a direction held.
+            //
+            // Falling still needs one. Digging into whatever a mole happens to be dropping onto is
+            // the case this rule has to stay away from, and the floor test below is not enough on
+            // its own: a mole falling against a wall would otherwise burrow sideways into it without
+            // anybody asking.
+            bool rising = velocity.Y < Fix64.Zero;
+
+            if (route is null && !rising)
             {
                 return false;
             }
@@ -483,7 +500,6 @@ namespace MoleSim.Match
             // meant a hop into a roof bought one body length of tunnel however hard it was going.
             // Now the rise is spent going through, which is what a mole with a run-up should get,
             // and it is charged by the substep exactly as walking through dirt is.
-            bool rising = velocity.Y < Fix64.Zero;
             Material charged = mole.DiggingIsCheap ? Material.Air : ahead;
             Fix64 paidFor = rising ? stride : MatchSettings.Radius;
 

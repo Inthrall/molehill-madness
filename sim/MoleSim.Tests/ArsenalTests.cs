@@ -602,4 +602,56 @@ public sealed class ArsenalTests
 
         return solid;
     }
+
+    /// <summary>
+    /// What each weapon asks the player for is what its resolver actually reads off the order.
+    /// </summary>
+    /// <remarks>
+    /// Every weapon used to be aimed and wound up, and nine of the fifteen threw both numbers away
+    /// on arrival: the Sandbag appeared to be something you could drop harder by leaning on the
+    /// button, and the Power Claws, which sharpen the mole's own claws, wanted a direction.
+    ///
+    /// Written out one weapon at a time on purpose. A test that recomputed the answer from the kind
+    /// would agree with the code by construction and would have agreed with it just as loudly while
+    /// it was wrong.
+    /// </remarks>
+    [TestCase(WeaponId.ClodLobber, AimStyle.DirectionAndPower)]
+    [TestCase(WeaponId.BeetleLauncher, AimStyle.DirectionAndPower)]
+    [TestCase(WeaponId.AcornMortar, AimStyle.DirectionAndPower)]
+    [TestCase(WeaponId.MolyHandGrenade, AimStyle.DirectionAndPower)]
+    [TestCase(WeaponId.SpecialDelivery, AimStyle.DirectionAndPower)]
+    [TestCase(WeaponId.GnomeMercy, AimStyle.DirectionAndPower)]
+    [TestCase(WeaponId.BigWhack, AimStyle.Direction)]
+    [TestCase(WeaponId.TunnelTorpedo, AimStyle.Direction)]
+    [TestCase(WeaponId.Fracking, AimStyle.Press)]
+    [TestCase(WeaponId.BoomBeets, AimStyle.Press)]
+    [TestCase(WeaponId.PowerClaws, AimStyle.Press)]
+    [TestCase(WeaponId.Sandbag, AimStyle.Press)]
+    [TestCase(WeaponId.SnapTrap, AimStyle.Press)]
+    [TestCase(WeaponId.RootSnare, AimStyle.Press)]
+    [TestCase(WeaponId.GeyserCap, AimStyle.Press)]
+    public void EachWeaponAsksForWhatItActuallyUses(WeaponId weapon, AimStyle expected)
+    {
+        Assert.That(WeaponTable.AimingFor(weapon), Is.EqualTo(expected));
+    }
+
+    /// <summary>
+    /// Anything with a launch speed has a wind-up to scale it, so a new weapon cannot quietly
+    /// inherit the press-only default and then be thrown at a fixed strength for ever.
+    /// </summary>
+    [Test]
+    public void AnythingLaunchedHasAWindUp()
+    {
+        foreach (WeaponId weapon in Enum.GetValues<WeaponId>())
+        {
+            if (weapon == WeaponId.None || WeaponTable.Of(weapon).LaunchSpeed <= Fix64.Zero)
+            {
+                continue;
+            }
+
+            Assert.That(
+                WeaponTable.AimingFor(weapon), Is.EqualTo(AimStyle.DirectionAndPower),
+                $"{weapon} has a launch speed and no wind-up to scale it");
+        }
+    }
 }

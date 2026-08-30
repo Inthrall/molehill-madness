@@ -1797,6 +1797,34 @@ public partial class MatchScene : Node2D
     private WorldView? _panning;
     private float _pinchSpan;
     private float _wheelTravel;
+
+    /// <summary>
+    /// Settles the wheel on whichever notch it is nearest when the thumb comes off.
+    /// </summary>
+    /// <remarks>
+    /// Lifting a thumb part way between two weapons has to mean one of them, and the only honest
+    /// answer is the nearer. Without this the leftover travel was simply dropped, so the wheel could
+    /// sit visibly nine tenths of the way to the next weapon while holding the previous one, and
+    /// letting go looked like it had snapped backwards.
+    ///
+    /// Half a notch is the threshold because that is what nearest means.
+    /// </remarks>
+    private void SnapWheel(SeatPlanner? planner)
+    {
+        if (_touch is not null && planner is not null
+            && Mathf.Abs(_wheelTravel) >= _touch.WheelNotch / 2f)
+        {
+            planner.CycleWeapon(_wheelTravel > 0 ? -1 : 1);
+            Click();
+        }
+
+        _wheelTravel = 0;
+
+        if (_touch is not null)
+        {
+            _touch.WheelSlide = 0;
+        }
+    }
     private Vector2 _thumbPush;
 
     private void BeginTouch(SeatPlanner? planner, long index, Vector2 at)
@@ -1880,15 +1908,20 @@ public partial class MatchScene : Node2D
                 break;
 
             case TouchTarget.Wheel:
+                // The icons go the way the thumb goes, and the selection follows them. Dragging
+                // down used to select the weapon below, so the thumb and the wheel moved opposite
+                // ways: with nothing sliding there was no way to notice, and now there would be.
                 _wheelTravel += drag.Relative.Y;
 
                 while (Mathf.Abs(_wheelTravel) >= _touch!.WheelNotch)
                 {
-                    planner.CycleWeapon(_wheelTravel > 0 ? 1 : -1);
+                    planner.CycleWeapon(_wheelTravel > 0 ? -1 : 1);
                     _wheelTravel -= Mathf.Sign(_wheelTravel) * _touch.WheelNotch;
                     Click();
                 }
 
+                // What is left is under one notch, and it is what the wheel is drawn turned by.
+                _touch.WheelSlide = _wheelTravel / _touch.WheelNotch;
                 break;
 
             default:
@@ -1923,6 +1956,10 @@ public partial class MatchScene : Node2D
             case TouchTarget.Dynamite:
                 planner?.PlantCharge();
                 Click();
+                break;
+
+            case TouchTarget.Wheel:
+                SnapWheel(planner);
                 break;
 
             default:
@@ -2762,6 +2799,10 @@ public partial class MatchScene : Node2D
         float guide = _guide?.Visible == true
             ? KeyGuide.Height(GetViewportRect().Size)
             : 0f;
+
+        // The panes want it too: their own gauges sit along the bottom middle now, and the strip
+        // owns the bottom of the screen while it is up.
+        _stage.GuideDepth = guide;
 
         return new MatchHud.State
         {

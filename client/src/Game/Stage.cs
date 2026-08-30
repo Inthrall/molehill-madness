@@ -83,6 +83,15 @@ public sealed class Stage
     public float Idle { get; set; }
 
     /// <summary>
+    /// How much of the bottom of the screen the key strip is occupying, so a pane can put its own
+    /// instruments above it rather than underneath it.
+    /// </summary>
+    /// <remarks>
+    /// Zero on a touchscreen, where the strip is not drawn at all and the gauges may sit lower.
+    /// </remarks>
+    public float GuideDepth { get; set; }
+
+    /// <summary>
     /// Whether a replay is rolling right now.
     /// </summary>
     /// <remarks>

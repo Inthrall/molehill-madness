@@ -712,9 +712,15 @@ public partial class WorldView : Control
     /// looking rather than into a shared strip they would have to find their own row in. With
     /// four players planning at once, a global gauge could only ever belong to one of them.
     ///
-    /// All of it along the top, and none of it in the corners. In a four-way split the corners
-    /// of all four panes meet in the middle of the screen, which is where the shared clock and
-    /// the tally live, so anything put in a corner ends up on top of them.
+    /// Along the bottom middle, and none of it in the corners. In a four-way split the corners of
+    /// all four panes meet in the middle of the screen, which is where the shared clock and the
+    /// tally live, so anything put in a corner ends up on top of them.
+    ///
+    /// The bottom rather than the top, because the top is taken. The tally of who is still standing
+    /// moved to the top left, and these were already there: the dial went underneath it entirely
+    /// and the bar started wherever the tally happened to end. Two instruments fighting over one
+    /// corner is a layout problem and not a drawing problem, so one of them had to move, and the
+    /// gauges are the pane's own while the tally is shared.
     /// </remarks>
     private void DrawGauges()
     {
@@ -740,10 +746,14 @@ public partial class WorldView : Control
         // legibility over pale sky, so the bar keeps a dark surround of its own and the dial is
         // drawn as a ring rather than as a wedge on nothing.
         float barWidth = Mathf.Min(Size.X - dial - (pad * 5f), 240f);
-        float left = pad + dial + (pad * 2f);
-        float centre = pad + (dial / 2f);
 
-        Clock(new Vector2(pad + (dial / 2f), centre), dial / 2f, 1f - (float)planner.TimeSpent);
+        // Centred as a group: dial, bar, then the puff mark that says what the bar is counting.
+        float wide = dial + (pad * 2f) + barWidth + (pad * 1.4f) + (barHeight * 1.7f);
+        float from = (Size.X - wide) / 2f;
+        float centre = Size.Y - _stage.GuideDepth - pad - (dial / 2f);
+        float left = from + dial + (pad * 2f);
+
+        Clock(new Vector2(from + (dial / 2f), centre), dial / 2f, 1f - (float)planner.TimeSpent);
 
         Bar(left, centre - (barHeight / 2f), barWidth, barHeight, (float)planner.PuffSpent,
             planner.RanOutOfPuff ? Palette.Damage : new Color(0.435f, 0.647f, 0.325f));
@@ -1036,11 +1046,16 @@ public partial class WorldView : Control
         {
             float reach = (float)WeaponTable.Of(WeaponId.RootSnare).BlastRadius.ToDecimal() * _scale;
 
+            // At a third, because at full strength a four metre ring is the largest and loudest
+            // thing on the screen and reads as an effect happening to the whole view rather than a
+            // patch of ground to keep out of. It does expire on its own, at the end of the round it
+            // was placed, which is a round of somebody's turn and not a bug.
             Art.Effect("ring").Draw(
                 this,
                 new Rect2(at.X - reach, at.Y - reach, reach * 2f, reach * 2f),
                 Beat() / 4,
-                mirrored: false);
+                mirrored: false,
+                tint: new Color(1f, 1f, 1f, 0.34f));
         }
 
         // A capped vent throws things upward, and an armed one is doing that whether or not
@@ -1782,12 +1797,27 @@ public partial class WorldView : Control
 
         // Hops, marked where they were booked. A hop is scheduled at a moment rather than at a
         // place, so the marker records where the mole was when the button went down.
+        //
+        // Small, and without the pale disc they used to sit on. Three hops in a turn is ordinary and
+        // put three opaque plates the size of the mole across the middle of the view, one of them
+        // usually over the mole's own face. The marker only has to be findable, and a plate behind
+        // it was solving a legibility problem the map does not actually have.
+        //
+        // The one where the mole is now is skipped. It marks the position the mole is standing at,
+        // so it says nothing the mole does not already say, and it is the marker that lands on top
+        // of it.
+        Vector2 standing = ToPixels(planner.PlannedPosition);
+
         foreach (PlanAction hop in planner.Hops)
         {
             Vector2 at = ToPixels(planner.HopPosition(hop)) + new Vector2(0, -radius * 1.4f);
 
-            DrawCircle(at, marker * 0.5f, new Color(Palette.Paper, 0.75f));
-            Glyphs.Hop(this, at, marker * 0.9f, seat);
+            if (at.DistanceTo(standing) < radius * 1.6f)
+            {
+                continue;
+            }
+
+            Glyphs.Hop(this, at, marker * 0.52f, new Color(seat, 0.85f));
         }
 
         // The charge, where it was dropped rather than where the mole has since walked to.

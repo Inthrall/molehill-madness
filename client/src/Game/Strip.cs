@@ -50,7 +50,16 @@ public sealed class Strip
         {
             // A rectangle of negative width, which is how a canvas item is asked to mirror a
             // texture. The alternative is a second set of files.
-            where = new Rect2(where.End.X, where.Position.Y, -where.Size.X, where.Size.Y);
+            //
+            // The origin stays put. Godot turns a negative width into a horizontal flip and then
+            // negates the size in place, without moving the rectangle, so handing it the right edge
+            // as an origin drew every mirrored frame one full frame-width to the right of where it
+            // belonged. That was the whole of the mole-outside-its-own-circle fault: the highlight
+            // ring, the pluck bar and the planned tunnel were all in the right place, and only
+            // left-facing artwork was displaced, which is why it looked intermittent. Measured at
+            // 131 predicted against 139 observed pixels for a left-facing dig frame, with
+            // right-facing moles correct throughout.
+            where = new Rect2(where.Position.X, where.Position.Y, -where.Size.X, where.Size.Y);
         }
 
         into.DrawTextureRectRegion(

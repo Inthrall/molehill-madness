@@ -81,6 +81,41 @@ namespace MoleSim.Match
         Tool = 6,
     }
 
+    /// <summary>
+    /// How much a player has to be asked before a weapon can be used.
+    /// </summary>
+    /// <remarks>
+    /// Every weapon used to be aimed and wound up, because the throwing ones were built first and
+    /// the rest were added to the same table. It made nonsense of most of the arsenal: winding up a
+    /// wind-up on the Power Claws, which sharpens the mole's own claws, or pointing the Sandbag,
+    /// which drops soil where the mole is standing. Nine of the fifteen weapons discarded both
+    /// numbers the moment they reached the simulation, so the gesture asked for them was theatre.
+    ///
+    /// Derived from the kind rather than stored per row, because the kind already decides it: what
+    /// the resolver reads off the order is exactly what the player has to supply. The one exception
+    /// is named, and it is named because a Tool can be either.
+    /// </remarks>
+    public enum AimStyle : byte
+    {
+        /// <summary>
+        /// Nothing to point and nothing to wind up. It happens where the mole is, so pressing is
+        /// the whole gesture.
+        /// </summary>
+        Press = 0,
+
+        /// <summary>
+        /// A direction and no more. A swing reaches as far as an arm and a drill as far as a drill,
+        /// and neither has a harder or softer version of itself.
+        /// </summary>
+        Direction = 1,
+
+        /// <summary>
+        /// A direction and a wind-up: the artillery case, and the only one the aim gauge means
+        /// anything for.
+        /// </summary>
+        DirectionAndPower = 2,
+    }
+
     /// <summary>What a weapon does. One row per weapon, and the balance lives here.</summary>
     public readonly struct WeaponSpec
     {
@@ -222,6 +257,35 @@ namespace MoleSim.Match
         public static WeaponSpec Of(WeaponId weapon) => Specs[(int)weapon];
 
         public static WeaponKind KindOf(WeaponId weapon) => Specs[(int)weapon].Kind;
+
+        /// <summary>
+        /// What the player has to supply before this weapon can be used.
+        /// </summary>
+        /// <remarks>
+        /// Read straight off what the resolver does with the order. Thrown scales its launch speed
+        /// by the power and FromTheSky scales how far away it lands, so both want the wind-up.
+        /// Melee uses the direction and ignores the power. Planted and Seismic use neither: one
+        /// drops at the mole's feet and the other shakes the ground the mole is standing on.
+        ///
+        /// Tool is the one kind that splits, so the split is written out rather than guessed. The
+        /// Tunnel Torpedo drills along an aim; the other five happen at the mole and would be
+        /// asking for a direction they then throw away.
+        /// </remarks>
+        public static AimStyle AimingFor(WeaponId weapon)
+        {
+            if (weapon == WeaponId.TunnelTorpedo)
+            {
+                return AimStyle.Direction;
+            }
+
+            return KindOf(weapon) switch
+            {
+                WeaponKind.Thrown => AimStyle.DirectionAndPower,
+                WeaponKind.FromTheSky => AimStyle.DirectionAndPower,
+                WeaponKind.Melee => AimStyle.Direction,
+                _ => AimStyle.Press,
+            };
+        }
 
         private static WeaponSpec[] BuildSpecs()
         {

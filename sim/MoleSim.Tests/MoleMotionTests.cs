@@ -693,4 +693,52 @@ public sealed class MoleMotionTests
 
         Assert.That(rose, Is.GreaterThan(20), "the jump was thrown away on impact");
     }
+
+    /// <summary>
+    /// And a jump into a ceiling carries into it with no direction held at all.
+    /// </summary>
+    /// <remarks>
+    /// Contact digging was gated on a direction being held, on the reasoning that burrowing should
+    /// be asked for rather than happen by accident. On a touchscreen that gate reads as a broken
+    /// feature: the stick springs back to the middle the moment a thumb leaves it, so tapping hop
+    /// and watching the mole go has no direction held, and the jump stopped dead on the roof.
+    ///
+    /// The jump is the input, going up. Measured at minus one cell for nothing before this, against
+    /// seven cells for half a point of stamina after, which is the rise being spent rather than
+    /// discarded. Seven and not thirty-eight because with nothing held there is nothing to carry on
+    /// with once the rise is gone, which is the honest answer to a tap.
+    ///
+    /// Falling still needs a direction, which <see cref="FallingOntoTheGroundDoesNotDigThroughIt"/>
+    /// covers from the other side.
+    /// </remarks>
+    [Test]
+    public void ATappedJumpCarriesIntoACeilingWithNothingHeld()
+    {
+        TerrainGrid grid = FlatGround();
+
+        // Seven cells of clearance, the same roof the held-direction case uses.
+        grid.FillRectangle(0, SurfaceCell - 40, WidthCells, 20, Material.PackedSoil);
+
+        Mole mole = StandingOnSurface(grid, 100);
+        Fix64 startY = mole.Position.Y;
+        Fix64 stamina = mole.Stamina;
+
+        mole.AddImpulse(-Vec2.UnitY * MatchSettings.HopSpeed);
+
+        // No route at all, which is what a released stick hands the solver.
+        for (int tick = 0; tick < 90; tick++)
+        {
+            MoleMotion.Step(mole, grid, route: null);
+        }
+
+        int rose = Fix64.ToInt((startY - mole.Position.Y) * Fix64.FromInt(WorldScale.CellsPerMetre));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(rose, Is.GreaterThan(3), "the tapped jump was thrown away on the roof");
+            Assert.That(
+                stamina - mole.Stamina, Is.GreaterThan(Fix64.Zero),
+                "it got into the roof without paying, so it did not dig");
+        });
+    }
 }

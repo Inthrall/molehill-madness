@@ -191,6 +191,7 @@ public partial class TouchControls : Control
         _pressed = TouchTarget.None;
         AimDrag = Vector2.Zero;
         StickPush = Vector2.Zero;
+        WheelSlide = 0f;
         QueueRedraw();
     }
 
@@ -203,8 +204,26 @@ public partial class TouchControls : Control
     /// <summary>How far the stick has to move for a full-speed push.</summary>
     public float StickTravel => _stickRadius;
 
-    /// <summary>How far the stick has to travel up or down the wheel to turn it one notch.</summary>
-    public float WheelNotch => _button * 0.8f;
+    /// <summary>How far a thumb has to travel up or down the wheel to turn it one notch.</summary>
+    /// <remarks>
+    /// Doubled from eight tenths of a button. At the old distance an ordinary flick crossed four or
+    /// five notches, which is most of the arsenal, so choosing a weapon meant overshooting and
+    /// hunting back: the wheel was quick to move and slow to use. Two whole buttons of travel per
+    /// notch is about a thumb's length, and a deliberate flick now moves one or two places.
+    /// </remarks>
+    public float WheelNotch => _button * 1.6f;
+
+    /// <summary>
+    /// How far the wheel is turned between notches, in notches, so it can be dragged rather than
+    /// merely clicked.
+    /// </summary>
+    /// <remarks>
+    /// The wheel used to jump a whole notch at a time with nothing in between, so a drag produced a
+    /// run of unexplained substitutions rather than the feeling of a wheel turning. Held as a
+    /// fraction rather than in pixels because the drawing wants notches and the input has pixels,
+    /// and one of them has to do the division.
+    /// </remarks>
+    public float WheelSlide { get; set; }
 
     /// <summary>How far outside the stick's ring still counts as grabbing it.</summary>
     private const float StickGrab = 1.35f;
@@ -269,9 +288,20 @@ public partial class TouchControls : Control
         DrawArc(
             knob, knobRadius, 0, Mathf.Tau, 28,
             _pressed == TouchTarget.Stick ? Palette.OnPanel : rim, 2f);
-        Glyphs.Mole(
-            this, knob, knobRadius * 1.5f,
-            spent ? new Color(Palette.OnPanel, 0.3f) : Palette.OnPanel);
+
+        // The drawn face rather than the three-circle glyph. The glyph was made before there was
+        // any mole artwork and it shows: it is the one control a new player has to recognise as
+        // themselves, and it was the only mole on the screen that did not look like the animal.
+        // Weary when the walking is spent, level otherwise, so the knob says what the grey means.
+        Strip faces = Art.Faces;
+        float face = knobRadius * 1.72f;
+
+        faces.Draw(
+            this,
+            new Rect2(knob.X - (face / 2f), knob.Y - (face / 2f), face, face),
+            spent ? Art.Face.Weary : Art.Face.Level,
+            mirrored: false,
+            tint: spent ? new Color(1f, 1f, 1f, 0.45f) : Colors.White);
     }
 
     /// <summary>
@@ -281,32 +311,62 @@ public partial class TouchControls : Control
     private void DrawWheel()
     {
         SeatPlanner planner = Planner!;
-        int at = System.Array.IndexOf(Arsenal.Wheel, planner.Weapon);
+
+        // What can be chosen, rather than the whole arsenal. A notch moves one place among the
+        // weapons this platoon actually holds, so drawing the full wheel put things in the
+        // neighbour slots that turning to them would skip straight past: the wheel showed one thing
+        // above the selection and delivered another.
+        System.Collections.Generic.List<WeaponId> available = planner.Available();
+
+        if (available.Count == 0)
+        {
+            DrawRect(_wheel, Palette.Panel);
+            return;
+        }
+
+        int at = available.IndexOf(planner.Weapon);
+
+        if (at < 0)
+        {
+            at = 0;
+        }
+
         Vector2 centre = _wheel.Position + (_wheel.Size / 2f);
         float spacing = _wheel.Size.Y / 3.1f;
 
         DrawRect(_wheel, Palette.Panel);
 
-        for (int step = -1; step <= 1; step++)
+        // Two either side rather than one, because a wheel part way between notches shows a sliver
+        // of the next but one, and a slot that empties as the wheel turns reads as a fault.
+        for (int step = -2; step <= 2; step++)
         {
-            int index = ((at + step) % Arsenal.Wheel.Length + Arsenal.Wheel.Length)
-                % Arsenal.Wheel.Length;
-            Vector2 slot = centre + new Vector2(0, step * spacing);
-            bool selected = step == 0;
+            int index = ((at + step) % available.Count + available.Count) % available.Count;
+            float offset = step + WheelSlide;
 
-            // The neighbours were at sixty percent to begin with and were unreadable, which
-            // defeats the point of showing them: a wheel you cannot see the next notch of is
-            // just a button that changes to something unpredictable.
-            float size = _glyph * (selected ? 1.05f : 0.78f);
+            if (Mathf.Abs(offset) > 1.6f)
+            {
+                continue;
+            }
+
+            Vector2 slot = centre + new Vector2(0, offset * spacing);
+
+            // Whichever is nearest the middle is the selection, which while the wheel is between
+            // notches is not necessarily the one the plan is holding yet. Fading with distance is
+            // what makes the slide legible: without it the icons merely translate, and the wheel
+            // looks like a list that has slipped rather than a dial being turned.
+            float away = Mathf.Abs(offset);
+            float lit = Mathf.Clamp(1f - away, 0f, 1f);
+            bool selected = away < 0.5f;
+            float size = _glyph * (0.78f + (0.27f * lit));
 
             if (selected)
             {
-                DrawCircle(slot, size * 0.68f, new Color(Palette.OnPanel, 0.16f));
+                DrawCircle(slot, size * 0.68f, new Color(Palette.OnPanel, 0.16f * lit));
             }
 
             Glyphs.Weapon(
-                this, Arsenal.Wheel[index], slot, size,
-                selected ? Palette.OnPanel : new Color(Palette.OnPanel, 0.42f));
+                this, available[index], slot, size,
+                new Color(Palette.OnPanel, 0.42f + (0.58f * lit)));
         }
 
         // Chevrons, so it reads as something to flick rather than something to press.
