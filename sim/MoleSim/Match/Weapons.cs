@@ -295,6 +295,30 @@ namespace MoleSim.Match
         /// about, and a rule guessed from the numbers would put the Tunnel Torpedo, which does
         /// twenty-five damage, in with the grenades.
         /// </remarks>
+        /// <summary>
+        /// The highest weapon there is. The enum is contiguous from None, so this is its ceiling.
+        /// </summary>
+        public const WeaponId Last = WeaponId.Girder;
+
+        /// <summary>
+        /// Whether that value names a weapon at all.
+        /// </summary>
+        /// <remarks>
+        /// A plan arrives as bytes from another player's device, and a byte is any of two hundred
+        /// and fifty-six things while a weapon is one of seventeen. Nothing in the transport can
+        /// check that, and nothing in it should: the relay stores plans as opaque bytes precisely so
+        /// that it can never grow an opinion about one. The check belongs here, where bytes stop
+        /// being bytes.
+        ///
+        /// It matters more than a tidy-up. Every weapon lookup indexes an array by this value, so an
+        /// unchecked byte is an IndexOutOfRangeException raised inside the simulation, on every
+        /// honest client, from a payload one dishonest client sent. The design's anti-cheat argument
+        /// is that a cheat can only submit illegal inputs and that every client rejects those
+        /// identically; an exception nobody catches is not a rejection, it is a crash.
+        /// </remarks>
+        public static bool Exists(WeaponId weapon) =>
+            weapon >= WeaponId.None && weapon <= Last;
+
         public static UseSlot SlotOf(WeaponId weapon) => weapon switch
         {
             WeaponId.PowerClaws => UseSlot.Movement,

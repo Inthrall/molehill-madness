@@ -93,6 +93,16 @@ namespace MoleSim.Match
             int seat = bytes[at++];
             int moleIndex = bytes[at++];
             WeaponId weapon = (WeaponId)bytes[at++];
+
+            // Checked here because this is where somebody else's bytes become this build's types.
+            // Past this line a weapon indexes arrays, and a byte that names no weapon would index
+            // them out of range: not a refused plan but an exception, thrown inside the simulation
+            // of every honest client in the match.
+            if (!WeaponTable.Exists(weapon))
+            {
+                throw new PlanFormatException(
+                    $"Plan names weapon {(byte)weapon}, and there is no such weapon.");
+            }
             int routeCount = ReadUInt16(bytes, ref at);
             int actionCount = ReadUInt16(bytes, ref at);
 

@@ -179,7 +179,7 @@ namespace MoleSim.Match
         /// </remarks>
         public int Stock(int seat, WeaponId weapon)
         {
-            if (seat < 0 || seat >= PlayerCount)
+            if (seat < 0 || seat >= PlayerCount || !WeaponTable.Exists(weapon))
             {
                 return 0;
             }

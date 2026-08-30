@@ -203,7 +203,7 @@ namespace Molehill.Clip
             for (int index = 0; index < result.Knockouts.Count; index++)
             {
                 Knockout knockout = result.Knockouts[index];
-                int slot = (knockout.Seat * MatchSettings.MolesPerPlatoon) + knockout.MoleIndex;
+                int slot = SlotOf(recording, knockout);
                 int tick = WentOff(recording, slot);
 
                 if (tick < 0)
@@ -249,6 +249,29 @@ namespace Molehill.Clip
         }
 
         /// <summary>The tick a mole went off duty, or -1 if it did not.</summary>
+        /// <summary>
+        /// Where one platoon's mole sits in the recording's slot order.
+        /// </summary>
+        /// <remarks>
+        /// The moles are built interleaved rather than clustered, so that no platoon starts boxed
+        /// in: MoleMatch walks its slots and reads the seat as <c>slot % playerCount</c> and the
+        /// index as <c>slot / playerCount</c>. Inverting that gives the index times the player
+        /// count, plus the seat.
+        ///
+        /// This used to be the seat times the moles per platoon, plus the index, which is the
+        /// transpose. The two agree only where the seat and the index happen to be equal, so at four
+        /// players twelve of the sixteen slots pointed at the wrong mole: clips framed a mole with
+        /// nothing to do with the moment, cut at tick zero when the wrong slot had gone off in an
+        /// earlier round, and now and again scored two knockouts as simultaneous when they were
+        /// nothing of the kind. Exactly the tight shot of empty sky that Moment.Slot exists to stop.
+        ///
+        /// The player count comes off the recording rather than out of a setting, because the
+        /// recording knows how many moles it is holding and the platoon size is what is fixed.
+        /// </remarks>
+        private static int SlotOf(RoundRecording recording, Knockout knockout) =>
+            (knockout.MoleIndex * (recording.MoleCount / MatchSettings.MolesPerPlatoon))
+            + knockout.Seat;
+
         private static int WentOff(RoundRecording recording, int slot)
         {
             if (slot < 0 || slot >= recording.MoleCount)
@@ -281,7 +304,7 @@ namespace Molehill.Clip
 
             foreach (Knockout knockout in result.Knockouts)
             {
-                int slot = (knockout.Seat * MatchSettings.MolesPerPlatoon) + knockout.MoleIndex;
+                int slot = SlotOf(recording, knockout);
 
                 if (WentOff(recording, slot) == tick)
                 {

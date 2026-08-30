@@ -171,6 +171,8 @@ namespace Molehill.Clip
         private readonly string _binary;
 
         private Process? _ffmpeg;
+        private System.Threading.Tasks.Task<string>? _complaints;
+        private System.Threading.Tasks.Task<string>? _chatter;
         private string? _output;
         private long _started;
         private int _frames;
@@ -361,7 +363,23 @@ namespace Molehill.Clip
             if (_ffmpeg is null)
             {
                 _broken = true;
+
+                return;
             }
+
+            // Drained from here rather than from Finish, and this ordering is the whole of the fix.
+            // A child process writing into a pipe nobody is reading blocks once the pipe buffer
+            // fills, which on this machine is four kilobytes; blocked, it stops reading its own
+            // standard input, and the next frame pushed into it never returns. Since the frames are
+            // pushed on the game's main thread, that is not a slow share button, it is the whole
+            // game stopped for ever.
+            //
+            // Four kilobytes is not much. This encoder's own notes point out that some builds of
+            // ffmpeg print a deprecation notice whatever the log level says, and any per-frame
+            // warning clears it long before the last frame. Reading both from the start costs two
+            // tasks that spend their lives asleep.
+            _complaints = _ffmpeg.StandardError.ReadToEndAsync();
+            _chatter = _ffmpeg.StandardOutput.ReadToEndAsync();
         }
 
         public void Add(byte[] rgba)
@@ -404,13 +422,8 @@ namespace Molehill.Clip
                 _broken = true;
             }
 
-            // Drained rather than ignored, and both at once rather than one after the other. A full
-            // pipe with nobody reading it is how a child process hangs instead of exiting, and
-            // reading one to the end before starting on the other is the same hang with an extra
-            // step: whichever is not being read is the one that fills.
-            System.Threading.Tasks.Task<string> complaints = _ffmpeg.StandardError.ReadToEndAsync();
-            System.Threading.Tasks.Task<string> chatter = _ffmpeg.StandardOutput.ReadToEndAsync();
-
+            // Both streams have been draining since Begin, so nothing here can be waiting on a
+            // pipe that filled up during the frames. All that is left is to collect what they said.
             if (!_ffmpeg.WaitForExit(Patience))
             {
                 Kill();
@@ -420,8 +433,8 @@ namespace Molehill.Clip
             }
 
             // Both finish the moment the process does, since its pipes close with it.
-            Trouble = complaints.GetAwaiter().GetResult();
-            _ = chatter.GetAwaiter().GetResult();
+            Trouble = _complaints?.GetAwaiter().GetResult();
+            _ = _chatter?.GetAwaiter().GetResult();
 
             // Not gated on what came out of standard error, deliberately. Some builds of ffmpeg
             // print a deprecation notice whatever the log level is set to, and refusing a perfectly
