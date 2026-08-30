@@ -29,6 +29,18 @@ namespace MoleSim.Match
         private readonly MatchRng _rng;
 
         /// <summary>
+        /// The match's generator, for the tests that check the hash covers it.
+        /// </summary>
+        /// <remarks>
+        /// Internal rather than public, and deliberately not a way to draw from outside: the whole
+        /// determinism argument is that every draw happens in a defined order inside the simulation.
+        /// This exists so a test can move the generator on without moving anything else, which is
+        /// exactly the divergence the hash used to be blind to and which nothing outside could
+        /// otherwise construct.
+        /// </remarks>
+        internal MatchRng Rng => _rng;
+
+        /// <summary>
         /// The match's seed, kept so things can be derived from it without drawing.
         /// </summary>
         /// <remarks>
@@ -489,6 +501,57 @@ namespace MoleSim.Match
                 hash = Fold(hash, (ulong)Wind.Raw);
                 hash = Fold(hash, (ulong)LavaLine.Raw);
 
+                // The sides as well as the height. The lava closes in from both edges past halfway
+                // and what it touches goes off duty, so a machine that agreed about the level and
+                // disagreed about the walls would disagree about who is still playing.
+                hash = Fold(hash, (ulong)LavaLeftEdge.Raw);
+                hash = Fold(hash, (ulong)LavaRightEdge.Raw);
+
+                // The generator itself. This is the largest thing that used to be missing: one extra
+                // or missing draw on one device shifts every draw that follows it, so two machines
+                // can hold identical worlds and still be about to diverge, and the hash that exists
+                // to catch exactly that said they agreed. MatchRng has carried a snapshot for this
+                // since it was written and nothing had ever called it.
+                _rng.Snapshot(out ulong first, out ulong second, out ulong third, out ulong fourth);
+                hash = Fold(hash, first);
+                hash = Fold(hash, second);
+                hash = Fold(hash, third);
+                hash = Fold(hash, fourth);
+
+                // Pacing, which multiplies every mole's stamina from here on.
+                hash = Fold(hash, (ulong)_staminaScale.Raw);
+                hash = Fold(hash, (ulong)_quietRounds);
+
+                // What is lying in the ground waiting to go off. A trap is placed in one round and
+                // does its damage in a later one, so it is state that survives a round by design.
+                hash = Fold(hash, (ulong)_placements.Count);
+
+                foreach (Placement placement in _placements)
+                {
+                    hash = Fold(hash, (ulong)(int)placement.Weapon);
+                    hash = Fold(hash, (ulong)placement.OwnerSeat);
+                    hash = Fold(hash, (ulong)placement.Position.X.Raw);
+                    hash = Fold(hash, (ulong)placement.Position.Y.Raw);
+                    hash = Fold(hash, (ulong)placement.ArmsOnRound);
+                    hash = Fold(hash, (ulong)placement.ExpiresAfterRound);
+                    hash = Fold(hash, placement.Spent ? 1UL : 0UL);
+                }
+
+                // And what is falling towards it. A crate is telegraphed at the end of one round and
+                // lands in the next, so it is in flight across exactly the boundary this is hashed
+                // at.
+                hash = Fold(hash, (ulong)_crates.Count);
+
+                foreach (Crate crate in _crates)
+                {
+                    hash = Fold(hash, (ulong)crate.Position.X.Raw);
+                    hash = Fold(hash, (ulong)crate.Position.Y.Raw);
+                    hash = Fold(hash, (ulong)(int)crate.Contents.Weapon);
+                    hash = Fold(hash, (ulong)crate.Contents.Amount);
+                    hash = Fold(hash, crate.HasLanded ? 1UL : 0UL);
+                    hash = Fold(hash, crate.Gone ? 1UL : 0UL);
+                }
+
                 foreach (Mole mole in _moles)
                 {
                     hash = Fold(hash, (ulong)mole.Position.X.Raw);
@@ -499,6 +562,18 @@ namespace MoleSim.Match
                     hash = Fold(hash, (ulong)mole.Stamina.Raw);
                     hash = Fold(hash, (ulong)mole.LavaStrikes);
                     hash = Fold(hash, mole.IsOffDuty ? 1UL : 0UL);
+
+                    // Which way it is pointing, which decides where its next shot leaves from. The
+                    // corpus's own pin history records facing changing exactly that.
+                    hash = Fold(hash, (ulong)mole.Facing.X.Raw);
+                    hash = Fold(hash, (ulong)mole.Facing.Y.Raw);
+
+                    // Whose turn it is within a platoon, and how many resets are left. Both decide
+                    // which plans are legal, and SubmitPlan validates against them: two machines
+                    // disagreeing here would accept different plans from the same bytes, which is a
+                    // worse divergence than a mole in the wrong place.
+                    hash = Fold(hash, mole.HasActedThisCycle ? 1UL : 0UL);
+                    hash = Fold(hash, (ulong)mole.ResetTokens);
                 }
 
                 // What each platoon is holding decides which plans are legal, so two machines

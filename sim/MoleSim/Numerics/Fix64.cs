@@ -102,7 +102,12 @@ namespace MoleSim.Numerics
 
             if (((a._raw ^ b._raw) & (a._raw ^ difference)) < 0)
             {
-                return a._raw > 0 ? MaxValue : MinValue;
+                // Which end to saturate at is decided by the direction the subtraction was going,
+                // not by the sign of the left operand. Zero minus a negative overflows upward and
+                // used to come back as MinValue, because a was not greater than zero: the answer had
+                // the wrong sign as well as the wrong magnitude. The overflow only happens when the
+                // operands differ in sign, so b's sign is what says which way it went.
+                return b._raw < 0 ? MaxValue : MinValue;
             }
 
             return new Fix64(difference);
@@ -272,6 +277,12 @@ namespace MoleSim.Numerics
         private const long SqrtSafeLimit = 1L << (63 - FractionalBits);
 
         /// <summary>Length of a two-component vector, without an intermediate overflow.</summary>
+        /// <summary>Below this raw value, squaring loses everything, so the maths is scaled up.</summary>
+        private const long SmallComponent = 1L << 8;
+
+        /// <summary>How far up. A power of two, so scaling back down is exact.</summary>
+        private const int SmallShift = 8;
+
         public static Fix64 Hypot(Fix64 x, Fix64 y)
         {
             Fix64 absX = Abs(x);
@@ -285,6 +296,20 @@ namespace MoleSim.Numerics
             if (absY._raw == 0)
             {
                 return absX;
+            }
+
+            // Scaled up first when both components are tiny. Squaring a raw value below 256
+            // truncates to nothing in Q16, so two points five millimetres apart measured as no
+            // distance at all and a small velocity normalised to the zero vector, losing its
+            // direction rather than reporting a unit one. Shifting both up by eight bits before
+            // squaring and the answer back down afterwards is exact, since it is a power of two,
+            // and it moves the floor down by a factor of two hundred and fifty-six.
+            if (absX._raw < SmallComponent && absY._raw < SmallComponent)
+            {
+                Fix64 scaledX = new Fix64(absX._raw << SmallShift);
+                Fix64 scaledY = new Fix64(absY._raw << SmallShift);
+
+                return new Fix64(Hypot(scaledX, scaledY)._raw >> SmallShift);
             }
 
             // Direct route, exact to the last raw unit, and valid for components up to

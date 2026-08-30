@@ -1,5 +1,15 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!--
+    The tests can see inside. Nothing else can, and the assembly still references nothing, which is
+    what the CI guard actually checks. It is here for one thing: the state hash covers the random
+    generator now, and the only way to test that it does is to move the generator without moving
+    anything else, which is not something any caller outside the simulation should be able to do.
+  -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="MoleSim.Tests" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
     <LangVersion>12</LangVersion>
