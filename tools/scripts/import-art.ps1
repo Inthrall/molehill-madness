@@ -104,6 +104,7 @@ if (-not (Test-Path $Source)) {
 
 Add-Type -TypeDefinition @'
 using System;
+using System.Collections.Generic;
 
 public static class MolehillArt
 {
@@ -737,6 +738,104 @@ public static class MolehillArt
 
         return -1;
     }
+
+    /// <summary>
+    /// How far the drawing reaches from the middle of a flat-backed image, as a fraction of half
+    /// its width.
+    /// </summary>
+    /// <remarks>
+    /// For the app icon, where the number decides how far the artwork is shrunk on the way into an
+    /// Android adaptive layer. A launcher may mask that layer with any shape it likes and only
+    /// promises to show a circle across two thirds of it, so anything outside that circle is at the
+    /// mercy of whichever phone it is, and the shrink that keeps the drawing inside it depends
+    /// entirely on how much margin the artist left.
+    ///
+    /// A radius rather than a bounding box, because the guarantee is a circle: a drawing whose
+    /// corners are empty may be a good deal wider than one that fills them and still fit.
+    /// </remarks>
+    public static double Reach(byte[] px, int width, int height, int[] backing)
+    {
+        int red = backing[0];
+        int green = backing[1];
+        int blue = backing[2];
+
+        double middleX = width / 2.0;
+        double middleY = height / 2.0;
+        double furthest = 0.0;
+
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int at = ((y * width) + x) * 4;
+                int apart = Math.Abs(px[at + 2] - red)
+                    + Math.Abs(px[at + 1] - green)
+                    + Math.Abs(px[at] - blue);
+
+                if (apart <= 30) { continue; }
+
+                double dx = x - middleX;
+                double dy = y - middleY;
+                double away = Math.Sqrt((dx * dx) + (dy * dy));
+
+                if (away > furthest) { furthest = away; }
+            }
+        }
+
+        return furthest / middleX;
+    }
+
+    /// <summary>
+    /// The flat colour an icon is drawn on, as red, green and blue.
+    /// </summary>
+    /// <remarks>
+    /// The median of the border ring rather than a corner pixel, for two reasons. It is what the
+    /// adaptive background layer is filled with, and it meets the foreground layer along all four
+    /// of the artwork's edges, so the colour that hides the seam is the middle of what those edges
+    /// actually are: this drawing is four units per channel darker at the middle of an edge than in
+    /// its corner, and pinning to either end of that spreads the whole of the difference onto the
+    /// other. And a measurement resting on one pixel is a measurement one stray pixel can wreck,
+    /// which would take <see cref="Reach"/> with it, since a background it does not recognise makes
+    /// the entire image count as drawing.
+    /// </remarks>
+    public static int[] Backing(byte[] px, int width, int height)
+    {
+        var reds = new List<byte>();
+        var greens = new List<byte>();
+        var blues = new List<byte>();
+
+        for (int x = 0; x < width; x++)
+        {
+            Border(px, width, x, 0, reds, greens, blues);
+            Border(px, width, x, height - 1, reds, greens, blues);
+        }
+
+        for (int y = 1; y < height - 1; y++)
+        {
+            Border(px, width, 0, y, reds, greens, blues);
+            Border(px, width, width - 1, y, reds, greens, blues);
+        }
+
+        return new int[] { Middle(reds), Middle(greens), Middle(blues) };
+    }
+
+    private static void Border(
+        byte[] px, int width, int x, int y,
+        List<byte> reds, List<byte> greens, List<byte> blues)
+    {
+        int at = ((y * width) + x) * 4;
+
+        reds.Add(px[at + 2]);
+        greens.Add(px[at + 1]);
+        blues.Add(px[at]);
+    }
+
+    private static int Middle(List<byte> channel)
+    {
+        channel.Sort();
+
+        return channel[channel.Count / 2];
+    }
 }
 '@
 
@@ -861,6 +960,264 @@ function Save-Png(
     }
 
     return @{ Wide = $wide; Tall = $tall }
+}
+
+# ---- The app icon -----------------------------------------------------------------------
+#
+# The one piece of art nothing in the game draws. It is the picture a launcher, a task bar and a
+# store page use, and each of them wants it in a shape of its own, so this ends in five files
+# rather than one.
+
+# The side of an Android adaptive icon layer, and the width of the circle a launcher promises to
+# show. Both from the platform: a layer is 108dp, the mask can be any shape inside the middle 72dp,
+# and only the middle 66dp is guaranteed to survive whichever shape a given phone picked. At the
+# four-times density these are exported at, that is 432 and 264 pixels.
+$adaptiveLayer = 432
+$adaptiveSafe = 264
+
+# What Windows wants in an .ico, largest first. Sixteen is the one that ends up in a title bar and
+# 256 is the one a file browser shows at its largest setting.
+$icoSizes = @(256, 128, 64, 48, 32, 16)
+
+function Save-Inset(
+    [byte[]] $bytes, [int] $width, [int] $height, [int] $side, [int] $inner, [string] $path) {
+
+    $source = New-BitmapFrom $bytes $width $height $false
+    $target = New-Object System.Drawing.Bitmap $side, $side,
+        ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+
+    try {
+        $canvas = [System.Drawing.Graphics]::FromImage($target)
+
+        try {
+            $canvas.Clear([System.Drawing.Color]::Transparent)
+            $canvas.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+            $canvas.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+
+            # Mirrored at the edges for the same reason every other resize here is: bicubic samples
+            # past the side of the source and would otherwise bring the far side back with it.
+            $attributes = New-Object System.Drawing.Imaging.ImageAttributes
+            $attributes.SetWrapMode([System.Drawing.Drawing2D.WrapMode]::TileFlipXY)
+
+            $edge = [int] [Math]::Round(($side - $inner) / 2.0)
+            $where = New-Object System.Drawing.Rectangle $edge, $edge, $inner, $inner
+            $canvas.DrawImage($source, $where, 0, 0, $width, $height,
+                [System.Drawing.GraphicsUnit]::Pixel, $attributes)
+        }
+        finally {
+            $canvas.Dispose()
+        }
+
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $path) | Out-Null
+        $target.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
+    }
+    finally {
+        $source.Dispose()
+        $target.Dispose()
+    }
+}
+
+function Save-Solid([int[]] $rgb, [int] $side, [string] $path) {
+    $target = New-Object System.Drawing.Bitmap $side, $side,
+        ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+
+    try {
+        $canvas = [System.Drawing.Graphics]::FromImage($target)
+
+        try {
+            $canvas.Clear([System.Drawing.Color]::FromArgb(255, $rgb[0], $rgb[1], $rgb[2]))
+        }
+        finally {
+            $canvas.Dispose()
+        }
+
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $path) | Out-Null
+        $target.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
+    }
+    finally {
+        $target.Dispose()
+    }
+}
+
+<#
+.SYNOPSIS
+    Writes a Windows .ico holding the same picture at several sizes.
+
+.DESCRIPTION
+    Hand-assembled, because System.Drawing can read an icon and cannot write one. The format is a
+    six byte header, one sixteen byte entry per size, and then the images end to end, with each
+    entry saying how long its image is and where it starts.
+
+    The images are PNGs rather than the bitmaps the original format called for. Every Windows that
+    can run this game reads those, and a bitmap entry would mean writing the upside-down DIB and the
+    obsolete one-bit mask that goes with it by hand as well.
+
+    A side of 256 is written as a zero, which is the format's way of saying so: the field is one
+    byte and 256 does not fit in it.
+#>
+function Save-Ico(
+    [byte[]] $bytes, [int] $width, [int] $height, [int[]] $sizes, [string] $path) {
+
+    $source = New-BitmapFrom $bytes $width $height $false
+    $images = @()
+
+    try {
+        foreach ($side in $sizes) {
+            $target = New-Object System.Drawing.Bitmap $side, $side,
+                ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+
+            try {
+                $canvas = [System.Drawing.Graphics]::FromImage($target)
+
+                try {
+                    $canvas.InterpolationMode =
+                        [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+                    $canvas.PixelOffsetMode =
+                        [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+
+                    $attributes = New-Object System.Drawing.Imaging.ImageAttributes
+                    $attributes.SetWrapMode([System.Drawing.Drawing2D.WrapMode]::TileFlipXY)
+
+                    $where = New-Object System.Drawing.Rectangle 0, 0, $side, $side
+                    $canvas.DrawImage($source, $where, 0, 0, $width, $height,
+                        [System.Drawing.GraphicsUnit]::Pixel, $attributes)
+                }
+                finally {
+                    $canvas.Dispose()
+                }
+
+                $buffer = New-Object System.IO.MemoryStream
+                $target.Save($buffer, [System.Drawing.Imaging.ImageFormat]::Png)
+                $images += , @{ Side = $side; Bytes = $buffer.ToArray() }
+                $buffer.Dispose()
+            }
+            finally {
+                $target.Dispose()
+            }
+        }
+    }
+    finally {
+        $source.Dispose()
+    }
+
+    $file = New-Object System.IO.MemoryStream
+    $writer = New-Object System.IO.BinaryWriter $file
+
+    try {
+        $writer.Write([uint16] 0)
+        $writer.Write([uint16] 1)
+        $writer.Write([uint16] $images.Count)
+
+        $at = 6 + (16 * $images.Count)
+
+        foreach ($image in $images) {
+            $writer.Write([byte] ($image.Side % 256))
+            $writer.Write([byte] ($image.Side % 256))
+            $writer.Write([byte] 0)
+            $writer.Write([byte] 0)
+            $writer.Write([uint16] 1)
+            $writer.Write([uint16] 32)
+            $writer.Write([uint32] $image.Bytes.Length)
+            $writer.Write([uint32] $at)
+
+            $at += $image.Bytes.Length
+        }
+
+        foreach ($image in $images) {
+            $writer.Write($image.Bytes)
+        }
+
+        $writer.Flush()
+
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $path) | Out-Null
+        [System.IO.File]::WriteAllBytes($path, $file.ToArray())
+    }
+    finally {
+        $writer.Dispose()
+        $file.Dispose()
+    }
+}
+
+<#
+.SYNOPSIS
+    Writes the whole icon family from one square drawing.
+
+.DESCRIPTION
+    Five files, because the platforms disagree about what an icon is.
+
+    `app.png` is the picture itself, full size. It is what the project uses for its window and what
+    a store listing wants.
+
+    `launcher.png` is the same thing at 192, which is the icon Android shows on anything too old to
+    ask for an adaptive one.
+
+    The two adaptive layers are the interesting pair. A modern launcher takes a foreground and a
+    background, masks them to whatever shape that phone's theme uses, and slides one against the
+    other when the icon is touched. So the drawing goes on the foreground and the flat colour it was
+    drawn on goes on the background, and the foreground is shrunk until the drawing fits inside the
+    circle every mask is guaranteed to contain. How far it shrinks is measured off the artwork
+    rather than fixed, since it depends entirely on the margin the artist left.
+
+    The layers meet invisibly because the background is sampled from the artwork's own border: the
+    foreground still carries that same flat colour out to its edges, so the seam is one brown
+    against very nearly the identical brown, and the parallax slides brown over brown.
+
+    `app.ico` is the Windows executable's icon.
+#>
+function Write-Icons(
+    [hashtable] $sheet, [byte[]] $bytes, [int] $width, [int] $height,
+    [string] $outputRoot, [bool] $apply) {
+
+    if ($width -ne $height) {
+        throw "An icon has to be square, and $($sheet.From) is ${width}x${height}."
+    }
+
+    $backing = [MolehillArt]::Backing($bytes, $width, $height)
+    $reach = [MolehillArt]::Reach($bytes, $width, $height, $backing)
+
+    # Bigger than the layer would mean artwork with no margin at all, which is a sheet that wants
+    # redrawing rather than a number to clamp.
+    $inner = [Math]::Min($adaptiveLayer, [int] [Math]::Floor($adaptiveSafe / $reach))
+
+    # How much of the guaranteed circle is left over once the drawing is in it, either side. A
+    # negative number is a drawing hanging out of the circle, which is the thing worth being told.
+    $spare = ($adaptiveSafe - ($reach * $inner)) / 2.0
+
+    Write-Host ("icon    background {0},{1},{2}  drawing reaches {3:N3} of the way out" -f
+        $backing[0], $backing[1], $backing[2], $reach)
+    Write-Host ("adapt   artwork at {0} of {1}, {2:N1} to spare inside the guaranteed {3}" -f
+        $inner, $adaptiveLayer, $spare, $adaptiveSafe)
+
+    if ($spare -lt 0) {
+        Write-Warning 'The drawing does not fit the guaranteed circle. Some launchers will clip it.'
+    }
+
+    # Said plainly, because a report reads the watermark rather than the patch that removes it, and
+    # the star is the furthest thing from the middle of this particular drawing.
+    if ($Report -and $sheet.ContainsKey('Watermark')) {
+        Write-Host 'note    measured before the watermark patch, so the reach is the star, not the art'
+    }
+
+    $into = if ($sheet.ContainsKey('Into')) { $sheet.Into + '/' } else { '' }
+    $name = $sheet.Name
+
+    Write-Host ("icons   {0}app.png, {0}launcher.png, two adaptive layers, {0}app.ico" -f $into)
+
+    if (-not $apply) { return }
+
+    $app = Join-Path $outputRoot "$into$name.png"
+    $launcher = Join-Path $outputRoot "${into}launcher.png"
+    $foreground = Join-Path $outputRoot "${into}adaptive-foreground.png"
+    $background = Join-Path $outputRoot "${into}adaptive-background.png"
+    $windows = Join-Path $outputRoot "$into$name.ico"
+
+    Save-Png $bytes $width $height $false 1.0 $app | Out-Null
+    Save-Png $bytes $width $height $false (192 / [double] $width) $launcher | Out-Null
+    Save-Inset $bytes $width $height $adaptiveLayer $inner $foreground
+    Save-Solid $backing $adaptiveLayer $background
+    Save-Ico $bytes $width $height $icoSizes $windows
+
+    Write-Host ("     -> {0}" -f (Resolve-Path -Relative (Split-Path -Parent $app)))
 }
 
 # ---- Platoons -------------------------------------------------------------------------
@@ -1071,6 +1428,14 @@ $sheets = @(
        Grid = @(3, 3); Scale = 0.35; Open = 2
        Names = @('chute-0', 'chute-1', 'chute-2', 'landed', 'open', 'closed', 'marker') }
 
+    # One picture of a whole beam rather than a grid, because a girder is laid in one piece at one
+    # length: four metres of it, which is what the artist drew it as and what the simulation lays.
+    # Wider than anything else here by a distance, so it is sized off its own length at draw time
+    # rather than off the shared sprite pitch the other objects use.
+    @{ From = 'girder.jpg'; Key = 'green'; Pack = 'cells'; Into = 'object'
+       Grid = @(1, 1); Scale = 0.35; Open = 3
+       Names = @('girder') }
+
     # ---- Effects ----------------------------------------------------------------------
 
     @{ From = 'explosion.png'; Key = 'green'; Pack = 'strip'; Into = 'effect'; Name = 'blast'
@@ -1114,6 +1479,30 @@ $sheets = @(
        Grid = @(8, 2); Scale = 0.30; Open = 3
        Names = @('digit-0', 'digit-1', 'digit-2', 'digit-3', 'digit-4', 'digit-5', 'digit-6',
                  'digit-7', 'digit-8', 'digit-9', 'plus', 'minus', 'percent', 'colon', 'stop') }
+
+    # The aim gauge, which every ability that has a direction points with: the two frames are the
+    # empty track and the charged fill, and the fill is drawn clipped to however wound up the throw
+    # is. A strip rather than two cells precisely because the fill sits on top of the track, and
+    # only a set cut with one rectangle guarantees they line up: trimmed to their own bounds the
+    # two arrows differ by two pixels horizontally, which is a fill that starts inside its own
+    # track and a head that never quite reaches the end of it.
+    #
+    # Two rows on the sheet, the same arrow twice at slightly different proportions, and the top one
+    # is the one taken. The bottom pair carries the generator's watermark inside the orange head,
+    # where a patch would have to invent artwork rather than copy dirt from further along; taking
+    # the clean row costs nothing, since the rows are the same drawing.
+    @{ From = 'charge arrow.png'; Key = 'green'; Pack = 'strip'; Into = 'glyph'; Name = 'arrow'
+       Grid = @(2, 2); Frames = 2; Scale = 0.30; Open = 3 }
+
+    # ---- The app icon -----------------------------------------------------------------
+    #
+    # Keyed off nothing and opened at nothing, because unlike everything else here this one is
+    # meant to keep its background: the brown it is drawn on is the icon's own colour, and it is
+    # what the Android background layer is filled with. Watermarked in the bottom corner, where
+    # the surrounding brown is flat, so the patch has an easy time of it.
+    @{ From = 'app icon.png'; Key = 'none'; Pack = 'icon'; Into = 'icon'; Name = 'app'
+       Scale = 1.0; Open = 0
+       Watermark = @{ X = 872; Y = 872; Width = 64; Height = 64 } }
 )
 
 # ---- The work -------------------------------------------------------------------------
@@ -1147,6 +1536,12 @@ function Write-Sheet(
     $into = if ($sheet.ContainsKey('Into')) { $sheet.Into } else { '' }
     $scale = $sheet.Scale
     $premultiply = $scale -ne 1.0
+
+    if ($sheet.Pack -eq 'icon') {
+        Write-Icons $sheet $bytes $width $height $outputRoot $apply
+
+        return
+    }
 
     if ($sheet.Pack -eq 'cells') {
         for ($index = 0; $index -lt $sheet.Names.Count; $index++) {

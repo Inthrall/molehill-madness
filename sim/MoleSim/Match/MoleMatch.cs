@@ -22,6 +22,8 @@ namespace MoleSim.Match
         private readonly Plan?[] _plans;
         private readonly List<Projectile> _shots = new List<Projectile>();
         private readonly List<Placement> _placements = new List<Placement>();
+
+        private readonly List<Girder> _girders = new List<Girder>();
         private readonly List<Crate> _crates = new List<Crate>();
         private readonly int[][] _stock;
         private int _quietRounds;
@@ -172,6 +174,9 @@ namespace MoleSim.Match
 
         /// <summary>Traps, snares and vents lying about the map.</summary>
         public IReadOnlyList<Placement> Placements => _placements;
+
+        /// <summary>Every girder laid so far, so the client can draw the beams over the soil.</summary>
+        public IReadOnlyList<Girder> Girders => _girders;
 
         /// <summary>Crates on their way down, or waiting to be claimed.</summary>
         public IReadOnlyList<Crate> Crates => _crates;
@@ -902,7 +907,19 @@ namespace MoleSim.Match
                     break;
 
                 case WeaponId.Girder:
-                    Tools.LayGirder(Terrain, actor.Position, AimOf(actor, action));
+                    Vec2 along = AimOf(actor, action);
+
+                    Tools.LayGirder(Terrain, actor.Position, along);
+
+                    // Only once the aim is known to point somewhere, because LayGirder does
+                    // nothing at all with a zero aim and a note of a beam that was never laid
+                    // would put a picture of one on the map.
+                    if (along.LengthSquared() != Fix64.Zero)
+                    {
+                        _girders.Add(new Girder(
+                            actor.Position, along.Normalised(), Round, action.Tick));
+                    }
+
                     break;
 
                 default:

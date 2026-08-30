@@ -1935,6 +1935,41 @@ public partial class MatchScene : Node2D
             return;
         }
 
+        // The movement ability, and the desktop half of a control the thumb layout has had to itself.
+        // A turn may spend one attack and one movement allowance, and the touch layout gives each of
+        // them a button; on a mouse the right button aimed the attack and nothing aimed the other, so
+        // a player could turn the wheel onto a Girder, watch it arm, and then fire their clod at it.
+        //
+        // Held rather than tapped, because it is the same begin, aim, release the attack is and the
+        // weapons on that wheel want a direction. Which is why it cannot go through HandleKey with
+        // the rest of the keys: that only ever sees a press, and a wind-up nobody releases is a turn
+        // that never books anything.
+        //
+        // Shift because it is the one key left that a hand steering with WASD can hold without
+        // letting go of anything, which is the whole requirement: aiming is a thing you do while
+        // moving.
+        if (@event is InputEventKey { Echo: false, Keycode: Key.Shift } ability)
+        {
+            SeatPlanner? aiming = Pointed();
+
+            if (aiming is null)
+            {
+                return;
+            }
+
+            if (ability.Pressed)
+            {
+                aiming.BeginAim(
+                    PointerWorld(GetViewport().GetMousePosition(), aiming.Seat), UseSlot.Movement);
+            }
+            else
+            {
+                aiming.ReleaseAim();
+            }
+
+            return;
+        }
+
         if (@event is InputEventKey { Pressed: true, Echo: false } key)
         {
             HandleKey(key);

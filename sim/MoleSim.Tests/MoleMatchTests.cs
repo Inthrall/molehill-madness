@@ -598,4 +598,69 @@ public sealed class MoleMatchTests
         Assert.That(walker.Stamina, Is.EqualTo(Fix64.FromInt(MatchSettings.StartingStamina)),
             "and started the next round fresh");
     }
+
+    /// <summary>
+    /// A laid girder is written down, because the ground it lays cannot say it was one.
+    /// </summary>
+    /// <remarks>
+    /// The note exists purely so the client has a beam to draw. Worth a test all the same: the
+    /// deposit is ordinary loose soil and looks like every other piece of soil, so nothing else in
+    /// the simulation would ever notice this going missing, and the only symptom would be girders
+    /// that quietly stopped being drawn.
+    /// </remarks>
+    [Test]
+    public void LayingAGirderIsRecordedForTheClientToDraw()
+    {
+        MoleMatch match = NewMatch();
+        Mole builder = MoleOf(match, 0, 0);
+        Vec2 where = builder.Position;
+
+        match.SubmitPlan(new Plan(0, 0, WeaponId.None, System.Array.Empty<RoutePoint>(), new[]
+        {
+            PlanAction.Fire(2, Vec2.UnitX, 0, WeaponId.Girder),
+        }));
+        match.SubmitPlan(Plan.Idle(1, 0));
+
+        RoundResult result = match.ResolveRound();
+
+        Assert.That(match.Girders, Has.Count.EqualTo(1));
+
+        Girder laid = match.Girders[0];
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(laid.At, Is.EqualTo(where), "laid from where the mole was standing");
+            Assert.That(laid.Along, Is.EqualTo(Vec2.UnitX));
+
+            // Against the result's own round rather than a number, because this pair is what the
+            // client compares to decide whether a beam belongs on screen yet, and a placement
+            // records its round the same way.
+            Assert.That(laid.LaidOnRound, Is.EqualTo(result.Round));
+            Assert.That(laid.LaidOnTick, Is.EqualTo(2), "the tick it went down on, so a replay can wait for it");
+        });
+    }
+
+    /// <summary>
+    /// An aim of nothing lays no girder, so it leaves no note of one either.
+    /// </summary>
+    /// <remarks>
+    /// LayGirder returns without touching the ground when the aim is zero, and a note written
+    /// regardless would put a four metre beam on the screen with nothing underneath it. The two
+    /// have to agree about whether anything happened.
+    /// </remarks>
+    [Test]
+    public void AGirderAimedNowhereIsNotRecorded()
+    {
+        MoleMatch match = NewMatch();
+
+        match.SubmitPlan(new Plan(0, 0, WeaponId.None, System.Array.Empty<RoutePoint>(), new[]
+        {
+            PlanAction.Fire(2, Vec2.Zero, 0, WeaponId.Girder),
+        }));
+        match.SubmitPlan(Plan.Idle(1, 0));
+
+        match.ResolveRound();
+
+        Assert.That(match.Girders, Is.Empty);
+    }
 }

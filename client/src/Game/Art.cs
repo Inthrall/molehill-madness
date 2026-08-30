@@ -228,6 +228,28 @@ public static class Art
     public static Texture2D Glyph(string name) => Held($"glyph/{name}.png", 1).Art;
 
     /// <summary>
+    /// The aim gauge every ability with a direction points with: the empty track, then the fill.
+    /// </summary>
+    /// <remarks>
+    /// Two frames of one strip rather than two files, because the fill is drawn on top of the track
+    /// and only a set the importer cut with a single rectangle is guaranteed to line up. See the
+    /// note beside this sheet in <c>import-art.ps1</c>.
+    ///
+    /// The track is white so it can be tinted to whatever the shot's state is. The fill is the
+    /// artist's orange, which is <see cref="Palette.Aiming"/> to within a rounding error, so a shot
+    /// being wound up wants it left alone rather than multiplied by its own colour.
+    /// </remarks>
+    public static Strip ChargeArrow => Held("glyph/arrow.png", 2);
+
+    /// <summary>Which frame of <see cref="ChargeArrow"/> is which.</summary>
+    public static class Arrow
+    {
+        public const int Track = 0;
+
+        public const int Fill = 1;
+    }
+
+    /// <summary>
     /// Loads everything a match can ask for, before it asks.
     /// </summary>
     /// <remarks>

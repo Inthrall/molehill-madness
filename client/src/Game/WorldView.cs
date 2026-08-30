@@ -555,6 +555,7 @@ public partial class WorldView : Control
         DrawSetTransform(Offset(), 0, Vector2.One);
 
         DrawLava();
+        DrawGirders();
         DrawPlacements();
         DrawCrates();
 
@@ -1008,6 +1009,124 @@ public partial class WorldView : Control
     /// appears at the tick its mole planted it, rather than sitting on the map from the first frame
     /// of a replay that has already resolved.
     /// </remarks>
+    /// <summary>
+    /// The girders somebody has laid, drawn over the soil they put down.
+    /// </summary>
+    /// <remarks>
+    /// Drawn in slices, and only the slices whose ground is still there. A girder is loose soil in
+    /// the simulation rather than an indestructible object, deliberately, so it can be dug back
+    /// out; a beam painted over the whole span once and left would go on advertising a bridge after
+    /// somebody had tunnelled through the middle of it, which is worse than not drawing it at all,
+    /// because a player would walk a mole onto a girder that is not there any more. Sampling the
+    /// ground instead means the beam comes apart exactly where the soil went, and nothing has to
+    /// tell it that anything happened.
+    ///
+    /// Four metres long, from the simulation, and as deep as the artist drew it. Those disagree: a
+    /// laid girder is a quarter of a metre thick and the beam is drawn three times that, so one of
+    /// the two has to give. The drawing wins on the grounds that it is a picture of a girder and a
+    /// quarter metre of it squashed flat is a picture of a rail.
+    ///
+    /// What keeps that honest is where it is hung. The artwork is a top face in daylight over a
+    /// riveted body below it, so the top face is put on the top of the quarter metre a mole can
+    /// actually stand on and the body hangs underneath, reading as the depth of a beam bedded into
+    /// the ground. A mole stands on the surface it looks like it is standing on, which is the part
+    /// that has to be true; the bulk below the footing is a drawing of something buried.
+    /// </remarks>
+    private void DrawGirders()
+    {
+        IReadOnlyList<Girder> girders = _stage.Match.Girders;
+
+        if (girders.Count == 0)
+        {
+            return;
+        }
+
+        Texture2D art = Art.Object("girder");
+        float length = (float)MatchSettings.GirderLength.ToDecimal() * _scale;
+        float tall = length * art.GetHeight() / art.GetWidth();
+        float footing = (float)GirderThickness.ToDecimal() * _scale;
+        float cut = art.GetWidth() / (float)GirderSlices;
+
+        foreach (Girder girder in girders)
+        {
+            if (!LaidYet(girder))
+            {
+                continue;
+            }
+
+            Vector2 along = new Vector2(
+                (float)girder.Along.X.ToDecimal(), (float)girder.Along.Y.ToDecimal());
+
+            // Turned to lie along the beam, and the camera offset added in by hand because
+            // DrawSetTransform replaces the pass's transform rather than multiplying into it.
+            DrawSetTransform(ToPixels(girder.At) + Offset(), along.Angle(), Vector2.One);
+
+            for (int step = 0; step < GirderSlices; step++)
+            {
+                if (!InSolidGround(MiddleOf(girder, step)))
+                {
+                    continue;
+                }
+
+                DrawTextureRectRegion(
+                    art,
+                    new Rect2(
+                        length * step / GirderSlices, -footing / 2f, length / GirderSlices, tall),
+                    new Rect2(cut * step, 0f, cut, art.GetHeight()));
+            }
+
+            DrawSetTransform(Offset(), 0, Vector2.One);
+        }
+    }
+
+    /// <summary>The middle of one slice of a girder, in metres.</summary>
+    private static Vec2 MiddleOf(Girder girder, int step) =>
+        girder.At
+        + (girder.Along
+            * (MatchSettings.GirderLength * Fix64.Ratio((2 * step) + 1, 2 * GirderSlices)));
+
+    /// <summary>
+    /// How many pieces a girder is drawn in.
+    /// </summary>
+    /// <remarks>
+    /// Sixteen puts a slice at a quarter of a metre, which is a third of the width of the hole a
+    /// mole makes going through one. Fewer and a tunnel through a girder would take the whole beam
+    /// with it or none of it; many more and it is arithmetic nobody can see the result of.
+    /// </remarks>
+    private const int GirderSlices = 16;
+
+    /// <summary>
+    /// How thick a laid girder is, which is twice the half-thickness the deposit is given.
+    /// </summary>
+    /// <remarks>
+    /// Read off the weapon rather than restated. It is not the height the beam is drawn at, which
+    /// comes from the artwork, but it is where the beam is hung from: this is the band a mole can
+    /// stand on, so the drawn top face goes on top of it. Restating the number here would let the
+    /// two drift and put the picture of the footing somewhere other than the footing.
+    /// </remarks>
+    private static Fix64 GirderThickness =>
+        WeaponTable.Of(WeaponId.Girder).BlastRadius * Fix64.FromInt(2);
+
+    /// <summary>
+    /// Whether a girder has been laid yet, at the point in the round being watched.
+    /// </summary>
+    /// <remarks>
+    /// The same rule as <see cref="PlantedYet"/>, and for the same reason: a round has resolved
+    /// before anybody sees a frame of it, so a bridge read from live state is on the screen from
+    /// the first frame and gives away that its mole was going to build one.
+    /// </remarks>
+    private bool LaidYet(Girder girder)
+    {
+        RoundResult? result = _stage.Result;
+
+        if (_stage.Planning || result is null || girder.LaidOnRound < result.Round)
+        {
+            return true;
+        }
+
+        return _stage.Tick >= girder.LaidOnTick;
+    }
+
     private bool PlantedYet(Placement placement)
     {
         RoundResult? result = _stage.Result;
@@ -1908,7 +2027,7 @@ public partial class WorldView : Control
             ToPixels(planner.PlannedPosition),
             new Vector2((float)heading.X.ToDecimal(), (float)heading.Y.ToDecimal()),
             (float)planner.AimCharge,
-            planner.Aiming ? Palette.Aiming : Palette.Damage);
+            planner.Aiming);
     }
 
     /// <summary>
@@ -1926,46 +2045,65 @@ public partial class WorldView : Control
     /// the movement preview does, but an artillery game whose shots are pre-plotted is a different
     /// game. Direction and charge are what the player chose; where it ends up is the round's answer.
     /// </remarks>
-    private void ChargeArrow(Vector2 from, Vector2 direction, float charge, Color ink)
+    private void ChargeArrow(Vector2 from, Vector2 direction, float charge, bool aiming)
     {
+        Color ink = aiming ? Palette.Aiming : Palette.Damage;
+        Strip arrow = Art.ChargeArrow;
+        Vector2 frame = arrow.FrameSize;
+
         float radius = MoleRadius();
         float length = Mathf.Max(_scale * ArrowMetres, 44f);
-        float thickness = Mathf.Max(radius * 0.44f, 4f);
-        Vector2 tip = from + (direction * length);
-        Vector2 across = new Vector2(-direction.Y, direction.X) * thickness * 1.5f;
-        bool full = charge >= 0.999f;
 
-        // The muzzle ring, so an arrow in the middle of a scrum plainly belongs to a mole.
+        // Height from the artwork's own proportions rather than from a thickness the code picked,
+        // so the arrow is the shape the artist drew at whatever length the camera asks for.
+        float tall = length * frame.Y / frame.X;
+
+        // The muzzle ring, so an arrow in the middle of a scrum plainly belongs to a mole. Drawn
+        // before the transform below, since it is in world pixels and the arrow is drawn in its own.
         DrawArc(from, radius, 0, Mathf.Tau, 20, ink, radius * 0.16f);
+
+        // Laid out along positive x from the origin and then turned, which is how a canvas item is
+        // asked to draw a texture at an angle: there is no rotated overload of the rect draws.
+        //
+        // The camera offset has to be added in by hand. DrawSetTransform replaces the transform in
+        // force rather than multiplying into it, so the one this pass set up is gone the moment
+        // this is called, and an arrow placed at world pixels alone lands wherever the camera
+        // happens not to be looking. Which draws nothing and reports nothing: the muzzle ring below
+        // still appears in the right place, so the arrow reads as art that failed to load.
+        DrawSetTransform(from + Offset(), direction.Angle(), Vector2.One);
 
         // The empty track first, then however much of it is charged. The track is what makes the
         // fill legible: without it there is nothing for the fill to be a fraction of.
-        DrawLine(from, tip, new Color(ink, 0.2f), thickness);
+        arrow.Draw(this, new Rect2(0f, -tall / 2f, length, tall), Art.Arrow.Track, false,
+            new Color(ink, TrackAlpha));
 
         if (charge > 0f)
         {
-            DrawLine(from, from + (direction * length * charge), ink, thickness);
+            // The rectangle and the region are cut to the same fraction, so what grows is the tail
+            // end of the arrow at full size rather than the whole of it squashed short. Which also
+            // gives the head back for nothing: it is the last fifth of the artwork, so it completes
+            // only as the charge does, and that was the one thing the drawn version called out.
+            DrawTextureRectRegion(
+                arrow.Art,
+                new Rect2(0f, -tall / 2f, length * charge, tall),
+                new Rect2(frame.X * Art.Arrow.Fill, 0f, frame.X * charge, frame.Y),
+                aiming ? Colors.White : Palette.Damage);
         }
 
-        // The head fills in only at maximum, which is the one moment worth calling out: it is the
-        // difference between a hard throw and the hardest one available.
-        Vector2[] head =
-        {
-            tip + (direction * thickness * 2.1f),
-            tip + across,
-            tip - across,
-        };
-
-        if (full)
-        {
-            DrawColoredPolygon(head, ink);
-            return;
-        }
-
-        DrawColoredPolygon(head, new Color(ink, 0.2f));
-        DrawPolyline(
-            new[] { head[0], head[1], head[2], head[0] }, new Color(ink, 0.55f), 2f);
+        // Back to the transform the rest of the pane is drawn under, which is the camera offset
+        // rather than the identity: this runs inside the world pass, not after it.
+        DrawSetTransform(Offset(), 0, Vector2.One);
     }
+
+    /// <summary>
+    /// How solid the unfilled part of the aim arrow is.
+    /// </summary>
+    /// <remarks>
+    /// Higher than the fifth the drawn version used. That number was chosen for a flat bar of one
+    /// colour; the artwork is mostly a heavy black outline, and an outline at a fifth is a smudge
+    /// rather than a track, which leaves the fill a fraction of nothing.
+    /// </remarks>
+    private const float TrackAlpha = 0.4f;
 
     /// <summary>
     /// How long the aim arrow is, in metres, whatever the charge. Long enough that a tenth of it

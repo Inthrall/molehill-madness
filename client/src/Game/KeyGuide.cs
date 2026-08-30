@@ -81,6 +81,7 @@ public partial class KeyGuide : Control
         System.Action<CanvasItem, Vector2, float>[] icons =
         {
             (into, where, size) => Glyphs.Fire(into, where, size, Palette.OnPanel),
+            Ability,
             (into, where, size) => Glyphs.Hop(into, where, size, Palette.OnPanel),
             (into, where, size) => Glyphs.Mole(into, where, size * 0.95f, Palette.OnPanel),
         };
@@ -91,7 +92,13 @@ public partial class KeyGuide : Control
         //
         // F is gone with the button it described. It planted the Boom Beets, which are now a weapon
         // on the wheel like the rest, so the one press that fires covers them too.
-        string[] keys = { "RMB", "SPACE", "C" };
+
+        // Shift is the movement ability, which the desktop had no binding for at all until now: the
+        // thumb layout has carried a second fire button since the allowance was split in two, and
+        // a mouse had one button for one of the two wheels.
+        // Shift sits next to the right button because the two of them are the same verb aimed at
+        // different halves of the turn: one fires the attack, one spends the movement allowance.
+        string[] keys = { "RMB", "SHIFT", "SPACE", "C" };
 
         float width = Steer(glyph) + Reach(glyph, "R");
 
@@ -138,6 +145,28 @@ public partial class KeyGuide : Control
     }
 
     /// <summary>How wide one control is, cap included.</summary>
+    /// <summary>
+    /// Whichever movement ability is loaded, or a cross when that wheel is on nothing.
+    /// </summary>
+    /// <remarks>
+    /// The weapon rather than one fixed picture, which is what the thumb layout's second button
+    /// does and for the same reason: the key is always Shift and what it does is entirely whichever
+    /// of the movement weapons is armed, so a fixed glyph would be a drawing of the key rather than
+    /// of what pressing it would do.
+    /// </remarks>
+    private void Ability(CanvasItem into, Vector2 where, float size)
+    {
+        WeaponId weapon = _planner!.Selected(UseSlot.Movement);
+
+        if (weapon == WeaponId.None)
+        {
+            Glyphs.Icon(into, "cross", where, size * 0.7f, Palette.OnPanelDim);
+            return;
+        }
+
+        Glyphs.Weapon(into, weapon, where, size, Palette.OnPanel);
+    }
+
     private static float Reach(float glyph, string key) =>
         glyph * (key.Length > 2 ? 2.15f : 1.7f);
 
