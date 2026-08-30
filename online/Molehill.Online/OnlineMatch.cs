@@ -489,6 +489,18 @@ namespace Molehill.Online
         /// </remarks>
         public bool Queued => _ticket is not null;
 
+        /// <summary>
+        /// How many plans this session has had to throw away, over the whole match.
+        /// </summary>
+        /// <remarks>
+        /// Zero in every honest match. Anything else is somebody sending bytes that will not decode
+        /// or that claim a seat they were not submitted from, and it is worth counting rather than
+        /// swallowing: every client refuses the same plans from the same bytes, so a number that
+        /// differs between two clients in the same match is a determinism problem rather than a
+        /// cheat.
+        /// </remarks>
+        public int Refused { get; private set; }
+
         /// <summary>How long this player has been in the pool, in seconds.</summary>
         public int Waited { get; private set; }
 
@@ -877,35 +889,57 @@ namespace Molehill.Online
         private void Take(RoundRelease release)
         {
             List<Plan> plans = new List<Plan>(release.Plans.Count);
-
-            try
-            {
-                foreach (byte[] bytes in release.Plans)
-                {
-                    plans.Add(PlanCodec.Read(bytes));
-                }
-            }
-            catch (PlanFormatException)
-            {
-                // Somebody is on a different build. Simulating their plan would diverge rather than
-                // fail, so stop here instead.
-                Trouble = RelayOutcome.Refused;
-                Stage = OnlineStage.Incompatible;
-                return;
-            }
-
             bool[] answered = new bool[PlayerCount];
 
-            foreach (Plan plan in plans)
+            // One plan at a time, and a plan that cannot be read costs its sender the turn rather
+            // than costing everybody the match.
+            //
+            // This used to decode the whole round inside one try, so a single payload that would not
+            // parse put every client into Incompatible. The relay cannot help: it stores plans as
+            // opaque bytes precisely so it can never have an opinion about one, so any participant
+            // could end a four-player match for everybody by committing a byte of rubbish. That is
+            // exactly the outcome the design rules out, in RoundFeeder's own words: an illegal input
+            // is dropped, "and the platoon that sent it does nothing that round", because every
+            // client drops the same bytes and stays in the same world.
+            //
+            // A refused plan leaves its seat answered with nothing, which is the state a forfeit
+            // already produces and the simulation already knows how to resolve.
+            foreach (Submitted sent in release.Plans)
             {
-                if (plan.Seat < 0 || plan.Seat >= PlayerCount || answered[plan.Seat])
+                if (sent.Seat < 0 || sent.Seat >= PlayerCount || answered[sent.Seat])
                 {
+                    // The relay authenticated this seat, so a duplicate or an impossible one is the
+                    // relay disagreeing with itself rather than a player misbehaving.
                     Trouble = RelayOutcome.Refused;
                     Stage = OnlineStage.Incompatible;
                     return;
                 }
 
-                answered[plan.Seat] = true;
+                answered[sent.Seat] = true;
+
+                Plan plan;
+
+                try
+                {
+                    plan = PlanCodec.Read(sent.Payload);
+                }
+                catch (PlanFormatException)
+                {
+                    Refused++;
+                    continue;
+                }
+
+                // The seat inside the plan has to be the seat that sent it. The relay knows who
+                // submitted, from the token, and the plan carries a seat of its own that nothing
+                // has ever checked against it: without this, one player can write somebody else's
+                // seat into their plan and have every client attribute the turn to them.
+                if (plan.Seat != sent.Seat)
+                {
+                    Refused++;
+                    continue;
+                }
+
+                plans.Add(plan);
             }
 
             // A forfeited seat answered by running out of window, and it answers with nothing rather

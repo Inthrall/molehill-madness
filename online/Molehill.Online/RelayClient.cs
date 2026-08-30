@@ -567,12 +567,14 @@ namespace Molehill.Online
                     round, element.GetProperty("waitingOn").GetInt32(), deadline);
             }
 
-            List<byte[]> plans = new List<byte[]>();
+            List<Submitted> plans = new List<Submitted>();
 
             foreach (JsonElement plan in element.GetProperty("plans").EnumerateArray())
             {
-                plans.Add(Convert.FromBase64String(
-                    plan.GetProperty("payload").GetString() ?? string.Empty));
+                plans.Add(new Submitted(
+                    plan.GetProperty("seat").GetInt32(),
+                    Convert.FromBase64String(
+                        plan.GetProperty("payload").GetString() ?? string.Empty)));
             }
 
             List<int> forfeited = new List<int>();

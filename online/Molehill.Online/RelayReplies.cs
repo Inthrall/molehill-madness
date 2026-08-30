@@ -293,13 +293,29 @@ namespace Molehill.Online
     /// rather than this type's: handing back a partial round would let the last player to commit see
     /// what everybody else did first, which is the one thing simultaneous turns exist to prevent.
     /// </remarks>
+    /// <summary>One seat's plan, as bytes, from the seat the relay says sent it.</summary>
+    public readonly struct Submitted
+    {
+        public Submitted(int seat, byte[] payload)
+        {
+            Seat = seat;
+            Payload = payload;
+        }
+
+        /// <summary>Who sent it, according to the token it was submitted with.</summary>
+        public int Seat { get; }
+
+        /// <summary>What they sent, still opaque.</summary>
+        public byte[] Payload { get; }
+    }
+
     public sealed class RoundRelease
     {
         public RoundRelease(
             int round,
             bool complete,
             int waitingOn,
-            IReadOnlyList<byte[]> plans,
+            IReadOnlyList<Submitted> plans,
             IReadOnlyList<int> forfeited,
             DateTimeOffset? deadline)
         {
@@ -317,8 +333,18 @@ namespace Molehill.Online
 
         public int WaitingOn { get; }
 
-        /// <summary>Every seat's plan for the round, as the bytes they sent, in seat order.</summary>
-        public IReadOnlyList<byte[]> Plans { get; }
+        /// <summary>
+        /// Every seat's plan for the round, as the bytes they sent, paired with the seat that sent
+        /// them.
+        /// </summary>
+        /// <remarks>
+        /// The seat comes from the relay, which knows it: a plan is submitted with a seat token, so
+        /// which seat sent which bytes is established before the bytes are stored, by the one party
+        /// in a position to establish it. This used to be thrown away and only the payloads kept,
+        /// which left the client unable to say whose plan had failed to decode, and unable to check
+        /// that the seat written inside a plan is the seat that actually sent it.
+        /// </remarks>
+        public IReadOnlyList<Submitted> Plans { get; }
 
         /// <summary>
         /// Seats that ran out of window and did nothing.
@@ -336,6 +362,6 @@ namespace Molehill.Online
         public static RoundRelease Waiting(int round, int waitingOn, DateTimeOffset? deadline) =>
             new RoundRelease(
                 round, complete: false, waitingOn,
-                Array.Empty<byte[]>(), Array.Empty<int>(), deadline);
+                Array.Empty<Submitted>(), Array.Empty<int>(), deadline);
     }
 }
