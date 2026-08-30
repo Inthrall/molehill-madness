@@ -3,11 +3,17 @@
 How to look at a screen without booting the editor, and the one trap that makes the answer wrong.
 
 ```
-godot --path client --position 9000,9000 --resolution 1280x720 \
-  --write-movie frames/f.png --fixed-fps 30 --quit-after 60 -- --demo --mute
+godot --path client --resolution 1280x720 \
+  --write-movie frames/f.png --fixed-fps 30 --quit-after 60 -- --demo --mute --panel
 ```
 
-`--position 9000,9000` puts the window off-screen so a run does not steal focus from whatever you were doing. `--headless` does not work with `--write-movie` here: the terrain shader needs a rendering device and the canvas item silently falls back to a plain texture draw without one, which is worse than a crash because the frames look almost right.
+`--panel` puts the window on the machine's smallest screen, which is the laptop's own panel, so a run does not land on a monitor somebody is working on. `--headless` does not work with `--write-movie` here: the terrain shader needs a rendering device and the canvas item silently falls back to a plain texture draw without one, which is worse than a crash because the frames look almost right.
+
+## `--position 9000,9000` was the old advice and it is wrong
+
+It was here for two years of runs and it does not survive a desk with monitors on it. Windows will not leave a window entirely outside the virtual desktop; it puts it back somewhere visible. And working out a spot that no monitor covers is done in the wrong units, because Windows reports screen bounds to a process in the units that process is aware of, while Godot places windows in real pixels: a position calculated in PowerShell as 2890,2160 put the window at 3468,2592, which was on a screen.
+
+Minimising instead is worse rather than better, because a window nobody can see is a window nobody is drawing: the frames are never asked for, and a run that records them gets a file full of whatever was in the buffer. `--panel` asks Godot which screens exist, in Godot's own numbers, and moves the window to the smallest one. See `Screens.cs` and [`perf.md`](perf.md).
 
 ## Import the art first, or the ground is missing
 

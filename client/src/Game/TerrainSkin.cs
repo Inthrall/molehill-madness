@@ -90,6 +90,12 @@ public partial class TerrainSkin : Control
         _shading.SetShaderParameter("sky_texel", backdrop.SkyTexel);
 
         _shading.SetShaderParameter("edge_colour", Palette.Edge);
+
+        // Nine samples of the cell field per fragment, or five on the low setting. Set here with
+        // everything else that cannot change during a match: the quality is decided once when the
+        // game starts, and a shader parameter written every draw is what this method exists to
+        // avoid.
+        _shading.SetShaderParameter("blur_taps", Quality.BlurTaps());
     }
 
     public override void _Draw()

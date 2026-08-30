@@ -544,6 +544,10 @@ public partial class WorldView : Control
 
     public override void _Draw()
     {
+        // Only while somebody is measuring, and the clock reading is the whole of the cost when
+        // they are not.
+        ulong began = PerfProbe.Current is null ? 0ul : Time.GetTicksUsec();
+
         // The ground and the backdrop are drawn by the skin, which sits behind this node so that
         // its shader does not get applied to sixteen moles and a HUD as well. The garden sits
         // between the two for the same sort of reason: it wants a texture filter this node does not.
@@ -575,6 +579,8 @@ public partial class WorldView : Control
         DrawGauges();
         DrawFrame();
         DrawBroadcast();
+
+        PerfProbe.Current?.Drew(began);
     }
 
     /// <summary>

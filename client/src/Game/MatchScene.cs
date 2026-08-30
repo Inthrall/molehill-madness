@@ -157,6 +157,10 @@ public partial class MatchScene : Node2D
 
     public override void _Ready()
     {
+        // Before anything is built, because the first thing it does is turn vertical sync off and
+        // a probe that started after the first frame would have measured the monitor for one.
+        PerfProbe.StartIfAsked();
+
         // Smoothed and mipmapped, which is the opposite of what this was and of the reason it was
         // that. It point-sampled because the terrain used to be a texture of one pixel per cell
         // blown up several times over, and filtered, the soil turned to smudge. That stopped being
@@ -862,6 +866,10 @@ public partial class MatchScene : Node2D
 
     public override void _Process(double delta)
     {
+        // Nothing but a clock reading while nobody is measuring, and the probe is only ever there
+        // because somebody asked for it on the command line.
+        ulong workBeganAt = PerfProbe.Current is null ? 0ul : Time.GetTicksUsec();
+
         // The relay is asked every frame and answers whenever it answers. Nothing here waits on it,
         // because a frame that blocks on a network call is a stutter every player sees.
         Online.Match?.Poll(delta);
@@ -930,6 +938,43 @@ public partial class MatchScene : Node2D
             _touch.QueueRedraw();
         }
 
+        // Last, so the sample is filed under the beat and the layout this frame actually drew
+        // rather than the ones it started with.
+        PerfProbe.Current?.Frame(_beat.ToString(), PanesUp(), workBeganAt);
+    }
+
+    /// <summary>How many world views are on the screen right now.</summary>
+    /// <remarks>
+    /// Counted rather than derived from the player count, because they are two different numbers
+    /// during a replay: the director cuts to as many cameras as the action needs, and the views it
+    /// is not using are hidden rather than freed.
+    /// </remarks>
+    private int PanesUp()
+    {
+        int up = 0;
+
+        foreach (WorldView view in _views)
+        {
+            if (view.Visible)
+            {
+                up++;
+            }
+        }
+
+        return up;
+    }
+
+    /// <summary>
+    /// Tells a measurement in progress that the next interval spans a scene change.
+    /// </summary>
+    /// <remarks>
+    /// The driver goes back to the menu between matches and starts another, which is a gap of
+    /// several hundred milliseconds with no frame of this match in it. Measured through, it lands
+    /// in whichever row was last on the screen and reads as a stutter that is not there.
+    /// </remarks>
+    public override void _ExitTree()
+    {
+        PerfProbe.Current?.Break();
     }
 
     // ---- Playing apart ---------------------------------------------------------------

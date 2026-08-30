@@ -173,4 +173,64 @@ public static class Flags
 
         return null;
     }
+
+    /// <summary>
+    /// How many seconds of frames to measure, as <c>--perf</c> or <c>--perf=30</c>.
+    /// </summary>
+    /// <remarks>
+    /// A measurement rather than a display. It turns vertical sync off, so a run says what the
+    /// machine can do rather than what the monitor allowed, and it quits with a verdict when the
+    /// time is up. See <see cref="PerfProbe"/> and tools/scripts/perf.ps1.
+    /// </remarks>
+    public static double? Perf()
+    {
+        const string named = "--perf=";
+
+        foreach (string argument in OS.GetCmdlineUserArgs())
+        {
+            if (argument == "--perf")
+            {
+                return DefaultPerfSeconds;
+            }
+
+            if (argument.StartsWith(named, System.StringComparison.Ordinal)
+                && double.TryParse(
+                    argument.Substring(named.Length),
+                    System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out double seconds)
+                && seconds > 0d)
+            {
+                return seconds;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Long enough to catch a few rounds and both halves of the cut.</summary>
+    private const double DefaultPerfSeconds = 30d;
+
+    /// <summary>
+    /// A picture quality named outright, as <c>--quality=low</c>, or null to let the game decide.
+    /// </summary>
+    /// <remarks>
+    /// The switch exists for measuring rather than for playing: comparing two settings honestly
+    /// means running the same seed twice and choosing the setting from outside, and a run that
+    /// picked its own quality would be comparing two machines' guesses instead.
+    /// </remarks>
+    public static string? QualityAsked()
+    {
+        const string named = "--quality=";
+
+        foreach (string argument in OS.GetCmdlineUserArgs())
+        {
+            if (argument.StartsWith(named, System.StringComparison.Ordinal))
+            {
+                return argument.Substring(named.Length);
+            }
+        }
+
+        return null;
+    }
 }

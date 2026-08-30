@@ -13,6 +13,10 @@ Both are single-file HTML, readable in any browser.
 - [`docs/molehill-madness-design.html`](docs/molehill-madness-design.html) — the game design document. What the game is and every decision behind it.
 - [`docs/implementation-plan.html`](docs/implementation-plan.html) — the implementation plan. Seven phases, two hard gates, and the engineering contracts.
 
+A runbook sits beside them, in markdown because it is worked through rather than read:
+
+- [`docs/perf.md`](docs/perf.md) — how to measure frame times, what the game measures at, and why two obvious ways of measuring it give confident wrong answers.
+
 ## Layout
 
 ```
@@ -154,6 +158,12 @@ The desktop encoder is ffmpeg, found on the path or beside the game, fed raw RGB
 The menu has a fourth table: strangers. It is the only one of the four that needs an account, because it is the only one that puts a player with somebody they did not invite, and it is dimmed rather than hidden for an account under the threshold, the same way a spent dynamite button is. An option that vanishes reads as a layout that moved; one that is visibly there and visibly unavailable reads as a rule, which is what it is. The design is explicit that "nothing is taken away by that gate except strangers", so the couch and the game code are untouched.
 
 Waiting in the pool is its own screen rather than the lobby with the code missing, and drawing it found three things no test would have. The strangers glyph is drawn in the panel ink with its moles cut out in the paper colour, which is right on a panel and, on the open sky, is a white ghost with two red specks where the noses are; the row of seats hung off a fraction of the screen landed exactly on the skyline at 16:9, where a pale ring on the grass line is half a ring; and the offer of the other pace sat where the sweeping pulse lives, so the bar ran through the middle of the button and out the other side, which reads as a progress bar filling it. All three were found by looking at frames, and the last one only because a run went on long enough for the offer to appear at all.
+
+Four panes at sixty frames a second is measured rather than assumed now, and it passes with about five times the headroom it needs: three milliseconds of a sixteen millisecond budget at 1080p, on a laptop with an entry level discrete card. `--perf` drives a match, turns vertical sync off, and prints frame times by beat and pane count, because a rate read off a window is the rate the display allowed and says nothing about what was left over. [`docs/perf.md`](docs/perf.md) has the numbers, the method, and the noise floor, which turns out to be the useful part: three runs of one configuration spread from 456 to 617 frames a second, so a difference smaller than a quarter is not a difference and every comparison wants repeats.
+
+Two of the answers were about measuring rather than about the game. A run has to be on a screen, because a window that is minimised or moved off the desktop stops being drawn while still producing a full set of plausible timings, so the probe refuses a run with no draw calls in it; and the window goes on the laptop panel by way of Godot's own screen list rather than off the side of the world, since Windows and Godot count screen pixels differently and the old habit put development runs on top of whatever was on the monitors.
+
+Nothing needed tuning as a result, which is its own answer: the frame rate is the same at 720p and at 1080p and the graphics time is a fifth of a millisecond either way, so this machine is bound by processor work per frame rather than by anything on the screen. The ground shader got two changes anyway, one of them a real bug: it was reading mipmapped textures inside branches, which is undefined in GLSL and left the level of detail up to the driver, and it was reading both sides of the ground boundary everywhere on screen when most of a frame is well inside one side or the other. A five tap version of the blur is there behind `--quality=low` and nothing selects it, because on this hardware it is not measurably cheaper and a phone has not been asked yet.
 
 Still owed: the gamepad axis reads have never met real hardware, though the simultaneous planning and the plan verbs they feed are exercised by the driver. The pinch has not either, since a mouse has only ever had one finger. And the structured playtests, which are the actual gate. No amount of this code can answer whether it is funny.
 

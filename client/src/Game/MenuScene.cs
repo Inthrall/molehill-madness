@@ -38,6 +38,10 @@ public partial class MenuScene : Control
 
     public override void _Ready()
     {
+        // A development run goes on the laptop panel rather than over the top of whatever is on the
+        // monitors. The first scene the process opens, so it happens before anything is drawn.
+        Screens.ToThePanelIfAsked();
+
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
 

@@ -75,6 +75,10 @@ uniform vec4 edge_colour : source_color;
 // Cells the blur reaches. Larger rounds harder; too large and a thin wall dissolves.
 uniform float blur_cells = 1.5;
 
+// How many of them to take: nine in a square, or five in a cross for a machine that cannot afford
+// nine. Set from Quality.cs rather than guessed at here. The trade is described where solidness is.
+uniform int blur_taps = 9;
+
 // How sharply the cut lands. Small is crisp, which is what a cartoon wants.
 uniform float softness = 0.09;
 
@@ -90,17 +94,35 @@ uniform float edge_width = 0.17;
 // flat picture; the outline alone only says where a boundary is, not which side of it is air.
 uniform float deep_shade = 0.55;
 
-// Solidness hereabouts: nine taps, which is what turns a staircase into a curve.
+// Solidness hereabouts: nine taps, which is what turns a staircase into a curve. Five in a cross
+// on the low setting, which reaches the same distance with less rounding at the diagonals and is
+// four fewer reads on every fragment of the screen.
+//
+// textureLod at zero rather than texture, for two reasons that both matter. The cell field must
+// never be read from a mip: the whole point of it is that a cell is a cell, and a level down from
+// that is the boundary blurred away before the blur here has had a look at it. And an implicit
+// level is a set of derivatives computed per tap, which is work paid for nine times over for an
+// answer that was always going to be zero.
 float solidness(sampler2D field, vec2 uv)
 {
     vec2 reach = field_texel * blur_cells;
+
+    if (blur_taps < 9)
+    {
+        return (textureLod(field, uv, 0.0).r
+            + textureLod(field, uv + vec2(reach.x, 0.0), 0.0).r
+            + textureLod(field, uv - vec2(reach.x, 0.0), 0.0).r
+            + textureLod(field, uv + vec2(0.0, reach.y), 0.0).r
+            + textureLod(field, uv - vec2(0.0, reach.y), 0.0).r) / 5.0;
+    }
+
     float total = 0.0;
 
     for (int down = -1; down <= 1; down++)
     {
         for (int across = -1; across <= 1; across++)
         {
-            total += texture(field, uv + (vec2(float(across), float(down)) * reach)).r;
+            total += textureLod(field, uv + (vec2(float(across), float(down)) * reach), 0.0).r;
         }
     }
 
@@ -111,34 +133,53 @@ float solidness(sampler2D field, vec2 uv)
 float split_row(float across)
 {
     // Clamped, so a column off either end of the map keeps the split the end column had rather
-    // than wrapping round to the other side of the world.
-    vec2 packed = texture(split, vec2(clamp(across, 0.0, 1.0), 0.5)).rg;
+    // than wrapping round to the other side of the world. Level zero because the split is one row
+    // of texels and has no other level to be read from.
+    vec2 packed = textureLod(split, vec2(clamp(across, 0.0, 1.0), 0.5), 0.0).rg;
 
     return ((packed.r * 255.0 * 256.0) + (packed.g * 255.0)) / 65535.0;
 }
 
 // Whatever is behind the ground here: countryside above the split, soil below it.
-vec4 backdrop(vec2 uv)
+//
+// The derivatives are handed in rather than worked out here, and that is a correctness fix rather
+// than a saving. A mipmapped texture read inside an if is undefined in GLSL: the level comes from
+// how far neighbouring fragments have moved, and neighbours that took the other branch have not
+// moved anywhere the hardware can see. Both reads below have always sat inside a branch on the
+// split, and the fragment function has since grown two more branches around them, so what level
+// any of this was read at was up to the driver. textureGrad says outright, and the derivatives
+// come from the one place every fragment passes through.
+vec4 backdrop(vec2 uv, vec2 across, vec2 down)
 {
     if (uv.y < split_row(uv.x))
     {
         vec2 at = (uv * sky_repeat) - sky_shift;
 
-        return texture(sky, vec2(at.x, clamp(at.y, sky_texel, 1.0 - sky_texel)));
+        return textureGrad(
+            sky,
+            vec2(at.x, clamp(at.y, sky_texel, 1.0 - sky_texel)),
+            across * sky_repeat,
+            down * sky_repeat);
     }
 
-    return texture(deep, (uv * deep_repeat) - deep_shift) * vec4(vec3(deep_shade), 1.0);
+    return textureGrad(deep, (uv * deep_repeat) - deep_shift, across * deep_repeat, down * deep_repeat)
+        * vec4(vec3(deep_shade), 1.0);
 }
 
 void fragment()
 {
     vec2 uv = ((UV * pane_size) - map_origin) / map_extent;
 
+    // Once, out here, where every fragment goes: see the note on backdrop. Everything below reads
+    // its textures at the level these two describe.
+    vec2 across = dFdx(uv);
+    vec2 down = dFdy(uv);
+
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
     {
         // No field to sample out here: the terrain texture clamps, so the edge column would smear
         // outwards and read as ground going on for ever.
-        COLOR = backdrop(uv);
+        COLOR = backdrop(uv, across, down);
     }
     else
     {
@@ -146,8 +187,32 @@ void fragment()
         float body = smoothstep(0.5 - softness, 0.5 + softness, here);
         float line = 1.0 - smoothstep(0.0, edge_width, abs(here - 0.5));
 
-        vec4 ground = texture(dirt, (uv * dirt_repeat) - dirt_shift);
+        // Only the side of the boundary this fragment is on. Most of a frame is well inside ground
+        // or well inside air, where the mix was being handed one picture at full weight and the
+        // other at none and was reading both of them anyway: the sky over a lawn fetched soil, and
+        // every fragment of solid ground fetched the countryside behind it and the split that says
+        // which countryside it is. The colour is the same either way, since a mix at zero or one is
+        // whichever side it was given, and it is two or three fewer texture reads across nearly the
+        // whole screen.
+        vec4 under;
 
-        COLOR = mix(mix(backdrop(uv), ground, body), edge_colour, line);
+        if (body >= 1.0)
+        {
+            under = textureGrad(
+                dirt, (uv * dirt_repeat) - dirt_shift, across * dirt_repeat, down * dirt_repeat);
+        }
+        else if (body <= 0.0)
+        {
+            under = backdrop(uv, across, down);
+        }
+        else
+        {
+            vec4 ground = textureGrad(
+                dirt, (uv * dirt_repeat) - dirt_shift, across * dirt_repeat, down * dirt_repeat);
+
+            under = mix(backdrop(uv, across, down), ground, body);
+        }
+
+        COLOR = mix(under, edge_colour, line);
     }
 }
