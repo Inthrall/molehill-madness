@@ -159,6 +159,8 @@ jobs:
     env:
       STEAM_USERNAME: ${{ secrets.STEAM_USERNAME }}
       STEAM_CONFIG_VDF: ${{ secrets.STEAM_CONFIG_VDF }}
+      PLAY_UPLOAD_KEYSTORE: ${{ secrets.PLAY_UPLOAD_KEYSTORE }}
+      PLAY_SERVICE_ACCOUNT: ${{ secrets.PLAY_SERVICE_ACCOUNT }}
 
     steps:
       - uses: actions/checkout@v7
@@ -324,6 +326,90 @@ jobs:
 
           echo "APK: $(du -h build/android/molehill-madness.apk | cut -f1)"
 
+      # ---- The bundle Play takes ------------------------------------------------------
+      #
+      # Play does not take the APK above and never will: a store listing wants an Android App
+      # Bundle, and Google signs the app itself from a key it holds, so what gets uploaded is
+      # signed with an upload key that only proves who sent it. Losing that key is recoverable
+      # precisely because it is not the app's real signature; losing the app signing key would
+      # not be, which is why Play App Signing is not optional here.
+      #
+      # A bundle only comes out of Godot's gradle build, which needs the Android build template
+      # in client/android. That is 333 MB of generated gradle project, so it is installed on the
+      # runner rather than committed, in the same invocation as the export.
+      #
+      # Both of these steps are skipped, loudly, when the secrets are not set. The bundle cannot
+      # be built without a key to sign it with, and there is no useful half of that to do.
+      - name: Export the Play bundle
+        if: env.PLAY_UPLOAD_KEYSTORE != ''
+        env:
+          GODOT_ANDROID_KEYSTORE_RELEASE_USER: ${{ secrets.PLAY_UPLOAD_KEY_ALIAS }}
+          GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD: ${{ secrets.PLAY_UPLOAD_KEY_PASSWORD }}
+        run: |
+          # The version code is what Play uses to tell one upload from the next, and it must go up
+          # every time or the upload is refused. The run number is the only counter here that never
+          # goes backwards: a tag name cannot be it, because 0.7.1 and 0.7.10 do not compare the way
+          # anybody expects, and the number in export_presets.cfg is edited by hand and will
+          # eventually be edited twice to the same value.
+          #
+          # Both presets are set, so the sideloaded APK and the store bundle from one commit say
+          # they are the same build, which is the whole point of a version code.
+          code=${{ github.run_number }}
+          sed -i "s|^version/code=.*|version/code=$code|" client/export_presets.cfg
+
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            sed -i "s|^version/name=.*|version/name=\"${GITHUB_REF_NAME#v}\"|" client/export_presets.cfg
+          fi
+
+          grep -n '^version/' client/export_presets.cfg
+
+          keystore="$HOME/upload.keystore"
+          echo "$PLAY_UPLOAD_KEYSTORE" | base64 -d > "$keystore"
+          export GODOT_ANDROID_KEYSTORE_RELEASE_PATH="$keystore"
+
+          mkdir -p build/android
+          timeout 1800 "$GODOT_BIN" --headless --path client \
+            --install-android-build-template \
+            --export-release "Android Play" "../build/android/molehill-madness.aab" || true
+
+          rm -f "$keystore"
+
+          test -f build/android/molehill-madness.aab \
+            || { echo "::error::No bundle was produced."; exit 1; }
+
+          # The same check the APK gets, for the same reason: a missing .sln beside the client
+          # csproj produces a signed package with no managed code in it, and nothing says so.
+          if ! unzip -l build/android/molehill-madness.aab | grep -q 'MoleSim\.dll'; then
+            echo "::error::The bundle contains no MoleSim.dll, so it has no game in it."
+            exit 1
+          fi
+
+          echo "Bundle: $(du -h build/android/molehill-madness.aab | cut -f1)"
+
+      # Tags only, and to the closed track rather than to production. Every push to main would
+      # spend a version code and tell the testers there is something new, several times an
+      # afternoon, and a tester who stops looking at the notification is a tester who has stopped
+      # testing. Promotion out of the closed track is a decision made in the console.
+      - name: Upload to Play
+        if: >
+          github.ref_type == 'tag'
+          && env.PLAY_UPLOAD_KEYSTORE != ''
+          && env.PLAY_SERVICE_ACCOUNT != ''
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT }}
+          packageName: nz.molehill.madness
+          releaseFiles: build/android/molehill-madness.aab
+          track: internal
+          status: completed
+
+      - name: Say if Play was skipped
+        if: env.PLAY_UPLOAD_KEYSTORE == '' || env.PLAY_SERVICE_ACCOUNT == ''
+        run: |
+          echo "::notice::Play skipped: no credentials configured. See docs/play-release.md."
+          echo "::notice::Needs PLAY_UPLOAD_KEYSTORE, PLAY_UPLOAD_KEY_ALIAS,"
+          echo "::notice::PLAY_UPLOAD_KEY_PASSWORD and PLAY_SERVICE_ACCOUNT."
+
       - name: Package the Windows build
         run: |
           cd build/windows
@@ -340,6 +426,17 @@ jobs:
           path: |
             build/molehill-madness-windows.zip
             build/android/molehill-madness.apk
+          if-no-files-found: error
+
+      # Separate, because the bundle is only there when the signing secrets are, and the step above
+      # fails a run that is missing anything it names. Nobody sideloads a bundle: this is here so a
+      # release that went to Play can be told apart from one that did not.
+      - name: Upload the bundle
+        if: env.PLAY_UPLOAD_KEYSTORE != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: bundle
+          path: build/android/molehill-madness.aab
           if-no-files-found: error
           retention-days: ${{ github.ref_type == 'tag' && 14 || 5 }}
 

@@ -13,9 +13,10 @@ Both are single-file HTML, readable in any browser.
 - [`docs/molehill-madness-design.html`](docs/molehill-madness-design.html) — the game design document. What the game is and every decision behind it.
 - [`docs/implementation-plan.html`](docs/implementation-plan.html) — the implementation plan. Seven phases, two hard gates, and the engineering contracts.
 
-A runbook sits beside them, in markdown because it is worked through rather than read:
+Two runbooks sit beside them, in markdown because they are worked through rather than read:
 
 - [`docs/perf.md`](docs/perf.md) — how to measure frame times, what the game measures at, and why two obvious ways of measuring it give confident wrong answers.
+- [`docs/play-release.md`](docs/play-release.md) — publishing to Google Play. The pipeline is written and inert until four secrets exist; the console half is a person's job and has a fortnight of waiting in it.
 
 ## Layout
 
