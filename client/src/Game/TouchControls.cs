@@ -14,6 +14,17 @@ public enum TouchTarget
     /// <summary>The movement wheel, alongside it and flicked the same way.</summary>
     Abilities = 7,
 
+    /// <summary>
+    /// Use the movement ability, which is fire for the other allowance.
+    /// </summary>
+    /// <remarks>
+    /// Nine, because eight is the stick. These are numbered explicitly and out of order, having had
+    /// two values vacated rather than reused, and picking the next one by looking at the line above
+    /// gave this the stick's number: a press on the ability button would have grabbed the joystick.
+    /// The compiler caught it only because both ended up in one switch. Read the whole list.
+    /// </remarks>
+    Ability = 9,
+
     /// <summary>Hold to aim, release to stamp the shot.</summary>
     Fire = 2,
 
@@ -58,6 +69,7 @@ public partial class TouchControls : Control
     private Vector2 _reset;
     private Vector2 _commit;
     private Vector2 _hop;
+    private Vector2 _ability;
     private Vector2 _stickHome;
     private Rect2 _wheel;
     private Rect2 _abilities;
@@ -110,6 +122,15 @@ public partial class TouchControls : Control
         // deliberate reach is the right price, and the two presses that do want to be under a
         // resting thumb keep the corner.
         _fire = new Vector2(screen.X / 2f, bottom);
+
+        // The movement allowance gets a button of its own, beside fire, because it is the same kind
+        // of press for the other half of the turn. Without one it was reachable only by turning the
+        // second wheel, which armed the ability and un-greyed the single fire button: correct, and
+        // undiscoverable. A turn gets two uses and the screen should show two ways to spend them.
+        //
+        // Inboard of fire and a little smaller. Fire is the one every turn spends and this is the one
+        // some turns spend, and the size difference is the only ranking the layout needs.
+        _ability = new Vector2(screen.X / 2f - (_button * 2.3f), bottom);
 
         // Ending the turn and jumping keep the right corner, stacked. Jump is on this side because
         // it is pressed several times a turn and belongs near a resting thumb, and end turn is the
@@ -191,6 +212,11 @@ public partial class TouchControls : Control
             return TouchTarget.Fire;
         }
 
+        if (Within(at, _ability, _small))
+        {
+            return TouchTarget.Ability;
+        }
+
         if (Within(at, _commit, _button))
         {
             return TouchTarget.Commit;
@@ -254,6 +280,47 @@ public partial class TouchControls : Control
     public float AbilitySlide { get; set; }
 
     /// <summary>
+    /// One use button: the weapon its wheel is showing, dimmed when the allowance is spent.
+    /// </summary>
+    /// <remarks>
+    /// The weapon's own picture rather than a generic star, because with two buttons the question a
+    /// player has is which of them does what, and the answer is on the wheel above each of them. Fire
+    /// keeps the star, since an attack is an attack and the wheel beside it says which one.
+    /// </remarks>
+    private void Slot(
+        SeatPlanner planner, UseSlot slot, Vector2 at, float glyph, float radius, bool spent)
+    {
+        bool live = planner.CanUse(slot);
+        Color ink = live ? Palette.Damage : Palette.OnPanelDim;
+
+        if (slot == UseSlot.Attack)
+        {
+            Glyphs.Fire(this, at, glyph, ink);
+        }
+        else
+        {
+            WeaponId weapon = planner.Selected(slot);
+
+            if (weapon == WeaponId.None)
+            {
+                Glyphs.Icon(this, "cross", at, glyph * 0.7f, Palette.OnPanelDim);
+                return;
+            }
+
+            Glyphs.Weapon(
+                this, weapon, at, glyph,
+                live ? Palette.OnPanel : Palette.OnPanelDim);
+        }
+
+        // How many uses are left, for the two weapons that get more than one. A single-use weapon
+        // showing a permanent 1 would be noise.
+        if (WeaponTable.UsesPerTurn(planner.Selected(slot)) > 1)
+        {
+            DrawCount(at, radius, planner.UsesLeftIn(slot), Palette.OnPanel);
+        }
+    }
+
+    /// <summary>
     /// How much of the bottom of the screen the controls occupy.
     /// </summary>
     /// <remarks>
@@ -282,6 +349,7 @@ public partial class TouchControls : Control
         DrawWheel(_wheel, UseSlot.Attack, WheelSlide);
         DrawWheel(_abilities, UseSlot.Movement, AbilitySlide);
         DrawButton(_fire, TouchTarget.Fire, _button);
+        DrawButton(_ability, TouchTarget.Ability, _small);
         DrawButton(_commit, TouchTarget.Commit, _button);
         DrawButton(_reset, TouchTarget.Reset, _small);
         DrawButton(_hop, TouchTarget.Hop, _button);
@@ -446,20 +514,11 @@ public partial class TouchControls : Control
         switch (target)
         {
             case TouchTarget.Fire:
-                // Dimmed when the slot is already holding a different weapon, which is the one case
-                // where pressing it does nothing: a full allowance still replaces its last use, so
-                // the button stays live for changing your mind.
-                Glyphs.Fire(
-                    this, at, glyph,
-                    planner.CanUseAgain ? Palette.Damage : Palette.OnPanelDim);
+                Slot(planner, UseSlot.Attack, at, glyph, radius, spent: false);
+                break;
 
-                // How many uses are left, for the two weapons that get more than one. A single-use
-                // weapon showing a permanent 1 would be noise.
-                if (WeaponTable.UsesPerTurn(planner.Weapon) > 1)
-                {
-                    DrawCount(at, radius, planner.UsesLeft, Palette.OnPanel);
-                }
-
+            case TouchTarget.Ability:
+                Slot(planner, UseSlot.Movement, at, glyph * 0.86f, radius, spent: false);
                 break;
 
             case TouchTarget.Commit:

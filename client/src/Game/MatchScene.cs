@@ -1095,10 +1095,42 @@ public partial class MatchScene : Node2D
     /// round only when every seat has committed. An empty plan is that answer, and it is what a
     /// wiped-out platoon would have done anyway.
     /// </remarks>
+    /// <summary>
+    /// Ends one platoon's turn, whichever kind of match this is.
+    /// </summary>
+    /// <remarks>
+    /// The one place that knows what committing means, because it means two different things and the
+    /// buttons cannot tell them apart. On the couch the plan goes straight into this device's own
+    /// simulation and the round resolves once every platoon has one. Online it goes to the relay and
+    /// comes back with everybody else's, so submitting it locally as well would feed the same turn
+    /// twice, from two sources that are only supposed to be identical.
+    ///
+    /// Every button routes here: the touch commit, the pad's start button and the held key. They used
+    /// to call planner.Commit() directly, which sealed the plan into the local match and left the
+    /// seal spent, so the send that followed got nothing and shipped an empty plan in its place.
+    /// Anybody who pressed commit in an online match threw their whole turn away, and only a player
+    /// who touched nothing and let the clock run out sent what they had actually planned. Three call
+    /// sites disagreed with a fourth; now there is one.
+    /// </remarks>
+    private void CommitTurn(SeatPlanner? planner)
+    {
+        if (Online.Playing)
+        {
+            SendPlan();
+            return;
+        }
+
+        planner?.Commit();
+    }
+
     private void SendPlan()
     {
         Plan? mine = _ours >= 0 ? _planners[_ours].Seal() : null;
 
+        // Only for a platoon with no mole left to plan with. The relay releases a round when every
+        // seat has answered, so a wiped-out platoon still owes an answer and this is it. It used to
+        // catch a great deal more than that, because sealing twice returned null and this turned the
+        // second seal into an empty turn without saying so.
         mine ??= new Plan(
             System.Math.Max(_ours, 0), 0, WeaponId.None,
             System.Array.Empty<RoutePoint>(), System.Array.Empty<PlanAction>());
@@ -2129,11 +2161,15 @@ public partial class MatchScene : Node2D
         switch (target)
         {
             case TouchTarget.Fire:
-                planner!.BeginAim(planner.PlannedPosition);
+                planner!.BeginAim(planner.PlannedPosition, UseSlot.Attack);
+                break;
+
+            case TouchTarget.Ability:
+                planner!.BeginAim(planner.PlannedPosition, UseSlot.Movement);
                 break;
 
             case TouchTarget.Commit:
-                planner!.Commit();
+                CommitTurn(planner);
                 Committed();
                 Click();
                 break;
@@ -2182,6 +2218,7 @@ public partial class MatchScene : Node2D
                 break;
 
             case TouchTarget.Fire:
+            case TouchTarget.Ability:
                 // Direction only, like the stick beside it and for the same reason. The power is
                 // how long the button is held, which a thumb can do while it is still choosing
                 // where to point, and which does not run out of room the way a pull does.
@@ -2224,6 +2261,7 @@ public partial class MatchScene : Node2D
                 break;
 
             case TouchTarget.Fire:
+            case TouchTarget.Ability:
                 planner?.ReleaseAim();
                 break;
 
@@ -2755,7 +2793,7 @@ public partial class MatchScene : Node2D
         switch (_beat)
         {
             case Beat.Planning:
-                planner?.Commit();
+                CommitTurn(planner);
                 Committed();
                 break;
 
@@ -2837,7 +2875,7 @@ public partial class MatchScene : Node2D
 
         if (Input.IsJoyButtonPressed(pad, JoyButton.Start))
         {
-            planner.Commit();
+            CommitTurn(planner);
         }
 
 

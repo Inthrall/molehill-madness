@@ -44,7 +44,7 @@ public sealed class SeatPlanner
     {
         _match = match;
         Seat = seat;
-        Weapon = FirstAvailable();
+        _armed[(int)UseSlot.Attack] = FirstAvailable();
     }
 
     /// <summary>How many hops one turn may schedule. More than this and a plan stops reading.</summary>
@@ -58,7 +58,17 @@ public sealed class SeatPlanner
     /// <summary>The turn being walked out, or null when there is nobody to walk it.</summary>
     public SteeredWalk? Walk { get; private set; }
 
-    public WeaponId Weapon { get; private set; }
+    /// <summary>
+    /// The turn's attack weapon, which is what the plan is labelled with.
+    /// </summary>
+    /// <remarks>
+    /// Was a single armed weapon that both wheels wrote to, back when one fire button had to serve
+    /// both allowances. It could not survive two buttons: with a use button of its own for the
+    /// movement slot, there is no such thing as "the" armed weapon, there are two selections and each
+    /// button fires its own. So this is the attack selection specifically, and it keeps the name
+    /// because a plan carries one weapon id and this is the one it should carry.
+    /// </remarks>
+    public WeaponId Weapon => Selected(UseSlot.Attack);
 
     /// <summary>Hops scheduled along the way, in the order they will happen.</summary>
     public IReadOnlyList<PlanAction> Hops => _hops;
@@ -135,19 +145,19 @@ public sealed class SeatPlanner
     /// fire button can go grey instead of the plan being refused after the fact. Stock, the slot not
     /// already holding a different weapon, and the weapon's own per-turn allowance.
     /// </remarks>
-    public bool CanUseAgain
+    public bool CanUse(UseSlot slot)
     {
-        get
         {
-            if (!IsPlanning || !_match.CanUse(Seat, Weapon))
+            WeaponId weapon = Selected(slot);
+
+            if (!IsPlanning || weapon == WeaponId.None || !_match.CanUse(Seat, weapon))
             {
                 return false;
             }
 
-            UseSlot slot = WeaponTable.SlotOf(Weapon);
             WeaponId booked = BookedIn(slot);
 
-            if (booked != WeaponId.None && booked != Weapon)
+            if (booked != WeaponId.None && booked != weapon)
             {
                 return false;
             }
@@ -161,18 +171,17 @@ public sealed class SeatPlanner
             //
             // The things you build with keep their replacement, because the last of three sandbags
             // is a placement rather than an attack and nudging it is the whole point.
-            return WeaponTable.UsesPerTurn(Weapon) > 1 || UsesLeft > 0;
+            return WeaponTable.UsesPerTurn(weapon) > 1 || UsesLeftIn(slot) > 0;
         }
     }
 
-    /// <summary>How many more times the selected weapon could be used before it starts replacing.</summary>
-    public int UsesLeft
+    /// <summary>How many more times a slot's weapon could be used before it starts replacing.</summary>
+    public int UsesLeftIn(UseSlot slot)
     {
-        get
         {
-            UseSlot slot = WeaponTable.SlotOf(Weapon);
-            int allowance = WeaponTable.UsesPerTurn(Weapon);
-            int stock = Stock(Weapon);
+            WeaponId weapon = Selected(slot);
+            int allowance = WeaponTable.UsesPerTurn(weapon);
+            int stock = Stock(weapon);
 
             if (stock >= 0 && stock < allowance)
             {
@@ -217,6 +226,15 @@ public sealed class SeatPlanner
 
     /// <summary>How long the aim has been held, as a fraction of a full charge.</summary>
     public double AimHeld { get; private set; }
+
+    /// <summary>
+    /// The plan this turn sealed, once it has been sealed.
+    /// </summary>
+    /// <remarks>
+    /// Kept so that sealing is idempotent. The turn is ended by one thing and sent by another, and
+    /// those are not always the same call.
+    /// </remarks>
+    private Plan? _sealed;
 
     /// <summary>How far through the hold-to-reset gesture, from zero to one.</summary>
     public double ResetHeld { get; private set; }
@@ -283,6 +301,7 @@ public sealed class SeatPlanner
         _hops.Clear();
         Aiming = false;
         Committed = false;
+        _sealed = null;
         ResetHeld = 0;
         CommitHeld = 0;
         AimHeld = 0;
@@ -329,12 +348,10 @@ public sealed class SeatPlanner
 
             if (_match.CanUse(Seat, Arsenal.Wheel[at]))
             {
-                Weapon = Arsenal.Wheel[at];
-
-                // Kept in step with the wheels, which remember what each was showing. Without this a
-                // keyboard player stepping through the whole arsenal left the strip on screen
-                // pointing at whatever it had been left on, disagreeing with the armed weapon.
-                _armed[(int)WeaponTable.SlotOf(Weapon)] = Weapon;
+                // Straight into whichever wheel owns it, since the wheels are the selections now.
+                // A keyboard player stepping through the whole arsenal is turning both wheels in
+                // sequence, which is a fair reading of one key doing the job of two.
+                _armed[(int)WeaponTable.SlotOf(Arsenal.Wheel[at])] = Arsenal.Wheel[at];
                 return;
             }
         }
@@ -355,7 +372,7 @@ public sealed class SeatPlanner
             return false;
         }
 
-        Weapon = weapon;
+        _armed[(int)WeaponTable.SlotOf(weapon)] = weapon;
         return true;
     }
 
@@ -390,8 +407,7 @@ public sealed class SeatPlanner
 
         int step = direction > 0 ? 1 : -1;
 
-        Weapon = wheel[((at + step) % wheel.Count + wheel.Count) % wheel.Count];
-        _armed[(int)slot] = Weapon;
+        _armed[(int)slot] = wheel[((at + step) % wheel.Count + wheel.Count) % wheel.Count];
     }
 
     /// <summary>
@@ -526,15 +542,28 @@ public sealed class SeatPlanner
 
     // ---- Aiming --------------------------------------------------------------------
 
-    /// <summary>What the selected weapon needs to be told before it can be used.</summary>
-    public AimStyle Style => WeaponTable.AimingFor(Weapon);
+    /// <summary>What a slot's weapon needs to be told before it can be used.</summary>
+    public AimStyle StyleFor(UseSlot slot) => WeaponTable.AimingFor(Selected(slot));
 
-    public void BeginAim(Vec2 at)
+    /// <summary>What the aim in progress, or the attack if none, needs to be told.</summary>
+    public AimStyle Style => StyleFor(_aiming);
+
+    /// <summary>Which slot the aim in progress belongs to.</summary>
+    private UseSlot _aiming;
+
+    /// <param name="slot">
+    /// Which allowance this use spends. Each button on screen owns one, so pressing fire aims the
+    /// attack and pressing the ability button aims the movement weapon, and neither needs the other
+    /// to be armed first.
+    /// </param>
+    public void BeginAim(Vec2 at, UseSlot slot = UseSlot.Attack)
     {
+        _aiming = slot;
+
         // Refused up front rather than at the release. Letting an aim be dragged out and then
         // dropped on the floor is the silent failure this class goes out of its way to avoid
         // everywhere else, and the only case left is a slot already holding a different weapon.
-        if (!IsPlanning || !CanUseAgain)
+        if (!IsPlanning || !CanUse(slot))
         {
             return;
         }
@@ -544,7 +573,7 @@ public sealed class SeatPlanner
         // the Sandbag would appear to be a weapon you could throw further by leaning on the button.
         if (Style == AimStyle.Press)
         {
-            Book(PlanAction.Fire(Now(), Heading(), byte.MaxValue, Weapon));
+            Book(PlanAction.Fire(Now(), Heading(), byte.MaxValue, Selected(slot)));
             return;
         }
 
@@ -659,7 +688,7 @@ public sealed class SeatPlanner
         Book(PlanAction.Fire(
             Now(), aim,
             Style == AimStyle.DirectionAndPower ? PowerFor(AimHeld) : byte.MaxValue,
-            Weapon));
+            Selected(_aiming)));
 
         AimHeld = 0;
         _swept = 0;
@@ -695,12 +724,14 @@ public sealed class SeatPlanner
     /// </remarks>
     private void Book(PlanAction use)
     {
-        if (!CanUseAgain)
+        UseSlot slot = WeaponTable.SlotOf(use.Weapon);
+
+        if (!CanUse(slot))
         {
             return;
         }
 
-        if (UsesLeft > 0)
+        if (UsesLeftIn(slot) > 0)
         {
             _uses.Add(use);
             Preview(use);
@@ -1049,9 +1080,21 @@ public sealed class SeatPlanner
     /// Returns null when this platoon has nothing to plan with, which the caller has to turn into
     /// something anyway: the relay releases a round only when every seat has committed, so a
     /// wiped-out platoon still owes an answer.
+    ///
+    /// Sealing twice gives the same plan back rather than nothing. It used to return null on the
+    /// second call, which was a trap rather than a saving: the plan is sealed by whoever ends the
+    /// turn and then wanted again by whoever sends it, and the second caller got a null it quietly
+    /// turned into an empty plan. Every online player who pressed commit rather than letting the
+    /// clock run out therefore threw their whole turn away. Latching the answer rather than the
+    /// permission is what makes a second call harmless.
     /// </remarks>
     public Plan? Seal()
     {
+        if (_sealed is not null)
+        {
+            return _sealed;
+        }
+
         if (Actor is null || Committed)
         {
             Committed = true;
@@ -1073,7 +1116,9 @@ public sealed class SeatPlanner
 
         actions.AddRange(_uses);
 
-        return new Plan(Seat, Actor.Index, Weapon, route, actions.ToArray());
+        _sealed = new Plan(Seat, Actor.Index, Weapon, route, actions.ToArray());
+
+        return _sealed;
     }
 }
 
