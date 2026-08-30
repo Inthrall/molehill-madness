@@ -116,8 +116,17 @@ public sealed class SteeredWalkTests
         SteeredWalk digging = SteeredWalk.From(FirstActor(match), match.Terrain);
         SteeredWalk strolling = SteeredWalk.From(FirstActor(match), match.Terrain);
 
+        // Inward, because ninety ticks is fifteen metres and a mole that starts near an edge runs
+        // out of map: out of bounds reads as solid, so the stroll turns into a dig against the
+        // boundary and costs the whole budget. This test used to pass by luck, on the first mole
+        // happening to have room to its right, and stopped the moment the turn order rotated.
+        Vec2 inward = FirstActor(match).Position.X
+            > WorldScale.ToCentreMetres(WidthCells / 2)
+            ? -Vec2.UnitX
+            : Vec2.UnitX;
+
         Push(digging, Vec2.UnitY, 90);
-        Push(strolling, Vec2.UnitX, 90);
+        Push(strolling, inward, 90);
 
         // Dirt is dearer, not slower, which is the one rule the whole stamina economy exists
         // to express. Ninety ticks straight down should cost far more than ninety along the top.
@@ -505,5 +514,42 @@ public sealed class SteeredWalkTests
         Assert.That(
             match.Placements[0].Spent, Is.False,
             "thinking about it disarmed the trap for everybody");
+    }
+
+    /// <summary>
+    /// A girder is a plank a mole can walk out onto, and the mole is not inside it.
+    /// </summary>
+    /// <remarks>
+    /// Both halves matter and the second is the one that is easy to get wrong. A deposit skips ground
+    /// that is already solid, so a plank begun at the mole's own centre walls it in at one end of its
+    /// own bridge, which is exactly how the sandbag used to behave before it was fixed.
+    /// </remarks>
+    [Test]
+    public void AGirderIsSomethingToWalkOutOnto()
+    {
+        TerrainGrid grid = FlatField();
+
+        // A chasm to bridge, starting well clear of the mole.
+        grid.FillRectangle(360, SurfaceCell, 200, HeightCells - SurfaceCell - 10, Material.Air);
+
+        MoleMatch match = MoleMatch.Create(grid, 2, 20260826UL);
+        Mole actor = FirstActor(match);
+        actor.Position = new Vec2(
+            WorldScale.ToCentreMetres(350),
+            WorldScale.ToMetres(SurfaceCell) - MatchSettings.Radius - WorldScale.CellSize);
+
+        SteeredWalk walk = SteeredWalk.From(actor, grid);
+        Fix64 startX = walk.Position.X;
+
+        walk.LayGirder(Vec2.UnitX);
+        Push(walk, Vec2.UnitX, 20);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                walk.Position.X, Is.GreaterThan(startX + Fix64.One),
+                "the mole could not walk out onto its own girder");
+            Assert.That(walk.IsFalling, Is.False, "it fell through the plank");
+        });
     }
 }

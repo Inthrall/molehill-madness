@@ -85,6 +85,7 @@ public partial class MatchHud : Control
 
         DrawTally(viewport);
         DrawClock(viewport);
+        DrawAction(viewport);
     }
 
     /// <summary>
@@ -248,6 +249,40 @@ public partial class MatchHud : Control
     /// It goes dead centre when the screen is split, which is the seam and belongs to the table
     /// rather than to any pane, and at the top of a shared view, where the middle is the game.
     /// </remarks>
+    /// <summary>
+    /// A band across the top while the round is playing out, so the phase is never in doubt.
+    /// </summary>
+    /// <remarks>
+    /// The planning phase announces itself with a clock, gauges and a live mole; the action phase had
+    /// nothing at all, and the two look similar enough from across a room that play testing could not
+    /// tell which one was running. Which matters: presses do nothing during the action phase, so a
+    /// player who thinks they are still planning concludes the controls have stopped working.
+    ///
+    /// A band rather than a word, because the design keeps text out of the game, and it pulses so it
+    /// reads as a state rather than as a decoration that happens to be there.
+    /// </remarks>
+    private void DrawAction(Vector2 viewport)
+    {
+        if (_state.ClockLeft >= 0)
+        {
+            return;
+        }
+
+        float seconds = Time.GetTicksMsec() / 1000f;
+        float breath = 0.45f + (0.25f * Mathf.Sin(seconds * 3.2f));
+        float tall = Mathf.Max(viewport.Y * 0.012f, 4f);
+
+        DrawRect(new Rect2(0f, 0f, viewport.X, tall), new Color(Palette.Damage, breath));
+
+        // A marker riding along it, which is the difference between a band and a border.
+        float along = (seconds * 0.35f) % 1f;
+        float wide = Mathf.Max(viewport.X * 0.14f, 60f);
+
+        DrawRect(
+            new Rect2((viewport.X + wide) * along - wide, 0f, wide, tall),
+            new Color(Palette.Damage, Mathf.Min(1f, breath + 0.35f)));
+    }
+
     private void DrawClock(Vector2 viewport)
     {
         if (_state.ClockLeft < 0 || _state.ClockLength <= 0)

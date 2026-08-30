@@ -54,11 +54,14 @@ public sealed class ArsenalTests
     }
 
     [Test]
-    public void TheArsenalIsFifteenStrong()
+    public void TheArsenalIsSixteenStrong()
     {
         int weapons = Enum.GetValues<WeaponId>().Count(weapon => weapon != WeaponId.None);
 
-        Assert.That(weapons, Is.EqualTo(15), "the design calls for fifteen at launch");
+        // Fifteen at launch was the design's number, and the girder is the sixteenth: play testing
+        // asked for something that builds a way across rather than through, which the arsenal had no
+        // answer to at all. Counted here so adding one is a decision rather than a drift.
+        Assert.That(weapons, Is.EqualTo(16), "fifteen from the design, plus the girder");
     }
 
     [Test]

@@ -71,6 +71,15 @@ public enum Sound
 
     /// <summary>A crate claimed.</summary>
     Collect = 20,
+
+    /// <summary>A mole leaving the ground. A spring, because this is a cartoon.</summary>
+    Hop = 21,
+
+    /// <summary>A Tunnel Torpedo cutting. The one sound that runs rather than hits.</summary>
+    Drill = 22,
+
+    /// <summary>A crate breaking open.</summary>
+    Crate = 23,
 }
 
 /// <summary>

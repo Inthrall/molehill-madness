@@ -141,6 +141,7 @@ public partial class MatchScene : Node2D
 
     private Lobby? _lobby;
     private WaitingSign? _waiting;
+    private TurnCard? _card;
     private EmoteWheel? _wheel;
     private bool _saidWhy;
 
@@ -247,6 +248,9 @@ public partial class MatchScene : Node2D
 
         if (Online.Playing)
         {
+            _card = new TurnCard();
+            AddChild(_card);
+
             _waiting = new WaitingSign();
             overlay.AddChild(_waiting);
 
@@ -383,6 +387,17 @@ public partial class MatchScene : Node2D
     /// Online seats are excluded because their plans arrive from the relay and there is nothing on
     /// this device to draw a pane for, so a two-player online match stays one full-screen view.
     /// </remarks>
+    /// <summary>
+    /// Whether several platoons are playing off one screen with no split between them.
+    /// </summary>
+    /// <remarks>
+    /// The only arrangement where a handover is invisible. A split screen gives everybody their own
+    /// pane to watch, and an online match has one local platoon, so in both cases whose turn it is
+    /// is already on the screen somewhere.
+    /// </remarks>
+    private bool SharingOneDevice() =>
+        !Online.Playing && LocalSeats() >= 2 && Flags.WantsTouch();
+
     private int LocalSeats()
     {
         int count = 0;
@@ -543,6 +558,7 @@ public partial class MatchScene : Node2D
         _playback = 0;
         _appliedChanges = 0;
         _sounded = 0;
+        _claimed = 0;
         _beat = Beat.Resolving;
 
         NoteWhenThingsHappened();
@@ -1128,7 +1144,15 @@ public partial class MatchScene : Node2D
             return;
         }
 
+        float before = _clock;
         _clock -= (float)delta;
+
+        // One warning, as the ring turns red, and only once: a beep a second for five seconds is
+        // a countdown nobody asked for and the ring already says the same thing continuously.
+        if (before > ClockWarningSeconds && _clock <= ClockWarningSeconds)
+        {
+            _sfx?.Play(Sound.Warn, volumeDb: -10f, pitchSpread: 0.02f);
+        }
 
         for (int seat = 0; seat < _players; seat++)
         {
@@ -1156,7 +1180,20 @@ public partial class MatchScene : Node2D
             {
                 _pointerSeat = next;
                 _clock = PlanningSeconds;
+
+                // A shared device changes hands here and nothing else would say so.
+                if (SharingOneDevice() && next >= 0)
+                {
+                    _card?.Hand(next);
+                }
             }
+        }
+
+        // The clock waits for the phone to be picked up. Counting down behind the card would hand
+        // somebody a turn that had already started, which is the whole thing the card is for.
+        if (_card?.Waiting == true)
+        {
+            return;
         }
 
         if (!EverybodyIsIn() && _clock > 0)
@@ -1413,7 +1450,7 @@ public partial class MatchScene : Node2D
 
             if (banged)
             {
-                _sfx.Play(Sound.Boom, volumeDb: -4f);
+                Bang(recording.DetonationsUpTo(previous));
             }
             else if (dug)
             {
@@ -1423,7 +1460,13 @@ public partial class MatchScene : Node2D
 
             if (flying > wasFlying)
             {
-                _sfx.Play(Sound.Launch, volumeDb: -8f);
+                // Which weapon left, so a mortar thumps and a clod does not. The recording keeps
+                // the weapon on every shot in flight, so this costs nothing to ask.
+                WeaponId left = recording.ShotsAt(_sounded)[flying - 1].Weapon;
+
+                _sfx.Play(
+                    left == WeaponId.AcornMortar ? Sound.Mortar : Sound.Launch,
+                    volumeDb: -8f);
             }
 
             if (recording.HitsUpTo(_sounded) > recording.HitsUpTo(previous))
@@ -1433,15 +1476,189 @@ public partial class MatchScene : Node2D
 
             if (recording.KnockoutsUpTo(_sounded) > recording.KnockoutsUpTo(previous))
             {
-                _sfx.Play(Sound.Poof, volumeDb: -3f);
+                Exit(recording.KnockoutsUpTo(previous));
             }
+
+            Travel(recording, previous, _sounded);
 
             if (_sounded == CrateLandingTick && _match.Crates.Count > 0)
             {
                 _sfx.Play(Sound.Thunk, volumeDb: -8f);
             }
+
+            Claimed();
         }
     }
+
+    /// <summary>
+    /// One explosion, sized by the crater it left.
+    /// </summary>
+    /// <remarks>
+    /// There is a single explosion recording and the arsenal spans a 1.25 m crater to a 2.5 m one,
+    /// so the size comes from volume and pitch rather than from five samples. Bigger is louder and
+    /// lower, which is how an explosion actually scales, and it stops the Moly Hand Grenade
+    /// sounding exactly like a clod of earth.
+    /// </remarks>
+    private void Bang(int already)
+    {
+        System.Collections.Generic.List<Detonation>? blasts = _result?.Blasts;
+
+        if (blasts is null || already >= blasts.Count)
+        {
+            _sfx?.Play(Sound.Boom, volumeDb: -4f);
+            return;
+        }
+
+        // Two and a half metres is the big end of the arsenal, so that is the reference.
+        float size = Mathf.Clamp((float)blasts[already].Radius.ToDecimal() / 2.5f, 0.3f, 1.4f);
+
+        _sfx?.Play(Sound.Boom, volumeDb: -10f + (7f * size), pitchSpread: 0.08f);
+    }
+
+    /// <summary>
+    /// The noise a mole leaves on, which the exit animation has already chosen.
+    /// </summary>
+    /// <remarks>
+    /// The exits are the slapstick payoff and one puff for all seven wastes them. Two have their own
+    /// recording so far and the rest fall back to the puff, which is at least the right sound for
+    /// four of them.
+    /// </remarks>
+    private void Exit(int already)
+    {
+        System.Collections.Generic.List<Knockout>? knockouts = _result?.Knockouts;
+
+        if (knockouts is null || already >= knockouts.Count)
+        {
+            _sfx?.Play(Sound.Poof, volumeDb: -3f);
+            return;
+        }
+
+        Knockout going = knockouts[already];
+
+        Sound sound = going.Exit switch
+        {
+            KnockoutExit.HelmetSpin => Sound.Helmet,
+            KnockoutExit.StretcherSquad => Sound.Stretcher,
+            _ => Sound.Poof,
+        };
+
+        _sfx?.Play(sound, volumeDb: -3f);
+
+        // A trap knockout snaps as well, because the snap is the bit worth hearing.
+        if (going.Cause == KnockoutCause.Trap)
+        {
+            _sfx?.Play(Sound.Snap, volumeDb: -6f);
+        }
+    }
+
+    /// <summary>
+    /// Footsteps, leaving the ground, arriving back on it, and a drill running.
+    /// </summary>
+    /// <remarks>
+    /// Read off the recorded velocities rather than from anything the simulation announces, because
+    /// it does not announce them: walking is not an event, it is a mole whose position keeps
+    /// changing. That makes this the one place a sound is inferred rather than triggered, and the
+    /// inference is deliberately coarse, because a missed footstep is unnoticeable and a phantom
+    /// explosion would not be.
+    ///
+    /// A stride interval rather than a step per tick, since thirty footsteps a second is a drum roll.
+    /// The slot is added to the tick so four moles walking together do not march in lockstep.
+    /// </remarks>
+    private void Travel(RoundRecording recording, int previous, int now)
+    {
+        if (_sfx is null)
+        {
+            return;
+        }
+
+        for (int slot = 0; slot < recording.MoleCount; slot++)
+        {
+            if (recording.IsOffDutyAt(now, slot))
+            {
+                continue;
+            }
+
+            float rising = -(float)recording.VelocityOf(now, slot).Y.ToDecimal();
+            float wasRising = -(float)recording.VelocityOf(previous, slot).Y.ToDecimal();
+            float across = Mathf.Abs((float)recording.VelocityOf(now, slot).X.ToDecimal());
+
+            // Leaving the ground: it was not going up, and now it is, hard.
+            if (wasRising < 1f && rising > 4f)
+            {
+                _sfx.Play(Sound.Hop, volumeDb: -10f);
+                continue;
+            }
+
+            // Arriving: it was falling and now it is not.
+            if (wasRising < -6f && rising > -1f)
+            {
+                _sfx.Play(Sound.Land, volumeDb: -9f);
+                continue;
+            }
+
+            // A torpedo runs at a speed nothing else reaches, which is the cheapest way to know one
+            // is cutting without the recording carrying a flag for it.
+            if (across > (float)MatchSettings.TorpedoSpeed.ToDecimal() * 0.8f)
+            {
+                if (now % DrillStride == 0)
+                {
+                    _sfx.Play(Sound.Drill, volumeDb: -14f);
+                }
+
+                continue;
+            }
+
+            if (Mathf.Abs(rising) < 1.5f && across > 0.5f && (now + slot) % WalkStride == 0)
+            {
+                bool under = Moles.Underground(recording.PositionOf(now, slot), _stage.Ground);
+
+                _sfx.Play(under ? Sound.Burrow : Sound.Walk, volumeDb: -18f);
+            }
+        }
+    }
+
+    /// <summary>
+    /// A crate coming open, once per claim.
+    /// </summary>
+    /// <remarks>
+    /// Two sounds layered, because a crate is two things happening: a wooden box breaking, and
+    /// somebody getting a weapon out of it. The reward chime is the half that makes crossing the map
+    /// for one feel worth it, and the box on its own reads as damage.
+    ///
+    /// A shattered crate is a claim with nobody attached, and it gets the box and not the chime,
+    /// since there is no reward in it for anyone.
+    /// </remarks>
+    private void Claimed()
+    {
+        System.Collections.Generic.List<CrateClaim>? claims = _result?.CrateClaims;
+
+        if (_sfx is null || claims is null || _claimed >= claims.Count)
+        {
+            return;
+        }
+
+        while (_claimed < claims.Count)
+        {
+            bool shattered = claims[_claimed].Shattered;
+            _claimed++;
+
+            _sfx.Play(Sound.Crate, volumeDb: -8f);
+
+            if (!shattered)
+            {
+                _sfx.Play(Sound.Collect, volumeDb: -11f);
+            }
+        }
+    }
+
+    /// <summary>How many crate claims have been sounded, so a replay does not repeat them.</summary>
+    private int _claimed;
+
+    /// <summary>Ticks between footsteps. Fifteen a second is a drum roll; four a second is a walk.</summary>
+    private const int WalkStride = 8;
+
+    /// <summary>Ticks between drill noises, which overlap into a motor.</summary>
+    private const int DrillStride = 5;
 
     /// <summary>
     /// How fast the replay is running: full speed, until the round's big moment.
@@ -1471,6 +1688,18 @@ public partial class MatchScene : Node2D
 
     /// <summary>Halfway through the round, which is when the crates arrive.</summary>
     private const int CrateLandingTick = MatchSettings.TicksPerRound / 2;
+
+    /// <summary>One notch of the weapon wheel. Quieter than a button, because a turn crosses several.</summary>
+    private void Notch() => _sfx?.Play(Sound.Notch, volumeDb: -18f, pitchSpread: 0.04f);
+
+    /// <summary>A plan locked in. The one press that finishes a turn, so it gets to be heard.</summary>
+    private void Committed() => _sfx?.Play(Sound.Commit, volumeDb: -8f, pitchSpread: 0.03f);
+
+    /// <summary>A turn torn up. Should sound like a cost, because it is one.</summary>
+    private void TornUp() => _sfx?.Play(Sound.Reset, volumeDb: -9f, pitchSpread: 0.03f);
+
+    /// <summary>When the planning clock starts pressing, which is when the ring turns red.</summary>
+    private const float ClockWarningSeconds = 5f;
 
     private void Click()
     {
@@ -1537,6 +1766,16 @@ public partial class MatchScene : Node2D
             if (_touch is not null)
             {
                 // A phone is one player at a time, and its screen has no room to be divided.
+                return SplitLayout.Shared(band);
+            }
+
+            // One phone is one screen. Four panes on a handset are four unreadable panes, and the
+            // arrangement people actually use on one is passing it round, which the turn card
+            // handles: full screen for whoever is holding it, and a card in their colour when it
+            // changes hands. A couch full of people round a keyboard or a television still gets a
+            // pane each, because there the screen is big enough to divide and nobody is passing it.
+            if (Flags.WantsTouch() && !_forceSplit)
+            {
                 return SplitLayout.Shared(band);
             }
 
@@ -1796,6 +2035,45 @@ public partial class MatchScene : Node2D
     private WorldView? _panning;
     private float _pinchSpan;
     private float _wheelTravel;
+    private float _abilityTravel;
+
+    /// <summary>
+    /// Turns one of the two weapon wheels by a drag.
+    /// </summary>
+    /// <remarks>
+    /// The icons go the way the thumb goes and the selection follows them. Dragging down used to
+    /// select the weapon below, so the thumb and the wheel moved opposite ways: with nothing sliding
+    /// there was no way to notice, and now there would be.
+    /// </remarks>
+    private void TurnWheel(SeatPlanner planner, UseSlot slot, float by)
+    {
+        if (_touch is null)
+        {
+            return;
+        }
+
+        bool movement = slot == UseSlot.Movement;
+        float travel = (movement ? _abilityTravel : _wheelTravel) + by;
+
+        while (Mathf.Abs(travel) >= _touch.WheelNotch)
+        {
+            planner.CycleWeapon(slot, travel > 0 ? -1 : 1);
+            travel -= Mathf.Sign(travel) * _touch.WheelNotch;
+            Notch();
+        }
+
+        // What is left is under one notch, and it is what the wheel is drawn turned by.
+        if (movement)
+        {
+            _abilityTravel = travel;
+            _touch.AbilitySlide = travel / _touch.WheelNotch;
+        }
+        else
+        {
+            _wheelTravel = travel;
+            _touch.WheelSlide = travel / _touch.WheelNotch;
+        }
+    }
 
     /// <summary>
     /// Settles the wheel on whichever notch it is nearest when the thumb comes off.
@@ -1808,19 +2086,30 @@ public partial class MatchScene : Node2D
     ///
     /// Half a notch is the threshold because that is what nearest means.
     /// </remarks>
-    private void SnapWheel(SeatPlanner? planner)
+    private void SnapWheel(SeatPlanner? planner, UseSlot slot)
     {
-        if (_touch is not null && planner is not null
-            && Mathf.Abs(_wheelTravel) >= _touch.WheelNotch / 2f)
+        if (_touch is null)
         {
-            planner.CycleWeapon(_wheelTravel > 0 ? -1 : 1);
-            Click();
+            return;
         }
 
-        _wheelTravel = 0;
+        bool movement = slot == UseSlot.Movement;
+        float travel = movement ? _abilityTravel : _wheelTravel;
 
-        if (_touch is not null)
+        if (planner is not null && Mathf.Abs(travel) >= _touch.WheelNotch / 2f)
         {
+            planner.CycleWeapon(slot, travel > 0 ? -1 : 1);
+            Notch();
+        }
+
+        if (movement)
+        {
+            _abilityTravel = 0;
+            _touch.AbilitySlide = 0;
+        }
+        else
+        {
+            _wheelTravel = 0;
             _touch.WheelSlide = 0;
         }
     }
@@ -1851,6 +2140,7 @@ public partial class MatchScene : Node2D
 
             case TouchTarget.Commit:
                 planner!.Commit();
+                Committed();
                 Click();
                 break;
 
@@ -1907,20 +2197,11 @@ public partial class MatchScene : Node2D
                 break;
 
             case TouchTarget.Wheel:
-                // The icons go the way the thumb goes, and the selection follows them. Dragging
-                // down used to select the weapon below, so the thumb and the wheel moved opposite
-                // ways: with nothing sliding there was no way to notice, and now there would be.
-                _wheelTravel += drag.Relative.Y;
-
-                while (Mathf.Abs(_wheelTravel) >= _touch!.WheelNotch)
-                {
-                    planner.CycleWeapon(_wheelTravel > 0 ? -1 : 1);
-                    _wheelTravel -= Mathf.Sign(_wheelTravel) * _touch.WheelNotch;
-                    Click();
-                }
-
-                // What is left is under one notch, and it is what the wheel is drawn turned by.
-                _touch.WheelSlide = _wheelTravel / _touch.WheelNotch;
+            case TouchTarget.Abilities:
+                TurnWheel(
+                    planner,
+                    finger.Target == TouchTarget.Abilities ? UseSlot.Movement : UseSlot.Attack,
+                    drag.Relative.Y);
                 break;
 
             default:
@@ -1953,7 +2234,11 @@ public partial class MatchScene : Node2D
                 break;
 
             case TouchTarget.Wheel:
-                SnapWheel(planner);
+                SnapWheel(planner, UseSlot.Attack);
+                break;
+
+            case TouchTarget.Abilities:
+                SnapWheel(planner, UseSlot.Movement);
                 break;
 
             default:
@@ -2226,7 +2511,14 @@ public partial class MatchScene : Node2D
 
         if (Input.IsKeyPressed(Key.R) || FingerOn(TouchTarget.Reset))
         {
+            bool wasResetting = planner.ResetHeld > 0;
             planner.HoldReset(delta);
+
+            // The hold completed if it was in progress and has gone back to nothing.
+            if (wasResetting && planner.ResetHeld <= 0)
+            {
+                TornUp();
+            }
         }
         else
         {
@@ -2470,6 +2762,7 @@ public partial class MatchScene : Node2D
         {
             case Beat.Planning:
                 planner?.Commit();
+                Committed();
                 break;
 
             case Beat.Resolving:

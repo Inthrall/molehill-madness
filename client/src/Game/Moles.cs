@@ -69,7 +69,17 @@ public static class Moles
             return clawed ? "claws" : "dig";
         }
 
-        return walking ? "walk" : "stand";
+        if (walking)
+        {
+            return "walk";
+        }
+
+        // Standing with the claws out. Using the Power Claws changed nothing anybody could see until
+        // the mole next went underground, so the one weapon whose entire effect is a number on a
+        // gauge also had no picture: a player could spend it and have no idea it had worked. Holding
+        // the claws pose above ground is the smallest honest signal, and it is the artwork's own
+        // first frame rather than anything new.
+        return clawed ? "claws" : "stand";
     }
 
     /// <summary>
@@ -112,10 +122,38 @@ public static class Moles
     public static bool Underground(Vec2 position, TerrainGrid ground)
     {
         int cellX = WorldScale.ToCell(position.X);
-        int cellY = WorldScale.ToCell(position.Y - MatchSettings.Radius) - 2;
+        int head = WorldScale.ToCell(position.Y - MatchSettings.Radius);
 
-        return ground.Contains(cellX, cellY) && MaterialTable.IsSolid(ground[cellX, cellY]);
+        // Anything solid overhead, not just the two cells directly above. This used to sample one
+        // cell, two above the head, which answers a narrower question than it looks: a mole in a
+        // tunnel it dug itself has soil right there, but a cave is cut with sixteen cells of headroom
+        // and a mole is twelve tall, so a mole standing on a cave floor has four cells of clear air
+        // above it and read as standing in a field.
+        //
+        // That mattered more than a pose. Between four and nine of the sixteen moles start in caves,
+        // and none of them looked like it: play testing reported that nobody starts underground, when
+        // in fact half of them do and the game was drawing them wrong.
+        for (int above = 2; above <= RoofReach; above++)
+        {
+            int cellY = head - above;
+
+            if (ground.Contains(cellX, cellY) && MaterialTable.IsSolid(ground[cellX, cellY]))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
+
+    /// <summary>
+    /// How far overhead counts as a roof, in cells.
+    /// </summary>
+    /// <remarks>
+    /// A little more than a cave's headroom, so a mole anywhere in one is under it, and far short of
+    /// the distance to the surface from a deep tunnel, so this cannot be fooled by open sky.
+    /// </remarks>
+    private const int RoofReach = 24;
 
     /// <summary>Which frame of a cycling pose, at this tick.</summary>
     /// <remarks>

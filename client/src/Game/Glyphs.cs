@@ -28,7 +28,41 @@ public static class Glyphs
 
     public static void Weapon(CanvasItem into, WeaponId weapon, Vector2 at, float size, Color ink)
     {
+        // The girder has no painted icon yet, so it gets a drawn one. Marked here rather than
+        // hidden, because the artist should replace it: everything else on the wheel is an object
+        // in the game's own hand and a line drawing among them looks like what it is.
+        if (weapon == WeaponId.Girder)
+        {
+            Girder(into, at, size, ink);
+            return;
+        }
+
         Fit(into, Art.Weapon(weapon), at, size, ink);
+    }
+
+    /// <summary>A plank, seen end-on and slightly along, which is what a girder is.</summary>
+    private static void Girder(CanvasItem into, Vector2 at, float size, Color ink)
+    {
+        float unit = size / 2f;
+        float line = size * Stroke;
+
+        // The plank itself, laid across and tilted a little so it reads as a thing rather than a
+        // divider.
+        Vector2 left = at + new Vector2(-unit * 0.82f, unit * 0.26f);
+        Vector2 right = at + new Vector2(unit * 0.82f, -unit * 0.26f);
+
+        into.DrawLine(left, right, ink, line * 2.6f);
+
+        // Two studs, which is the difference between a plank and a stroke.
+        Vector2 along = (right - left).Normalized();
+        Vector2 across = new Vector2(-along.Y, along.X) * (unit * 0.3f);
+
+        into.DrawLine(
+            left + (along * unit * 0.42f) + across,
+            left + (along * unit * 0.42f) - across, ink, line);
+        into.DrawLine(
+            right - (along * unit * 0.42f) + across,
+            right - (along * unit * 0.42f) - across, ink, line);
     }
 
     /// <summary>An interface glyph, by the name the importer gave it.</summary>
@@ -436,6 +470,42 @@ public static class Glyphs
     public static void Dynamite(CanvasItem into, Vector2 at, float size, Color ink)
     {
         Beet(into, at, size, ink);
+    }
+
+    /// <summary>
+    /// Leaving the ground: a body going up, off a line that stays put.
+    /// </summary>
+    /// <remarks>
+    /// The arc-over-a-gap glyph is still below and still used for the plan markers, where an arc is
+    /// exactly right because it describes a path already chosen. As a button it was wrong: at button
+    /// size an arc collapses into a chevron, and a chevron on its own is the most overloaded mark in
+    /// interface design, meaning back, up, expand, scroll and sort depending on where it is.
+    ///
+    /// A ground line fixes it. An arrow leaving a surface can only mean one thing, and the surface is
+    /// what a chevron was missing.
+    /// </remarks>
+    public static void Jump(CanvasItem into, Vector2 at, float size, Color ink)
+    {
+        float unit = size / 2f;
+        float line = size * Stroke;
+
+        // The ground it leaves, held still and full width.
+        into.DrawLine(
+            at + new Vector2(-unit * 0.72f, unit * 0.7f),
+            at + new Vector2(unit * 0.72f, unit * 0.7f),
+            ink, line * 1.2f);
+
+        // The shaft, stopping short of the head so the join is not a lump.
+        into.DrawLine(
+            at + new Vector2(0, unit * 0.42f),
+            at + new Vector2(0, -unit * 0.24f),
+            ink, line * 1.3f);
+
+        // A solid head, which survives being small in a way an outlined one does not.
+        Polygon(into, ink,
+            at + new Vector2(0, -unit * 0.82f),
+            at + new Vector2(-unit * 0.44f, -unit * 0.16f),
+            at + new Vector2(unit * 0.44f, -unit * 0.16f));
     }
 
     /// <summary>An arc over a gap. Hop, scheduled at a moment along the route.</summary>

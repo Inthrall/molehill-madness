@@ -54,6 +54,11 @@ namespace MoleSim.Match
 
         /// <summary>Three tonnes of concrete garden gnome, dropped from a great height.</summary>
         GnomeMercy = 15,
+
+        /// <summary>
+        /// A plank, laid straight out from the mole along the aim. Bridges a gap or roofs a hole.
+        /// </summary>
+        Girder = 16,
     }
 
     /// <summary>How a weapon behaves, which decides which code path handles it.</summary>
@@ -258,6 +263,7 @@ namespace MoleSim.Match
             WeaponId.RootSnare => 2,
             WeaponId.TunnelTorpedo => 2,
             WeaponId.PowerClaws => 2,
+            WeaponId.Girder => 2,
             WeaponId.Sandbag => 3,
             WeaponId.GeyserCap => 1,
             WeaponId.BoomBeets => 2,
@@ -293,6 +299,7 @@ namespace MoleSim.Match
         {
             WeaponId.PowerClaws => UseSlot.Movement,
             WeaponId.TunnelTorpedo => UseSlot.Movement,
+            WeaponId.Girder => UseSlot.Movement,
             _ => UseSlot.Attack,
         };
 
@@ -333,7 +340,7 @@ namespace MoleSim.Match
         /// </remarks>
         public static AimStyle AimingFor(WeaponId weapon)
         {
-            if (weapon == WeaponId.TunnelTorpedo)
+            if (weapon == WeaponId.TunnelTorpedo || weapon == WeaponId.Girder)
             {
                 return AimStyle.Direction;
             }
@@ -349,14 +356,20 @@ namespace MoleSim.Match
 
         private static WeaponSpec[] BuildSpecs()
         {
-            WeaponSpec[] specs = new WeaponSpec[16];
+            WeaponSpec[] specs = new WeaponSpec[17];
 
             specs[(int)WeaponId.None] = default;
 
             // A three-second fuse, so it can be bounced into a hole or cooked over a head.
+            //
+            // Launch speeds across the arsenal came down by about a third after play testing said
+            // throwing was too hard to control. At the old numbers a full charge left the map, so
+            // the useful part of the wind-up was its first third and the rest was a way to miss;
+            // reducing the top end makes the whole sweep worth something, which matters more now
+            // that the charge oscillates and a player is choosing a moment rather than a duration.
             specs[(int)WeaponId.ClodLobber] = new WeaponSpec(
                 WeaponKind.Thrown,
-                launchSpeed: Fix64.FromInt(26),
+                launchSpeed: Fix64.FromInt(18),
                 damage: 30,
                 blastRadius: Fix64.Ratio(5, 2),
                 fuseTicks: MatchSettings.TicksPerSecond * 3,
@@ -365,10 +378,11 @@ namespace MoleSim.Match
                 knockback: Fix64.FromInt(15),
                 craterRadius: Fix64.Ratio(5, 4));
 
-            // Faster, harder, and goes off the moment it arrives.
+            // Faster, harder, and goes off the moment it arrives. Still the flattest thing in
+            // the arsenal, which is its whole character, so it keeps the largest share.
             specs[(int)WeaponId.BeetleLauncher] = new WeaponSpec(
                 WeaponKind.Thrown,
-                launchSpeed: Fix64.FromInt(34),
+                launchSpeed: Fix64.FromInt(24),
                 damage: 45,
                 blastRadius: Fix64.FromInt(2),
                 fuseTicks: 0,
@@ -380,7 +394,7 @@ namespace MoleSim.Match
             // Splits into three on the way down, so it covers ground rather than a point.
             specs[(int)WeaponId.AcornMortar] = new WeaponSpec(
                 WeaponKind.Thrown,
-                launchSpeed: Fix64.FromInt(24),
+                launchSpeed: Fix64.FromInt(17),
                 damage: 15,
                 blastRadius: Fix64.Ratio(3, 2),
                 fuseTicks: MatchSettings.TicksPerSecond * 2,
@@ -448,8 +462,19 @@ namespace MoleSim.Match
             specs[(int)WeaponId.PowerClaws] = new WeaponSpec(
                 WeaponKind.Tool, Fix64.Zero, 0, Fix64.Zero, 0, false, false, Fix64.Zero);
 
+            // Radius down from two metres. A two metre blob is five times the mole's own height,
+            // and because a deposit skips ground that is already solid, all of it landed in the air
+            // above and around the mole rather than under it: the bag buried whoever dropped it and
+            // built nothing worth standing on. Nine tenths of a metre is about two mole widths,
+            // which is a step.
+            // No damage and no blast. The radius is the plank's half-thickness, which is the only
+            // number a deposit needs, and it is the thinnest thing that a mole can stand on without
+            // falling through between ticks.
+            specs[(int)WeaponId.Girder] = new WeaponSpec(
+                WeaponKind.Tool, Fix64.Zero, 0, Fix64.Ratio(1, 8), 0, false, false, Fix64.Zero);
+
             specs[(int)WeaponId.Sandbag] = new WeaponSpec(
-                WeaponKind.Tool, Fix64.Zero, 0, Fix64.FromInt(2), 0, false, false, Fix64.Zero);
+                WeaponKind.Tool, Fix64.Zero, 0, Fix64.Ratio(9, 10), 0, false, false, Fix64.Zero);
 
             specs[(int)WeaponId.GeyserCap] = new WeaponSpec(
                 WeaponKind.Tool, Fix64.Zero, 0, Fix64.Ratio(3, 2), 0, false, false, Fix64.FromInt(26));
@@ -484,7 +509,7 @@ namespace MoleSim.Match
             // The crate rarity. One per crate, one use, and it ends two platoons' plans.
             specs[(int)WeaponId.MolyHandGrenade] = new WeaponSpec(
                 WeaponKind.Thrown,
-                launchSpeed: Fix64.FromInt(22),
+                launchSpeed: Fix64.FromInt(16),
                 damage: 75,
                 blastRadius: Fix64.FromInt(5),
                 fuseTicks: MatchSettings.TicksPerSecond * 3,

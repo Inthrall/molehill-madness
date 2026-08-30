@@ -338,6 +338,12 @@ namespace MoleSim.Match
             Tools.DropSandbag(_scratch, _ghost.Position);
         }
 
+        /// <summary>Lays a girder into the ghost's own copy of the world, as resolution will.</summary>
+        public void LayGirder(Vec2 aim)
+        {
+            Tools.LayGirder(_scratch, _ghost.Position, aim);
+        }
+
         /// <summary>
         /// The waypoints to hand the simulation: where the mole stood, every so often, plus
         /// wherever it finished.

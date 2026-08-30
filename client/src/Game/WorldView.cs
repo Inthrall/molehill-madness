@@ -1422,30 +1422,62 @@ public partial class WorldView : Control
         for (int index = 0; index < upTo; index++)
         {
             int age = _stage.Tick - _stage.BlastTick[index];
+            Detonation went = result.Blasts[index];
+            float radius = (float)went.Radius.ToDecimal();
+            int lasts = BlastTicksFor(radius);
 
-            if (age < 0 || age >= BlastTicks)
+            if (age < 0 || age >= lasts)
             {
                 continue;
             }
 
-            Detonation went = result.Blasts[index];
-            float across = (float)went.Radius.ToDecimal() * _scale * BlastOverdraw * 2f;
+            float through = age / (float)lasts;
+
+            // Grown over its life rather than stamped at one size. A blast that appears at its
+            // final width and cycles frames in place reads as a picture being played; one that
+            // opens out reads as something happening. Most of the growth is in the first third,
+            // which is where an explosion actually does its expanding.
+            float opening = Mathf.Min(1f, 0.62f + (through * 1.4f));
+            float across = radius * _scale * BlastOverdraw * 2f * opening;
 
             // The frame's own proportions rather than a square, because the artwork is a little
             // taller than it is wide and stretched to a square the ring came out visibly oval.
             Vector2 size = new Vector2(across, across * blast.FrameSize.Y / blast.FrameSize.X);
             Vector2 at = ToPixels(went.At);
 
+            // Faded out over the last third. It used to reach its final frame and vanish between
+            // one frame and the next, which is the one moment of an explosion that should not be
+            // abrupt: the bang is abrupt and the smoke is not.
+            float fade = through < 0.66f ? 1f : 1f - ((through - 0.66f) / 0.34f);
+
             blast.Draw(
                 this,
                 new Rect2(at - (size / 2f), size),
-                age * blast.Frames / BlastTicks,
-                mirrored: false);
+                age * blast.Frames / lasts,
+                mirrored: false,
+                tint: new Color(1f, 1f, 1f, Mathf.Clamp(fade, 0f, 1f)));
         }
     }
 
-    /// <summary>How long a blast is on screen, at thirty ticks a second. Half a second.</summary>
-    private const int BlastTicks = 15;
+    /// <summary>
+    /// How long a blast stays on screen, scaled by how big it is.
+    /// </summary>
+    /// <remarks>
+    /// Every explosion used to last exactly half a second, from the smallest clod to the Moly Hand
+    /// Grenade, so the arsenal's whole range of yields looked identical and only the width differed.
+    /// Size is duration as much as it is width: a big detonation takes longer to happen and longer to
+    /// clear. Two and a half metres is the big end of the arsenal, so that is the reference, and the
+    /// same reference the explosion's volume and pitch use.
+    /// </remarks>
+    private static int BlastTicksFor(float radius) =>
+        Mathf.RoundToInt(
+            Mathf.Lerp(ShortestBlastTicks, BlastTicks, Mathf.Clamp(radius / 2.5f, 0f, 1f)));
+
+    /// <summary>The longest a blast is on screen, which the biggest thing in the arsenal gets.</summary>
+    private const int BlastTicks = 22;
+
+    /// <summary>And the shortest, for a clod. Any less and the eight frames cannot all be seen.</summary>
+    private const int ShortestBlastTicks = 11;
 
     /// <summary>
     /// How much wider than its blast radius the artwork is drawn.
@@ -1818,6 +1850,22 @@ public partial class WorldView : Control
             }
 
             Glyphs.Hop(this, at, marker * 0.52f, new Color(seat, 0.85f));
+        }
+
+        // Crates the route will reach, ringed in the platoon's colour. Without this the only way
+        // to find out whether a walk got to a crate was to commit the turn and watch.
+        foreach (Crate crate in _stage.Match.Crates)
+        {
+            if (crate.Gone || !planner.RouteReaches(crate.Position))
+            {
+                continue;
+            }
+
+            Vector2 on = ToPixels(crate.Position);
+            float ring = radius * 1.5f;
+
+            DrawArc(on, ring, 0f, Mathf.Tau, 28, seat, Mathf.Max(radius * 0.18f, 2f));
+            Glyphs.Committed(this, on, ring * 0.9f, seat);
         }
 
         // Anything the turn leaves on the ground, marked where it will be left. The mole is thrown

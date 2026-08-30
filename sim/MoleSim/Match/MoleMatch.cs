@@ -28,11 +28,22 @@ namespace MoleSim.Match
         private Fix64 _staminaScale = Fix64.One;
         private readonly MatchRng _rng;
 
+        /// <summary>
+        /// The match's seed, kept so things can be derived from it without drawing.
+        /// </summary>
+        /// <remarks>
+        /// A draw from the generator would work and would be worse: every draw moves the sequence
+        /// every other draw reads from, so deriving the turn order that way would couple who acts
+        /// first to the wind, the crates and the exits. Off the seed instead, and nothing shifts.
+        /// </remarks>
+        private readonly ulong _seed;
+
         private MoleMatch(TerrainGrid terrain, int playerCount, ulong seed)
         {
             Terrain = terrain;
             PlayerCount = playerCount;
             _rng = new MatchRng(seed);
+            _seed = seed;
             _plans = new Plan?[playerCount];
 
             Vec2[] spawns = MapMaker.SpawnPoints(terrain, playerCount, MatchSettings.MolesPerPlatoon);
@@ -65,11 +76,34 @@ namespace MoleSim.Match
             LavaRightEdge = Fix64.MaxValue;
         }
 
-        /// <summary>Enough room for every id in <see cref="WeaponId"/>.</summary>
-        private const int WeaponCount = 16;
-
         private static readonly WeaponId[] AllWeapons =
             (WeaponId[])Enum.GetValues(typeof(WeaponId));
+
+        /// <summary>
+        /// Enough room for every id in <see cref="WeaponId"/>, counted rather than stated.
+        /// </summary>
+        /// <remarks>
+        /// This was the literal 16, and adding the girder as id 16 walked straight off the end of
+        /// every platoon's stock array: 111 tests failed at once with an index out of range in the
+        /// constructor, which is a good failure but a silly one to have arranged. Ids are dense and
+        /// start at None, so the highest one plus a place for it is the size.
+        /// </remarks>
+        private static readonly int WeaponCount = HighestId() + 1;
+
+        private static int HighestId()
+        {
+            int highest = 0;
+
+            foreach (WeaponId weapon in AllWeapons)
+            {
+                if ((int)weapon > highest)
+                {
+                    highest = (int)weapon;
+                }
+            }
+
+            return highest;
+        }
 
         /// <summary>Starts a match on generated ground.</summary>
         public static MoleMatch Create(int playerCount, ulong seed, int widthCells, int heightCells)
@@ -236,15 +270,55 @@ namespace MoleSim.Match
         }
 
         /// <summary>The moles a seat may choose from this round.</summary>
+        /// <summary>
+        /// Whose turn it could be, in the order a player should be offered them.
+        /// </summary>
+        /// <remarks>
+        /// Rotated rather than taken in slot order. In slot order mole zero went first in every round
+        /// of every match, so the same animal opened play every single time and the other three were
+        /// always somebody else's problem first. The offset comes from the seed and the round, so it
+        /// is the same on every client and different every round.
+        ///
+        /// A rotation and not a shuffle, on purpose. Every mole still gets exactly one turn per cycle,
+        /// which is the rule the cycle exists to enforce; only the order changes.
+        /// </remarks>
         public IEnumerable<Mole> Eligible(int seat)
         {
-            foreach (Mole mole in _moles)
+            int platoon = MatchSettings.MolesPerPlatoon;
+            int offset = (int)(Mixed((ulong)Round, _seed) % (ulong)platoon);
+
+            for (int step = 0; step < platoon; step++)
             {
-                if (mole.Seat == seat && !mole.IsOffDuty && !mole.HasActedThisCycle)
+                int index = (step + offset) % platoon;
+
+                foreach (Mole mole in _moles)
                 {
-                    yield return mole;
+                    if (mole.Seat != seat || mole.Index != index)
+                    {
+                        continue;
+                    }
+
+                    if (!mole.IsOffDuty && !mole.HasActedThisCycle)
+                    {
+                        yield return mole;
+                    }
                 }
             }
+        }
+
+        /// <summary>
+        /// Stirs two numbers into one, for deriving a choice without drawing from the generator.
+        /// </summary>
+        private static ulong Mixed(ulong first, ulong second)
+        {
+            ulong mixed = first ^ (second * 0x9E3779B97F4A7C15UL);
+
+            mixed ^= mixed >> 30;
+            mixed *= 0xBF58476D1CE4E5B9UL;
+            mixed ^= mixed >> 27;
+            mixed *= 0x94D049BB133111EBUL;
+
+            return mixed ^ (mixed >> 31);
         }
 
         /// <summary>
@@ -739,6 +813,10 @@ namespace MoleSim.Match
 
                 case WeaponId.TunnelTorpedo:
                     Drill(actor, action);
+                    break;
+
+                case WeaponId.Girder:
+                    Tools.LayGirder(Terrain, actor.Position, AimOf(actor, action));
                     break;
 
                 default:

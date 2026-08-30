@@ -8,8 +8,11 @@ public enum TouchTarget
     /// <summary>The map, which pans and pinches and is not part of the plan.</summary>
     None = 0,
 
-    /// <summary>The weapon wheel, which is flicked up and down.</summary>
+    /// <summary>The attack wheel, which is flicked up and down.</summary>
     Wheel = 1,
+
+    /// <summary>The movement wheel, alongside it and flicked the same way.</summary>
+    Abilities = 7,
 
     /// <summary>Hold to aim, release to stamp the shot.</summary>
     Fire = 2,
@@ -57,6 +60,7 @@ public partial class TouchControls : Control
     private Vector2 _hop;
     private Vector2 _stickHome;
     private Rect2 _wheel;
+    private Rect2 _abilities;
     private float _button;
     private float _small;
     private float _stickRadius;
@@ -93,11 +97,16 @@ public partial class TouchControls : Control
         float right = screen.X - margin - _button;
         float bottom = screen.Y - margin - _button;
 
-        // Everything that fires or commits goes under the right thumb. There was a third button
-        // here for planting the Boom Beets, which existed only because firing meant aiming and
-        // winding up: a planted weapon now asks for a press like any other, so the beets are on the
-        // wheel and the corner is down to the two presses that are not a weapon choice.
+        // Everything that acts goes under the right thumb. There was a third button here for
+        // planting the Boom Beets, which existed only because firing meant aiming and winding up; a
+        // planted weapon now asks for a press like any other, so the beets went to the wheel and
+        // jumping took the empty slot.
+        //
+        // Jumping belongs on this side. It was over on the left with the reset, which put the two
+        // most-used presses in a turn at opposite corners: a jump is part of getting somewhere and
+        // gets pressed several times a turn, and the reset is pressed once a match if that.
         _fire = new Vector2(right, bottom);
+        _hop = new Vector2(right - (_button * 2.2f), bottom);
         _commit = new Vector2(right, bottom - (_button * 2.2f));
 
         // The stick takes the bottom left corner, where a thumb rests without being told to.
@@ -114,20 +123,21 @@ public partial class TouchControls : Control
         // accident, and it is a hold rather than a tap, so a little reach costs it nothing.
         float column = margin + _small;
         float lowest = _stickHome.Y - (_stickRadius * StickGrab) - (_small * 1.2f);
-        float gap = _small * 2.3f;
 
-        _hop = new Vector2(column, lowest);
-        _reset = new Vector2(column, lowest - gap);
+        _reset = new Vector2(column, lowest);
 
         // The wheel runs up the right edge above the buttons, clear of the topmost of them by
         // a margin, so a flick can never be mistaken for a press. Overlapping them was the
         // first attempt and it made the commit button eat the bottom of the wheel.
+        // Two strips side by side. The attack wheel keeps the outer edge, under the thumb, because
+        // it is turned every turn; the movement wheel sits inboard of it, reached deliberately, which
+        // suits something used once a turn at most.
         float wheelHeight = _button * 4.2f;
-        _wheel = new Rect2(
-            right - _button,
-            _commit.Y - (_button * 1.4f) - wheelHeight,
-            _button * 2f,
-            wheelHeight);
+        float wheelTop = _commit.Y - (_button * 1.4f) - wheelHeight;
+
+        _wheel = new Rect2(right - _button, wheelTop, _button * 2f, wheelHeight);
+        _abilities = new Rect2(
+            _wheel.Position.X - (_button * 2.1f), wheelTop, _button * 2f, wheelHeight);
     }
 
     /// <summary>What is under a touch, so the scene knows whether it is a control or the map.</summary>
@@ -147,7 +157,7 @@ public partial class TouchControls : Control
     {
         // The small column is tested before the stick. Its lowest button sits just outside the
         // stick's grab ring, and a thumb reaching for it lands a little short as often as not.
-        if (Within(at, _hop, _small))
+        if (Within(at, _hop, _button))
         {
             return TouchTarget.Hop;
         }
@@ -174,7 +184,12 @@ public partial class TouchControls : Control
             return TouchTarget.Commit;
         }
 
-        return _wheel.HasPoint(at) ? TouchTarget.Wheel : TouchTarget.None;
+        if (_wheel.HasPoint(at))
+        {
+            return TouchTarget.Wheel;
+        }
+
+        return _abilities.HasPoint(at) ? TouchTarget.Abilities : TouchTarget.None;
     }
 
     public void Press(TouchTarget target)
@@ -189,6 +204,7 @@ public partial class TouchControls : Control
         AimDrag = Vector2.Zero;
         StickPush = Vector2.Zero;
         WheelSlide = 0f;
+        AbilitySlide = 0f;
         QueueRedraw();
     }
 
@@ -222,6 +238,9 @@ public partial class TouchControls : Control
     /// </remarks>
     public float WheelSlide { get; set; }
 
+    /// <summary>The same, for the movement wheel, which turns independently.</summary>
+    public float AbilitySlide { get; set; }
+
     /// <summary>How far outside the stick's ring still counts as grabbing it.</summary>
     private const float StickGrab = 1.35f;
 
@@ -238,11 +257,12 @@ public partial class TouchControls : Control
         }
 
         DrawStick();
-        DrawWheel();
+        DrawWheel(_wheel, UseSlot.Attack, WheelSlide);
+        DrawWheel(_abilities, UseSlot.Movement, AbilitySlide);
         DrawButton(_fire, TouchTarget.Fire, _button);
         DrawButton(_commit, TouchTarget.Commit, _button);
         DrawButton(_reset, TouchTarget.Reset, _small);
-        DrawButton(_hop, TouchTarget.Hop, _small);
+        DrawButton(_hop, TouchTarget.Hop, _button);
         DrawAimStick();
     }
 
@@ -304,7 +324,7 @@ public partial class TouchControls : Control
     /// The wheel: what is selected, large and in the middle, with its neighbours above and
     /// below to show which way it turns.
     /// </summary>
-    private void DrawWheel()
+    private void DrawWheel(Rect2 where, UseSlot slot, float slide)
     {
         SeatPlanner planner = Planner!;
 
@@ -312,39 +332,42 @@ public partial class TouchControls : Control
         // weapons this platoon actually holds, so drawing the full wheel put things in the
         // neighbour slots that turning to them would skip straight past: the wheel showed one thing
         // above the selection and delivered another.
-        System.Collections.Generic.List<WeaponId> available = planner.Available();
+        System.Collections.Generic.List<WeaponId> available = planner.Available(slot);
 
         if (available.Count == 0)
         {
-            DrawRect(_wheel, Palette.Panel);
+            DrawRect(where, Palette.Panel);
             return;
         }
 
-        int at = available.IndexOf(planner.Weapon);
+        int at = available.IndexOf(planner.Selected(slot));
 
         if (at < 0)
         {
             at = 0;
         }
 
-        Vector2 centre = _wheel.Position + (_wheel.Size / 2f);
-        float spacing = _wheel.Size.Y / 3.1f;
+        Vector2 centre = where.Position + (where.Size / 2f);
+        float spacing = where.Size.Y / 3.1f;
 
-        DrawRect(_wheel, Palette.Panel);
+        DrawRect(where, Palette.Panel);
+
+        // Which wheel holds the armed weapon, so two strips cannot both look selected.
+        bool armed = WeaponTable.SlotOf(planner.Weapon) == slot;
 
         // Two either side rather than one, because a wheel part way between notches shows a sliver
         // of the next but one, and a slot that empties as the wheel turns reads as a fault.
         for (int step = -2; step <= 2; step++)
         {
             int index = ((at + step) % available.Count + available.Count) % available.Count;
-            float offset = step + WheelSlide;
+            float offset = step + slide;
 
             if (Mathf.Abs(offset) > 1.6f)
             {
                 continue;
             }
 
-            Vector2 slot = centre + new Vector2(0, offset * spacing);
+            Vector2 seat = centre + new Vector2(0, offset * spacing);
 
             // Whichever is nearest the middle is the selection, which while the wheel is between
             // notches is not necessarily the one the plan is holding yet. Fading with distance is
@@ -352,22 +375,24 @@ public partial class TouchControls : Control
             // looks like a list that has slipped rather than a dial being turned.
             float away = Mathf.Abs(offset);
             float lit = Mathf.Clamp(1f - away, 0f, 1f);
-            bool selected = away < 0.5f;
+            bool middle = away < 0.5f;
             float size = _glyph * (0.78f + (0.27f * lit));
 
-            if (selected)
+            if (middle)
             {
-                DrawCircle(slot, size * 0.68f, new Color(Palette.OnPanel, 0.16f * lit));
+                DrawCircle(
+                    seat, size * 0.68f,
+                    new Color(Palette.OnPanel, (armed ? 0.26f : 0.1f) * lit));
             }
 
             Glyphs.Weapon(
-                this, available[index], slot, size,
+                this, available[index], seat, size,
                 new Color(Palette.OnPanel, 0.42f + (0.58f * lit)));
         }
 
         // Chevrons, so it reads as something to flick rather than something to press.
-        Chevron(_wheel.Position + new Vector2(_wheel.Size.X / 2f, 7f), -1);
-        Chevron(_wheel.Position + new Vector2(_wheel.Size.X / 2f, _wheel.Size.Y - 7f), 1);
+        Chevron(where.Position + new Vector2(where.Size.X / 2f, 7f), -1);
+        Chevron(where.Position + new Vector2(where.Size.X / 2f, where.Size.Y - 7f), 1);
     }
 
     private void Chevron(Vector2 at, float direction)
@@ -416,11 +441,18 @@ public partial class TouchControls : Control
                 break;
 
             case TouchTarget.Commit:
-                Glyphs.Committed(this, at, glyph, new Color(0.435f, 0.647f, 0.325f));
+                // Ghosted until the turn has fired, so the obvious next press is the one that has
+                // not happened yet. Not hidden: a turn spent walking somewhere is a legitimate turn
+                // and hiding the only way to end it would trap whoever wanted one.
+                Glyphs.Committed(
+                    this, at, glyph,
+                    planner.HasAttacked
+                        ? new Color(0.435f, 0.647f, 0.325f)
+                        : new Color(0.435f, 0.647f, 0.325f, 0.3f));
                 break;
 
             case TouchTarget.Hop:
-                Glyphs.Hop(
+                Glyphs.Jump(
                     this, at, glyph,
                     planner.Hops.Count < SeatPlanner.MaxHops
                         ? Palette.OnPanel

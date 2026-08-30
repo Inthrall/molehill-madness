@@ -157,6 +157,15 @@ namespace MoleSim.Match
         /// <summary>Half-width of the column a gusher throws things up.</summary>
         public static Fix64 GusherHalfWidth => Fix64.FromInt(2);
 
+        /// <summary>
+        /// How long a girder is.
+        /// </summary>
+        /// <remarks>
+        /// Four metres, which is a little over five mole widths: long enough to bridge a gap worth
+        /// bridging and short enough that it cannot span a chasm the map meant to be a chasm.
+        /// </remarks>
+        public static Fix64 GirderLength => Fix64.FromInt(4);
+
         /// <summary>How far a Tunnel Torpedo drills in one turn.</summary>
         public static Fix64 TorpedoRange => Fix64.FromInt(12);
 

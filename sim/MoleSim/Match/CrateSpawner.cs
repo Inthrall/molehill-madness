@@ -233,6 +233,7 @@ namespace MoleSim.Match
             WeaponId.PowerClaws,
             WeaponId.Sandbag,
             WeaponId.GeyserCap,
+            WeaponId.Girder,
             WeaponId.SpecialDelivery,
         };
 

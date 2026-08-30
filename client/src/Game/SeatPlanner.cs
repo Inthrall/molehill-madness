@@ -86,6 +86,17 @@ public sealed class SeatPlanner
     /// <summary>The turn's attack, if one has been booked.</summary>
     public PlanAction? Shot => Booked(UseSlot.Attack);
 
+    /// <summary>
+    /// Whether this turn has used its attack, which is what the interface has to make obvious.
+    /// </summary>
+    /// <remarks>
+    /// Play testing reported being able to fire repeatedly, and the plan was right all along: one
+    /// attack went in and the rest replaced it. The fault was entirely that nothing said so. So this
+    /// exists to grey the fire button and to bring the commit button forward, which between them turn
+    /// an invisible rule into a visible one.
+    /// </remarks>
+    public bool HasAttacked => Booked(UseSlot.Attack) is not null;
+
     /// <summary>Which weapon is booked into a slot, or None if the slot is still free.</summary>
     public WeaponId BookedIn(UseSlot slot)
     {
@@ -133,12 +144,24 @@ public sealed class SeatPlanner
                 return false;
             }
 
-            // The slot is not already holding something else. A full allowance is still usable,
-            // because pressing again replaces rather than refuses, so this is about which weapon
-            // owns the slot and not about how many times it has been used.
-            WeaponId booked = BookedIn(WeaponTable.SlotOf(Weapon));
+            UseSlot slot = WeaponTable.SlotOf(Weapon);
+            WeaponId booked = BookedIn(slot);
 
-            return booked == WeaponId.None || booked == Weapon;
+            if (booked != WeaponId.None && booked != Weapon)
+            {
+                return false;
+            }
+
+            // Spent once used, for anything with one use in it. Replacing a booked shot used to be
+            // allowed on the grounds that changing your mind should be free, and play testing said
+            // the cost of that was worse: with nothing to stop it, the fire button could be pressed
+            // over and over, and a turn that gets exactly one attack looked like a turn that got
+            // several. Being able to see that you have fired matters more than being able to take it
+            // back, and the reset token still takes it back.
+            //
+            // The things you build with keep their replacement, because the last of three sandbags
+            // is a placement rather than an attack and nudging it is the whole point.
+            return WeaponTable.UsesPerTurn(Weapon) > 1 || UsesLeft > 0;
         }
     }
 
@@ -307,6 +330,11 @@ public sealed class SeatPlanner
             if (_match.CanUse(Seat, Arsenal.Wheel[at]))
             {
                 Weapon = Arsenal.Wheel[at];
+
+                // Kept in step with the wheels, which remember what each was showing. Without this a
+                // keyboard player stepping through the whole arsenal left the strip on screen
+                // pointing at whatever it had been left on, disagreeing with the armed weapon.
+                _armed[(int)WeaponTable.SlotOf(Weapon)] = Weapon;
                 return;
             }
         }
@@ -329,6 +357,80 @@ public sealed class SeatPlanner
 
         Weapon = weapon;
         return true;
+    }
+
+    /// <summary>
+    /// Turns one of the two wheels, leaving the other alone.
+    /// </summary>
+    /// <remarks>
+    /// Selecting on either wheel arms that weapon, because there is still one loaded weapon and one
+    /// fire button. The wheels are a way of finding a weapon among sixteen rather than two parallel
+    /// loadouts: a turn spending both allowances arms one, uses it, arms the other and uses that.
+    /// </remarks>
+    public void CycleWeapon(UseSlot slot, int direction)
+    {
+        if (Committed || direction == 0)
+        {
+            return;
+        }
+
+        List<WeaponId> wheel = Available(slot);
+
+        if (wheel.Count == 0)
+        {
+            return;
+        }
+
+        int at = wheel.IndexOf(Selected(slot));
+
+        if (at < 0)
+        {
+            at = direction > 0 ? -1 : 0;
+        }
+
+        int step = direction > 0 ? 1 : -1;
+
+        Weapon = wheel[((at + step) % wheel.Count + wheel.Count) % wheel.Count];
+        _armed[(int)slot] = Weapon;
+    }
+
+    /// <summary>
+    /// What each wheel is showing, which is not always what is armed.
+    /// </summary>
+    /// <remarks>
+    /// Remembered per wheel so turning the movement wheel and then coming back to the attack wheel
+    /// finds it where it was left, rather than reset to whatever happens to be armed.
+    /// </remarks>
+    public WeaponId Selected(UseSlot slot)
+    {
+        WeaponId remembered = _armed[(int)slot];
+
+        if (remembered != WeaponId.None && _match.CanUse(Seat, remembered))
+        {
+            return remembered;
+        }
+
+        List<WeaponId> wheel = Available(slot);
+
+        return wheel.Count > 0 ? wheel[0] : WeaponId.None;
+    }
+
+    private readonly WeaponId[] _armed = new WeaponId[2];
+
+    /// <summary>Everything on one wheel this platoon could pick right now.</summary>
+    public List<WeaponId> Available(UseSlot slot)
+    {
+        List<WeaponId> available = new List<WeaponId>();
+
+        foreach (WeaponId weapon in Arsenal.For(slot))
+        {
+            if (_match.CanUse(Seat, weapon))
+            {
+                available.Add(weapon);
+            }
+        }
+
+        return available;
     }
 
     /// <summary>Everything this platoon could pick right now, in wheel order.</summary>
@@ -449,6 +551,7 @@ public sealed class SeatPlanner
         Aiming = true;
         AimAt = at;
         AimHeld = 0;
+        _swept = 0;
     }
 
     /// <summary>
@@ -479,11 +582,19 @@ public sealed class SeatPlanner
     /// has a fixed throw and the distance available is whatever the deadzone left over.
     ///
     /// Time is the honest axis for a wind-up, and every artillery game in the genre uses it. Point
-    /// where you want it to go, hold to decide how hard, let go to stamp the shot.
+    /// where you want it to go, hold while the gauge sweeps, let go to stamp the shot.
+    ///
+    /// It now sweeps up and back down rather than filling and stopping, and this reverses what used
+    /// to be written here: that clamping at full was kinder than cycling, because overshooting a
+    /// charge you cannot see the end of is worse than waiting with it full. Play testing disagreed.
+    /// A gauge that fills and stops asks for a duration, which means the player has to know how long
+    /// a given shot needs before they have ever fired one; a gauge that sweeps asks for a moment,
+    /// which is a thing anybody can aim at, and it comes round again if they miss it. Every power the
+    /// weapon has passes under the release point about once a second, so nothing is unreachable and
+    /// nothing has to be memorised.
     ///
     /// Polled rather than counted from key events, like the reset and the commit, because a held
-    /// button is one press and then silence. Clamped at full rather than cycling: overshooting a
-    /// charge you cannot see the end of is a worse deal than waiting a moment with it full.
+    /// button is one press and then silence.
     /// </remarks>
     public void HoldAim(double delta)
     {
@@ -492,16 +603,28 @@ public sealed class SeatPlanner
             return;
         }
 
-        AimHeld += delta / ChargeSeconds;
+        _swept += delta / ChargeSeconds;
 
-        if (AimHeld > 1)
-        {
-            AimHeld = 1;
-        }
+        // A triangle wave rather than a saw: back down the way it came, so the gauge is continuous
+        // and never snaps from full to empty. Two sweeps make a cycle.
+        double phase = _swept % 2;
+
+        AimHeld = phase <= 1 ? phase : 2 - phase;
     }
 
-    /// <summary>How long a full wind-up takes.</summary>
-    public const double ChargeSeconds = 1.2;
+    /// <summary>How far through the sweep the wind-up is, which unlike the gauge does not turn back.</summary>
+    private double _swept;
+
+    /// <summary>
+    /// How long one sweep of the gauge takes, from nothing to full.
+    /// </summary>
+    /// <remarks>
+    /// Slower than the 1.2 seconds it was, because the sweep now runs past the value you wanted
+    /// rather than stopping on it, and a fast sweep makes that a reflex test. A second and a half up
+    /// and the same back down is three seconds a cycle, which is slow enough to pick a moment out of
+    /// and quick enough that waiting for the next one is not a punishment.
+    /// </remarks>
+    public const double ChargeSeconds = 1.5;
 
     public void MoveAim(Vec2 at)
     {
@@ -539,6 +662,7 @@ public sealed class SeatPlanner
             Weapon));
 
         AimHeld = 0;
+        _swept = 0;
     }
 
     /// <summary>
@@ -580,6 +704,12 @@ public sealed class SeatPlanner
         {
             _uses.Add(use);
             Preview(use);
+            return;
+        }
+
+        // Out of uses and single-use: nothing to replace, and CanUseAgain has already refused this.
+        if (WeaponTable.UsesPerTurn(use.Weapon) <= 1)
+        {
             return;
         }
 
@@ -625,6 +755,10 @@ public sealed class SeatPlanner
 
             case WeaponId.Sandbag:
                 Walk?.DropSandbag();
+                break;
+
+            case WeaponId.Girder:
+                Walk?.LayGirder(use.AimDirection());
                 break;
 
             case WeaponId.GeyserCap:
@@ -729,6 +863,39 @@ public sealed class SeatPlanner
     /// </remarks>
     public Vec2 UsePosition(PlanAction use) =>
         Walk?.PositionAt(use.Tick) ?? Actor?.Position ?? Vec2.Zero;
+
+    /// <summary>
+    /// Whether the planned route comes close enough to a crate to claim it.
+    /// </summary>
+    /// <remarks>
+    /// Claiming works and is tested, and it happens when the round resolves, where the planning
+    /// screen cannot see it. So a player walked a mole onto a crate, watched nothing happen, and
+    /// reported that crates cannot be picked up: the mechanic was right and the feedback was absent.
+    ///
+    /// Read off the walk's own recorded path rather than by teaching the preview about crates, which
+    /// keeps it out of the simulation entirely. The path is every position the ghost occupied, so
+    /// touching a crate at any point of the route counts, which is exactly the rule resolution uses.
+    ///
+    /// It promises reach and not the prize. Two moles arriving on the same tick split a crate and
+    /// three tear it apart, and this cannot know what anybody else is planning.
+    /// </remarks>
+    public bool RouteReaches(Vec2 crate)
+    {
+        if (Walk is null)
+        {
+            return false;
+        }
+
+        foreach (Vec2 stood in Walk.Path)
+        {
+            if (Vec2.Distance(stood, crate) <= Crate.ReachRadius)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /// <summary>Whether a weapon leaves something on the ground worth marking on the plan.</summary>
     public static bool LeavesSomething(WeaponId weapon) =>
@@ -910,9 +1077,19 @@ public sealed class SeatPlanner
     }
 }
 
-/// <summary>The order weapons come round on the wheel.</summary>
+/// <summary>The order weapons come round on the wheels.</summary>
+/// <remarks>
+/// Two wheels rather than one. Sixteen weapons on a single strip meant scrolling past a girder to
+/// reach a grenade, and the two are not alternatives to each other: a turn gets one attack and one
+/// movement ability, so choosing between them is never the decision. One list of sixteen presented a
+/// choice the rules do not offer, and buried both halves of the choice they do.
+///
+/// Derived from the slot rather than listed twice, so a new weapon lands on the right wheel by
+/// saying what it is and nothing here has to be kept in step.
+/// </remarks>
 public static class Arsenal
 {
+
     public static readonly WeaponId[] Wheel =
     {
         WeaponId.ClodLobber,
@@ -926,9 +1103,42 @@ public static class Arsenal
         WeaponId.GeyserCap,
         WeaponId.BoomBeets,
         WeaponId.PowerClaws,
+        WeaponId.Girder,
         WeaponId.Sandbag,
         WeaponId.SpecialDelivery,
         WeaponId.MolyHandGrenade,
         WeaponId.GnomeMercy,
     };
+
+    /// <summary>The attack wheel, in wheel order.</summary>
+    /// <remarks>
+    /// Declared after the wheel it is derived from, and that is load bearing rather than tidy. Static
+    /// field initialisers run in declaration order, so with these above the wheel they ran while it
+    /// was still null and the whole class failed to initialise: the game came up with no arsenal at
+    /// all. Nothing in the type system prevents that, and no test caught it either, because the tests
+    /// touch the simulation and this list belongs to the client.
+    /// </remarks>
+    public static readonly WeaponId[] Attacks = Only(UseSlot.Attack);
+
+    /// <summary>The movement wheel, in wheel order.</summary>
+    public static readonly WeaponId[] Movements = Only(UseSlot.Movement);
+
+    /// <summary>Which wheel a weapon belongs to.</summary>
+    public static WeaponId[] For(UseSlot slot) =>
+        slot == UseSlot.Movement ? Movements : Attacks;
+
+    private static WeaponId[] Only(UseSlot slot)
+    {
+        List<WeaponId> picked = new List<WeaponId>();
+
+        foreach (WeaponId weapon in Wheel)
+        {
+            if (WeaponTable.SlotOf(weapon) == slot)
+            {
+                picked.Add(weapon);
+            }
+        }
+
+        return picked.ToArray();
+    }
 }
