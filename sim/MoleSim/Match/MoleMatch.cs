@@ -291,26 +291,7 @@ namespace MoleSim.Match
                 }
             }
 
-            if (CountOf(plan, PlanActionKind.Fire) > 1)
-            {
-                throw new InvalidPlanException("One shot per turn.");
-            }
-
-            // A plan naming something the platoon does not hold is an illegal input, not a
-            // world that changed underneath it, so it is refused rather than degraded. This is
-            // the whole anti-cheat story for v1: every client rejects the same bad inputs
-            // identically, so a client can submit rubbish but never a state nobody else has.
-            if (CountOf(plan, PlanActionKind.Fire) > 0 && !CanUse(plan.Seat, plan.Weapon))
-            {
-                throw new InvalidPlanException(
-                    $"Seat {plan.Seat} has no {plan.Weapon} left.");
-            }
-
-            if (CountOf(plan, PlanActionKind.Dynamite) > 0
-                && !CanUse(plan.Seat, WeaponId.BoomBeets))
-            {
-                throw new InvalidPlanException($"Seat {plan.Seat} has no Boom Beets left.");
-            }
+            CheckAllowances(plan);
 
             _plans[plan.Seat] = plan;
         }
@@ -484,8 +465,12 @@ namespace MoleSim.Match
             }
         }
 
-        private void Perform(PlanAction action, Mole actor, WeaponId weapon, RoundResult result)
+        private void Perform(PlanAction action, Mole actor, WeaponId planned, RoundResult result)
         {
+            // The use's own weapon, falling back to the plan's. A turn spending both its allowances
+            // names the second one on the action, because the plan has room for exactly one.
+            WeaponId weapon = action.Weapon == WeaponId.None ? planned : action.Weapon;
+
             switch (action.Kind)
             {
                 case PlanActionKind.Hop:
@@ -504,16 +489,6 @@ namespace MoleSim.Match
 
                     Spend(actor.Seat, weapon);
                     Use(actor, weapon, action, result);
-                    break;
-
-                case PlanActionKind.Dynamite:
-                    if (!CanUse(actor.Seat, WeaponId.BoomBeets))
-                    {
-                        break;
-                    }
-
-                    Spend(actor.Seat, WeaponId.BoomBeets);
-                    Plant(actor, WeaponId.BoomBeets);
                     break;
 
                 default:
@@ -1322,6 +1297,69 @@ namespace MoleSim.Match
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Checks a turn against its two allowances: one attack and one movement ability.
+        /// </summary>
+        /// <remarks>
+        /// This used to be a flat "one shot per turn", plus a separate action kind for planting the
+        /// Boom Beets which had no per-turn limit at all: a hand-built plan could plant as many as
+        /// the platoon held, because the loophole was invisible from a client that only ever offered
+        /// one. Both are now the same rule read twice, once per slot.
+        ///
+        /// One weapon per slot, so the three sandbags a turn allows are three sandbags and not a
+        /// sandbag, a grenade and a beet. Refused rather than degraded, like everything else here:
+        /// every client rejects the same bad input identically, so a client can submit rubbish but
+        /// never a state nobody else has.
+        /// </remarks>
+        private void CheckAllowances(Plan plan)
+        {
+            WeaponId[] chosen = new WeaponId[2];
+            int[] used = new int[2];
+
+            foreach (PlanAction action in plan.Actions)
+            {
+                if (action.Kind != PlanActionKind.Fire)
+                {
+                    continue;
+                }
+
+                WeaponId weapon = action.Weapon == WeaponId.None ? plan.Weapon : action.Weapon;
+                int slot = (int)WeaponTable.SlotOf(weapon);
+
+                if (chosen[slot] == WeaponId.None)
+                {
+                    chosen[slot] = weapon;
+                }
+                else if (chosen[slot] != weapon)
+                {
+                    throw new InvalidPlanException(
+                        $"A turn gets one {(UseSlot)slot} weapon, and this one names both "
+                        + $"{chosen[slot]} and {weapon}.");
+                }
+
+                used[slot]++;
+
+                if (used[slot] > WeaponTable.UsesPerTurn(weapon))
+                {
+                    throw new InvalidPlanException(
+                        $"{weapon} may be used {WeaponTable.UsesPerTurn(weapon)} time(s) per turn, "
+                        + $"and this turn uses it {used[slot]}.");
+                }
+
+                // Against the count rather than against one, because the uses in a turn spend the
+                // stock between them. Checking CanUse alone passed a turn of three sandbags held by
+                // a platoon with one, and the two it could not pay for were then dropped silently at
+                // resolution: graceful degradation of an illegal input, which is the one thing this
+                // validator exists to refuse.
+                if (!WeaponTable.IsUnlimited(weapon) && Stock(plan.Seat, weapon) < used[slot])
+                {
+                    throw new InvalidPlanException(
+                        $"Seat {plan.Seat} has {Stock(plan.Seat, weapon)} {weapon} "
+                        + $"and this turn uses {used[slot]}.");
+                }
+            }
         }
 
         private static int CountOf(Plan plan, PlanActionKind kind)

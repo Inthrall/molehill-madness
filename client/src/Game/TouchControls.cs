@@ -14,8 +14,9 @@ public enum TouchTarget
     /// <summary>Hold to aim, release to stamp the shot.</summary>
     Fire = 2,
 
-    /// <summary>The second charge, which does not spend the turn's shot.</summary>
-    Dynamite = 3,
+    // 3 was Dynamite, a button for planting the Boom Beets. The beets are on the wheel now, so the
+    // button is gone. The number is left vacant rather than reused, so nothing that persisted a
+    // target can come back meaning something else.
 
     /// <summary>Hold to tear the whole turn up.</summary>
     Reset = 4,
@@ -51,7 +52,6 @@ public enum TouchTarget
 public partial class TouchControls : Control
 {
     private Vector2 _fire;
-    private Vector2 _dynamite;
     private Vector2 _reset;
     private Vector2 _commit;
     private Vector2 _hop;
@@ -93,9 +93,11 @@ public partial class TouchControls : Control
         float right = screen.X - margin - _button;
         float bottom = screen.Y - margin - _button;
 
-        // Everything that fires or commits goes under the right thumb.
+        // Everything that fires or commits goes under the right thumb. There was a third button
+        // here for planting the Boom Beets, which existed only because firing meant aiming and
+        // winding up: a planted weapon now asks for a press like any other, so the beets are on the
+        // wheel and the corner is down to the two presses that are not a weapon choice.
         _fire = new Vector2(right, bottom);
-        _dynamite = new Vector2(right - (_button * 2.2f), bottom);
         _commit = new Vector2(right, bottom - (_button * 2.2f));
 
         // The stick takes the bottom left corner, where a thumb rests without being told to.
@@ -165,11 +167,6 @@ public partial class TouchControls : Control
         if (Within(at, _fire, _button))
         {
             return TouchTarget.Fire;
-        }
-
-        if (Within(at, _dynamite, _button))
-        {
-            return TouchTarget.Dynamite;
         }
 
         if (Within(at, _commit, _button))
@@ -243,7 +240,6 @@ public partial class TouchControls : Control
         DrawStick();
         DrawWheel();
         DrawButton(_fire, TouchTarget.Fire, _button);
-        DrawButton(_dynamite, TouchTarget.Dynamite, _button);
         DrawButton(_commit, TouchTarget.Commit, _button);
         DrawButton(_reset, TouchTarget.Reset, _small);
         DrawButton(_hop, TouchTarget.Hop, _small);
@@ -403,16 +399,20 @@ public partial class TouchControls : Control
         switch (target)
         {
             case TouchTarget.Fire:
-                Glyphs.Fire(this, at, glyph, Palette.Damage);
-                break;
+                // Dimmed when the slot is already holding a different weapon, which is the one case
+                // where pressing it does nothing: a full allowance still replaces its last use, so
+                // the button stays live for changing your mind.
+                Glyphs.Fire(
+                    this, at, glyph,
+                    planner.CanUseAgain ? Palette.Damage : Palette.OnPanelDim);
 
-            case TouchTarget.Dynamite:
-                // Dimmed when there are none left rather than hidden, so its absence is
-                // legible as "spent" rather than as a layout that moved.
-                Glyphs.Dynamite(
-                    this, at, glyph * 0.9f,
-                    planner.HasCharges ? Palette.OnPanel : Palette.OnPanelDim);
-                DrawCount(at, radius, planner.Stock(WeaponId.BoomBeets), Palette.OnPanel);
+                // How many uses are left, for the two weapons that get more than one. A single-use
+                // weapon showing a permanent 1 would be noise.
+                if (WeaponTable.UsesPerTurn(planner.Weapon) > 1)
+                {
+                    DrawCount(at, radius, planner.UsesLeft, Palette.OnPanel);
+                }
+
                 break;
 
             case TouchTarget.Commit:

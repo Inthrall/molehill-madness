@@ -66,19 +66,126 @@ public sealed class SeatPlanner
     /// <summary>How many of a weapon this platoon has, or -1 for unlimited.</summary>
     public int Stock(WeaponId weapon) => _match.Stock(Seat, weapon);
 
-    /// <summary>Whether the charge button has anything left to plant.</summary>
-    public bool HasCharges => _match.CanUse(Seat, WeaponId.BoomBeets);
+    /// <summary>
+    /// Every weapon use booked this turn, in the order they will happen.
+    /// </summary>
+    /// <remarks>
+    /// A list rather than the single Shot this replaced, because a turn now has two allowances
+    /// rather than one shot: an attack and a movement ability, and the things you build with may be
+    /// used more than once inside their own allowance.
+    ///
+    /// The Boom Beets used to live outside this entirely, as a separate action with its own button
+    /// and its own field, because firing meant aiming and winding up and neither means anything for
+    /// something dropped at your feet. Planted weapons now ask for a press and nothing else, so the
+    /// beets are an ordinary use of an ordinary weapon and the button and the field are both gone.
+    /// </remarks>
+    public IReadOnlyList<PlanAction> Uses => _uses;
 
-    public PlanAction? Shot { get; private set; }
+    private readonly List<PlanAction> _uses = new List<PlanAction>(4);
+
+    /// <summary>The turn's attack, if one has been booked.</summary>
+    public PlanAction? Shot => Booked(UseSlot.Attack);
+
+    /// <summary>Which weapon is booked into a slot, or None if the slot is still free.</summary>
+    public WeaponId BookedIn(UseSlot slot)
+    {
+        foreach (PlanAction use in _uses)
+        {
+            if (WeaponTable.SlotOf(WeaponOf(use)) == slot)
+            {
+                return WeaponOf(use);
+            }
+        }
+
+        return WeaponId.None;
+    }
+
+    /// <summary>How many times a slot has been spent this turn.</summary>
+    public int SpentIn(UseSlot slot)
+    {
+        int spent = 0;
+
+        foreach (PlanAction use in _uses)
+        {
+            if (WeaponTable.SlotOf(WeaponOf(use)) == slot)
+            {
+                spent++;
+            }
+        }
+
+        return spent;
+    }
 
     /// <summary>
-    /// The Boom Beets, planted at the mole's feet. Does not spend the turn's shot, which is
-    /// the whole reason the design gives it a button of its own.
+    /// Whether the selected weapon could be used once more this turn.
     /// </summary>
-    public PlanAction? Charge { get; private set; }
+    /// <remarks>
+    /// The same three questions the simulation asks when it validates the plan, asked here so the
+    /// fire button can go grey instead of the plan being refused after the fact. Stock, the slot not
+    /// already holding a different weapon, and the weapon's own per-turn allowance.
+    /// </remarks>
+    public bool CanUseAgain
+    {
+        get
+        {
+            if (!IsPlanning || !_match.CanUse(Seat, Weapon))
+            {
+                return false;
+            }
 
-    /// <summary>Where the charge was planted, which is not where the mole ends up.</summary>
-    public Vec2 ChargeAt { get; private set; }
+            // The slot is not already holding something else. A full allowance is still usable,
+            // because pressing again replaces rather than refuses, so this is about which weapon
+            // owns the slot and not about how many times it has been used.
+            WeaponId booked = BookedIn(WeaponTable.SlotOf(Weapon));
+
+            return booked == WeaponId.None || booked == Weapon;
+        }
+    }
+
+    /// <summary>How many more times the selected weapon could be used before it starts replacing.</summary>
+    public int UsesLeft
+    {
+        get
+        {
+            UseSlot slot = WeaponTable.SlotOf(Weapon);
+            int allowance = WeaponTable.UsesPerTurn(Weapon);
+            int stock = Stock(Weapon);
+
+            if (stock >= 0 && stock < allowance)
+            {
+                allowance = stock;
+            }
+
+            int left = allowance - SpentIn(slot);
+
+            return left < 0 ? 0 : left;
+        }
+    }
+
+    private PlanAction? Booked(UseSlot slot)
+    {
+        foreach (PlanAction use in _uses)
+        {
+            if (WeaponTable.SlotOf(WeaponOf(use)) == slot)
+            {
+                return use;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Which weapon a booked use is of.
+    /// </summary>
+    /// <remarks>
+    /// Every use this class books names its own weapon, so the fallback is only ever reached by a
+    /// plan built somewhere else. It has to be that way round: resolving None against whatever is
+    /// currently on the wheel would re-label a booked shot every time the player turned the wheel to
+    /// look at something, and a Clod Lobber already thrown would become a use of the Power Claws.
+    /// </remarks>
+    private WeaponId WeaponOf(PlanAction use) =>
+        use.Weapon == WeaponId.None ? Weapon : use.Weapon;
 
     /// <summary>Whether an aim is being dragged out right now.</summary>
     public bool Aiming { get; private set; }
@@ -149,8 +256,7 @@ public sealed class SeatPlanner
     {
         Actor = null;
         Walk = null;
-        Shot = null;
-        Charge = null;
+        _uses.Clear();
         _hops.Clear();
         Aiming = false;
         Committed = false;
@@ -204,6 +310,25 @@ public sealed class SeatPlanner
                 return;
             }
         }
+    }
+
+    /// <summary>
+    /// Loads a weapon outright, if the platoon holds it.
+    /// </summary>
+    /// <remarks>
+    /// The wheel steps one place at a time, which is right for a thumb and useless to a driver that
+    /// knows what it wants. Refused rather than forced when the platoon has none, so a caller cannot
+    /// arm something the plan would then be rejected for naming.
+    /// </remarks>
+    public bool Select(WeaponId weapon)
+    {
+        if (Committed || !_match.CanUse(Seat, weapon))
+        {
+            return false;
+        }
+
+        Weapon = weapon;
+        return true;
     }
 
     /// <summary>Everything this platoon could pick right now, in wheel order.</summary>
@@ -296,7 +421,10 @@ public sealed class SeatPlanner
 
     public void BeginAim(Vec2 at)
     {
-        if (!IsPlanning)
+        // Refused up front rather than at the release. Letting an aim be dragged out and then
+        // dropped on the floor is the silent failure this class goes out of its way to avoid
+        // everywhere else, and the only case left is a slot already holding a different weapon.
+        if (!IsPlanning || !CanUseAgain)
         {
             return;
         }
@@ -306,7 +434,7 @@ public sealed class SeatPlanner
         // the Sandbag would appear to be a weapon you could throw further by leaning on the button.
         if (Style == AimStyle.Press)
         {
-            Shot = PlanAction.Fire(Now(), Heading(), byte.MaxValue);
+            Book(PlanAction.Fire(Now(), Heading(), byte.MaxValue, Weapon));
             return;
         }
 
@@ -397,9 +525,10 @@ public sealed class SeatPlanner
 
         // A swing and a drill have exactly one strength, so they leave at full rather than at
         // whatever the thumb happened to have accumulated on the way to choosing a direction.
-        Shot = PlanAction.Fire(
+        Book(PlanAction.Fire(
             Now(), aim,
-            Style == AimStyle.DirectionAndPower ? PowerFor(AimHeld) : byte.MaxValue);
+            Style == AimStyle.DirectionAndPower ? PowerFor(AimHeld) : byte.MaxValue,
+            Weapon));
 
         AimHeld = 0;
     }
@@ -423,6 +552,42 @@ public sealed class SeatPlanner
 
     /// <summary>The softest a shot can be thrown. A dropped clod is still a throw.</summary>
     private const int WeakestThrow = 20;
+
+    /// <summary>
+    /// Books a weapon use, if the turn has an allowance left for it.
+    /// </summary>
+    /// <remarks>
+    /// Checked here rather than left to the simulation. A plan that breaks an allowance is refused
+    /// outright when it is submitted, which from the player's side is the turn silently failing at
+    /// the moment they can no longer do anything about it. The button greys out instead.
+    /// </remarks>
+    private void Book(PlanAction use)
+    {
+        if (!CanUseAgain)
+        {
+            return;
+        }
+
+        if (UsesLeft > 0)
+        {
+            _uses.Add(use);
+            return;
+        }
+
+        // The allowance is full, so this replaces the most recent use of the slot rather than being
+        // dropped. Changing your mind while the clock is still running has always been free here:
+        // aiming again used to simply overwrite the turn's one shot, and losing that to the new list
+        // would mean a misjudged throw could only be undone by spending a reset token on the whole
+        // turn. Replacing the last one covers both shapes, the single shot and the third sandbag.
+        for (int index = _uses.Count - 1; index >= 0; index--)
+        {
+            if (WeaponTable.SlotOf(WeaponOf(_uses[index])) == WeaponTable.SlotOf(use.Weapon))
+            {
+                _uses[index] = use;
+                return;
+            }
+        }
+    }
 
     /// <summary>Which way the shot points, or nothing when there is no shot to point.</summary>
     public Vec2 AimHeading
@@ -457,37 +622,6 @@ public sealed class SeatPlanner
     /// <summary>
     /// Plants the charge where the mole is standing, or picks it back up.
     /// </summary>
-    /// <remarks>
-    /// A toggle rather than a one-way commitment, because it costs nothing to change your mind
-    /// while the turn is still being walked and the reset token is far too precious to spend on
-    /// a misplaced beet.
-    ///
-    /// Booked at the moment it is pressed rather than at the end of the route, which steering
-    /// makes possible and drawing did not: walk in, drop it, walk out, and the plan holds all
-    /// three. Plant, run, regret, in that order.
-    /// </remarks>
-    public void PlantCharge()
-    {
-        if (!IsPlanning)
-        {
-            return;
-        }
-
-        if (Charge is not null)
-        {
-            Charge = null;
-            return;
-        }
-
-        if (!HasCharges)
-        {
-            return;
-        }
-
-        Charge = PlanAction.Dynamite(Now());
-        ChargeAt = PlannedPosition;
-    }
-
     // ---- Hopping ---------------------------------------------------------------------
 
     /// <summary>
@@ -635,8 +769,7 @@ public sealed class SeatPlanner
 
     private void Discard()
     {
-        Shot = null;
-        Charge = null;
+        _uses.Clear();
         _hops.Clear();
         Aiming = false;
         _tickDebt = 0;
@@ -699,15 +832,7 @@ public sealed class SeatPlanner
         List<PlanAction> actions = new List<PlanAction>(MaxHops + 3);
         actions.AddRange(_hops);
 
-        if (Charge is not null)
-        {
-            actions.Add(Charge.Value);
-        }
-
-        if (Shot is not null)
-        {
-            actions.Add(Shot.Value);
-        }
+        actions.AddRange(_uses);
 
         return new Plan(Seat, Actor.Index, Weapon, route, actions.ToArray());
     }
@@ -727,6 +852,7 @@ public static class Arsenal
         WeaponId.SnapTrap,
         WeaponId.RootSnare,
         WeaponId.GeyserCap,
+        WeaponId.BoomBeets,
         WeaponId.PowerClaws,
         WeaponId.Sandbag,
         WeaponId.SpecialDelivery,

@@ -39,12 +39,12 @@ public sealed class AutoPilot
     /// </remarks>
     public sealed class Intent
     {
-        public Intent(List<Vec2> route, Vec2 aimAt, double power, bool plantCharge, bool hop)
+        public Intent(List<Vec2> route, Vec2 aimAt, double power, WeaponId weapon, bool hop)
         {
             Route = route;
             AimAt = aimAt;
             Power = power;
-            PlantCharge = plantCharge;
+            Weapon = weapon;
             Hop = hop;
         }
 
@@ -55,8 +55,16 @@ public sealed class AutoPilot
 
         public Vec2 AimAt { get; }
 
-        /// <summary>Whether to leave a beet behind, which it does when the quarry is close.</summary>
-        public bool PlantCharge { get; }
+        /// <summary>
+        /// Which weapon to arm, or None to use whatever is loaded.
+        /// </summary>
+        /// <remarks>
+        /// This used to be a plant-a-beet flag, because planting was an action of its own with its
+        /// own button. Now that the beets are an ordinary weapon, wanting to plant one is wanting to
+        /// hold one, and saying so as a weapon rather than as a button keeps the driver able to
+        /// express anything a player could.
+        /// </remarks>
+        public WeaponId Weapon { get; }
 
         /// <summary>Whether to book a hop partway along the route.</summary>
         public bool Hop { get; }
@@ -96,7 +104,7 @@ public sealed class AutoPilot
             // the driver never exercises the firing path at all.
             return new Intent(
                 route, actor.Position + new Vec2(Fix64.One, -Fix64.One),
-                power: 0.5, plantCharge: false, hop: hop);
+                power: 0.5, weapon: WeaponId.None, hop: hop);
         }
 
         bool rightward = quarry.Position.X > actor.Position.X;
@@ -124,12 +132,14 @@ public sealed class AutoPilot
         // everything at the same strength.
         Fix64 reach = Fix64.Ratio((int)(AimReach * Diagonal * 256), 256);
 
-        // Leave a beet behind when the quarry is close enough for it to matter. Crude, and
-        // frequently suicidal, which is a fair imitation of how it gets used.
-        bool plant = Vec2.Distance(quarry.Position, from) < Fix64.FromInt(6);
+        // Reach for the beets when the quarry is close enough for them to matter. Crude, and
+        // frequently suicidal, which is a fair imitation of how they get used.
+        WeaponId armed = Vec2.Distance(quarry.Position, from) < Fix64.FromInt(6)
+            ? WeaponId.BoomBeets
+            : WeaponId.None;
 
         return new Intent(
-            route, new Vec2(from.X + (sign * reach), from.Y - reach), power, plant, hop);
+            route, new Vec2(from.X + (sign * reach), from.Y - reach), power, armed, hop);
     }
 
     /// <summary>Must match the distance the planning screen puts an aim point at.</summary>

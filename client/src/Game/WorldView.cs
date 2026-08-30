@@ -1820,18 +1820,11 @@ public partial class WorldView : Control
             Glyphs.Hop(this, at, marker * 0.52f, new Color(seat, 0.85f));
         }
 
-        // The charge, where it was dropped rather than where the mole has since walked to.
-        // Plant, run, regret, and knowing exactly where you left it is the whole difference
-        // between the first two and the third.
-        if (planner.Charge is not null)
-        {
-            Vector2 planted = ToPixels(planner.ChargeAt) + new Vector2(0, radius * 0.6f);
-
-            Glyphs.Dynamite(this, planted, radius * 1.6f, Palette.Damage);
-            DrawArc(
-                planted, (float)WeaponTable.Of(WeaponId.BoomBeets).BlastRadius.ToDecimal() * _scale,
-                0, Mathf.Tau, 40, new Color(Palette.Damage, 0.28f), 2f);
-        }
+        // The charge used to be drawn here, with a ring around it the size of its blast. Both are
+        // gone: the beets are an ordinary weapon on the wheel now, so a planted one appears as the
+        // placement it is, and a blast ring drawn at planning time was answering a question nobody
+        // asked. Nothing else in the arsenal advertises its radius before it goes off, and the ring
+        // was the largest mark on the map for the smallest reason.
 
         DrawAim(planner);
     }

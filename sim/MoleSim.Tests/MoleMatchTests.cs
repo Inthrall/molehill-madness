@@ -154,7 +154,76 @@ public sealed class MoleMatchTests
         });
 
         InvalidPlanException error = Assert.Throws<InvalidPlanException>(() => match.SubmitPlan(greedy))!;
-        Assert.That(error.Message, Does.Contain("One shot per turn"));
+        Assert.That(error.Message, Does.Contain("may be used 1 time(s) per turn"));
+    }
+
+    /// <summary>
+    /// A turn may spend both its allowances: one attack and one movement ability.
+    /// </summary>
+    /// <remarks>
+    /// The point of the whole arrangement. A mole choosing between getting somewhere and hurting
+    /// somebody does the same dull sum every turn; one that may do both has to decide the order,
+    /// which is where the interesting decisions were hiding.
+    /// </remarks>
+    [Test]
+    public void AShotAndAMovementAbilityFitInOneTurn()
+    {
+        MoleMatch match = NewMatch();
+        Plan both = new Plan(0, 0, WeaponId.ClodLobber, System.Array.Empty<RoutePoint>(), new[]
+        {
+            PlanAction.Fire(10, Vec2.UnitX, 200),
+            PlanAction.Fire(20, Vec2.UnitX, 0, WeaponId.PowerClaws),
+        });
+
+        Assert.DoesNotThrow(() => match.SubmitPlan(both));
+    }
+
+    [Test]
+    public void TwoMovementAbilitiesInOneTurnAreRefused()
+    {
+        MoleMatch match = NewMatch();
+        Plan greedy = new Plan(0, 0, WeaponId.ClodLobber, System.Array.Empty<RoutePoint>(), new[]
+        {
+            PlanAction.Fire(10, Vec2.UnitX, 0, WeaponId.PowerClaws),
+            PlanAction.Fire(40, Vec2.UnitX, 0, WeaponId.TunnelTorpedo),
+        });
+
+        InvalidPlanException error = Assert.Throws<InvalidPlanException>(() => match.SubmitPlan(greedy))!;
+        Assert.That(error.Message, Does.Contain("one Movement weapon"));
+    }
+
+    /// <summary>
+    /// The two things you build with may be used more than once, and not more than their allowance.
+    /// </summary>
+    /// <remarks>
+    /// A single sandbag is a bump in the ground; three are a step worth crossing the map for. The
+    /// fourth is refused, so the allowance is a rule rather than a suggestion.
+    /// </remarks>
+    [TestCase(WeaponId.Sandbag, 3, true)]
+    [TestCase(WeaponId.Sandbag, 4, false)]
+    [TestCase(WeaponId.BoomBeets, 2, true)]
+    [TestCase(WeaponId.BoomBeets, 3, false)]
+    [TestCase(WeaponId.ClodLobber, 2, false)]
+    public void ThingsYouBuildWithGetMoreThanOneUse(WeaponId weapon, int uses, bool allowed)
+    {
+        MoleMatch match = NewMatch();
+        PlanAction[] actions = new PlanAction[uses];
+
+        for (int use = 0; use < uses; use++)
+        {
+            actions[use] = PlanAction.Fire(10 + (use * 10), Vec2.UnitX, 0, weapon);
+        }
+
+        Plan plan = new Plan(0, 0, weapon, System.Array.Empty<RoutePoint>(), actions);
+
+        if (allowed)
+        {
+            Assert.DoesNotThrow(() => match.SubmitPlan(plan));
+        }
+        else
+        {
+            Assert.Throws<InvalidPlanException>(() => match.SubmitPlan(plan));
+        }
     }
 
     [Test]
@@ -257,7 +326,7 @@ public sealed class MoleMatchTests
 
         match.SubmitPlan(new Plan(0, 0, WeaponId.BoomBeets, System.Array.Empty<RoutePoint>(), new[]
         {
-            PlanAction.Dynamite(2),
+            PlanAction.Fire(2, Vec2.UnitX, 0),
         }));
         match.SubmitPlan(Plan.Idle(1, 0));
 

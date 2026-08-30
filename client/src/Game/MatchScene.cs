@@ -220,7 +220,6 @@ public partial class MatchScene : Node2D
 
         _shoulderHeldUp = new bool[_players];
         _shoulderHeldDown = new bool[_players];
-        _plantHeld = new bool[_players];
         _hopHeld = new bool[_players];
         _jumpHeld = new bool[_players];
         _driven = new bool[_players];
@@ -1953,11 +1952,6 @@ public partial class MatchScene : Node2D
                 planner?.ReleaseAim();
                 break;
 
-            case TouchTarget.Dynamite:
-                planner?.PlantCharge();
-                Click();
-                break;
-
             case TouchTarget.Wheel:
                 SnapWheel(planner);
                 break;
@@ -2419,11 +2413,6 @@ public partial class MatchScene : Node2D
                 Click();
                 break;
 
-            case Key.F:
-                planner?.PlantCharge();
-                Click();
-                break;
-
             case Key.C:
                 RecentreViews();
                 break;
@@ -2564,14 +2553,6 @@ public partial class MatchScene : Node2D
             planner.Commit();
         }
 
-        bool planting = Input.IsJoyButtonPressed(pad, JoyButton.X);
-
-        if (planting && !_plantHeld[seat])
-        {
-            planner.PlantCharge();
-        }
-
-        _plantHeld[seat] = planting;
 
         bool hopping = Input.IsJoyButtonPressed(pad, JoyButton.Y);
 
@@ -2612,7 +2593,6 @@ public partial class MatchScene : Node2D
     // and a field initialiser cannot see another field.
     private bool[] _shoulderHeldUp = System.Array.Empty<bool>();
     private bool[] _shoulderHeldDown = System.Array.Empty<bool>();
-    private bool[] _plantHeld = System.Array.Empty<bool>();
     private bool[] _hopHeld = System.Array.Empty<bool>();
 
     /// <summary>Held state for up-as-jump, kept apart from the hop key's own.</summary>
@@ -2698,14 +2678,16 @@ public partial class MatchScene : Node2D
             // Through the same door a player uses: begin, hold, release. Handed the whole wind-up
             // in one delta rather than a frame at a time, because the driver plans a turn inside a
             // single frame and HoldAim clamps at full anyway.
+            // Armed first, because what the weapon is decides whether aiming and winding up mean
+            // anything: a planted weapon is used by BeginAim alone.
+            if (intent.Weapon != WeaponId.None)
+            {
+                planner.Select(intent.Weapon);
+            }
+
             planner.BeginAim(intent.AimAt);
             planner.HoldAim(intent.Power * SeatPlanner.ChargeSeconds);
             planner.ReleaseAim();
-
-            if (intent.PlantCharge)
-            {
-                planner.PlantCharge();
-            }
 
             _driven[planner.Seat] = true;
             walked = true;

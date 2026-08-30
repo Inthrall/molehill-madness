@@ -19,7 +19,11 @@ public sealed class PlanCodecTests
         {
             PlanAction.Hop(18),
             PlanAction.Fire(96, new Vec2(Fix64.FromInt(3), -Fix64.FromInt(2)), 200),
-            PlanAction.Dynamite(150),
+
+            // A use that names its own weapon rather than the plan's, so the round trip is
+            // exercised on the field that carries it.
+            PlanAction.Fire(
+                150, new Vec2(-Fix64.One, Fix64.Zero), 40, WeaponId.PowerClaws),
             PlanAction.Hop(200),
         };
 

@@ -23,7 +23,7 @@ namespace MoleSim.Match
 
         private const int RoutePointBytes = 4;
 
-        private const int ActionBytes = 8;
+        private const int ActionBytes = 9;
 
         /// <summary>Sanity ceiling, so a corrupt length cannot ask for a huge allocation.</summary>
         private const int MaxRoutePoints = 4096;
@@ -60,6 +60,7 @@ namespace MoleSim.Match
             {
                 WriteUInt16(buffer, ref at, action.Tick);
                 buffer[at++] = (byte)action.Kind;
+                buffer[at++] = (byte)action.Weapon;
                 buffer[at++] = action.Power;
                 WriteInt16(buffer, ref at, action.AimX);
                 WriteInt16(buffer, ref at, action.AimY);
@@ -121,11 +122,13 @@ namespace MoleSim.Match
             {
                 ushort tick = ReadUInt16(bytes, ref at);
                 PlanActionKind kind = (PlanActionKind)bytes[at++];
+                WeaponId actionWeapon = (WeaponId)bytes[at++];
                 byte power = bytes[at++];
                 short aimX = ReadInt16(bytes, ref at);
                 short aimY = ReadInt16(bytes, ref at);
 
-                actions[index] = PlanAction.FromWire(tick, kind, aimX, aimY, power);
+                actions[index] = PlanAction.FromWire(
+                    tick, kind, aimX, aimY, power, actionWeapon);
             }
 
             return new Plan(seat, moleIndex, weapon, route, actions);

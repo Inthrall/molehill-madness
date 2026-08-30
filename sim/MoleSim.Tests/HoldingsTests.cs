@@ -148,15 +148,61 @@ public sealed class HoldingsTests
         });
     }
 
+    /// <summary>
+    /// A turn cannot use more of something than the platoon is holding, even inside its allowance.
+    /// </summary>
+    /// <remarks>
+    /// The two limits are separate and both apply. Sandbags may be used three times in a turn and a
+    /// platoon starts with three, so the allowance is only reachable while the stock is untouched;
+    /// spend one and the allowance quietly becomes two.
+    ///
+    /// Refused rather than trimmed. Checking that the platoon holds at least one, which is what this
+    /// used to do, passed a turn of three sandbags from a platoon with two and then dropped the third
+    /// without comment when it came to resolve: an illegal plan, degraded instead of rejected, which
+    /// is the one thing the validator exists to prevent.
+    /// </remarks>
     [Test]
-    public void PlantingACharaeUsesUpABoomBeet()
+    public void ATurnCannotUseMoreThanThePlatoonHolds()
+    {
+        MoleMatch match = NewMatch();
+
+        // One sandbag spent in an earlier round, leaving two.
+        match.SubmitPlan(new Plan(
+            0, 0, WeaponId.Sandbag, Array.Empty<RoutePoint>(),
+            new[] { PlanAction.Fire(3, Vec2.UnitX, 0, WeaponId.Sandbag) }));
+        match.SubmitPlan(Plan.Idle(1, 0));
+        match.ResolveRound();
+
+        Assert.That(match.Stock(0, WeaponId.Sandbag), Is.EqualTo(2), "the earlier round did not spend one");
+
+        // The next mole in the cycle, because the first has had its turn. Stock belongs to the
+        // platoon rather than to the mole, so the shortage carries over.
+        Plan greedy = new Plan(
+            0, 1, WeaponId.Sandbag, Array.Empty<RoutePoint>(),
+            new[]
+            {
+                PlanAction.Fire(3, Vec2.UnitX, 0, WeaponId.Sandbag),
+                PlanAction.Fire(6, Vec2.UnitX, 0, WeaponId.Sandbag),
+                PlanAction.Fire(9, Vec2.UnitX, 0, WeaponId.Sandbag),
+            });
+
+        InvalidPlanException error = Assert.Throws<InvalidPlanException>(
+            () => match.SubmitPlan(greedy))!;
+
+        Assert.That(error.Message, Does.Contain("and this turn uses 3"));
+    }
+
+    [Test]
+    public void PlantingAChargeUsesUpABoomBeet()
     {
         MoleMatch match = NewMatch();
         int before = match.Stock(0, WeaponId.BoomBeets);
 
+        // Named on the action rather than loaded on the plan, which is how the beets are reached
+        // now that planting is an ordinary use rather than an action kind of its own.
         match.SubmitPlan(new Plan(
             0, 0, WeaponId.ClodLobber, Array.Empty<RoutePoint>(),
-            new[] { PlanAction.Dynamite(4) }));
+            new[] { PlanAction.Fire(4, Vec2.UnitX, 0, WeaponId.BoomBeets) }));
         match.SubmitPlan(Plan.Idle(1, 0));
         match.ResolveRound();
 

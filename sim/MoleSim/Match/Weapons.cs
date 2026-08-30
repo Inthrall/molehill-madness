@@ -116,6 +116,29 @@ namespace MoleSim.Match
         DirectionAndPower = 2,
     }
 
+    /// <summary>
+    /// Which of a turn's two allowances a weapon spends.
+    /// </summary>
+    /// <remarks>
+    /// A turn is one attack and one movement ability, which is the shape the genre settled on
+    /// decades ago and for a good reason: a mole that must choose between getting somewhere and
+    /// hurting somebody spends every turn on the same dull sum, and one that may do both has a
+    /// reason to think about the order.
+    ///
+    /// Only the two that exist for getting about are here. The Power Claws sharpen the mole's own
+    /// claws and do nothing to anybody, and the Tunnel Torpedo is the game's own verb with a motor
+    /// on it. The Sandbag and the Geyser Cap were both considered and left as attacks: a bag of soil
+    /// is terrain you can drop on a head, and a capped vent is a trap whenever it is not under you.
+    /// </remarks>
+    public enum UseSlot : byte
+    {
+        /// <summary>The turn's shot.</summary>
+        Attack = 0,
+
+        /// <summary>The turn's way of getting somewhere.</summary>
+        Movement = 1,
+    }
+
     /// <summary>What a weapon does. One row per weapon, and the balance lives here.</summary>
     public readonly struct WeaponSpec
     {
@@ -257,6 +280,43 @@ namespace MoleSim.Match
         public static WeaponSpec Of(WeaponId weapon) => Specs[(int)weapon];
 
         public static WeaponKind KindOf(WeaponId weapon) => Specs[(int)weapon].Kind;
+
+        /// <summary>
+        /// Which of the turn's two allowances this weapon spends.
+        /// </summary>
+        /// <remarks>
+        /// Named rather than derived. Nothing in the spec table says whether a thing is for getting
+        /// about, and a rule guessed from the numbers would put the Tunnel Torpedo, which does
+        /// twenty-five damage, in with the grenades.
+        /// </remarks>
+        public static UseSlot SlotOf(WeaponId weapon) => weapon switch
+        {
+            WeaponId.PowerClaws => UseSlot.Movement,
+            WeaponId.TunnelTorpedo => UseSlot.Movement,
+            _ => UseSlot.Attack,
+        };
+
+        /// <summary>
+        /// How many times one mole may use this weapon in one turn.
+        /// </summary>
+        /// <remarks>
+        /// One, for everything that goes off. Two exceptions, and both are things you build with
+        /// rather than fire: a single sandbag is a bump in the ground and three are a step or a wall
+        /// worth crossing the map for, and a pair of beets is a corner denied rather than one
+        /// unlucky tile.
+        ///
+        /// Set to the starting stock in both cases, so a fresh platoon can spend a whole allowance
+        /// in one turn and no allowance promises more uses than the arsenal ever hands out. Stock is
+        /// a separate limit and is checked separately: using the allowance up costs the same as
+        /// spreading it over three turns, and what it buys is doing it before somebody walks past
+        /// rather than after.
+        /// </remarks>
+        public static int UsesPerTurn(WeaponId weapon) => weapon switch
+        {
+            WeaponId.Sandbag => 3,
+            WeaponId.BoomBeets => 2,
+            _ => 1,
+        };
 
         /// <summary>
         /// What the player has to supply before this weapon can be used.

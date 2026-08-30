@@ -19,7 +19,14 @@ namespace MoleSim.Match
     public sealed class Plan
     {
         /// <summary>Bumped whenever the wire format changes. Old clients reject newer plans loudly.</summary>
-        public const byte FormatVersion = 1;
+        /// <summary>
+        /// Bumped to 2 when a use gained its own weapon, which added a byte to every action.
+        /// </summary>
+        /// <remarks>
+        /// A newer version is refused loudly rather than read hopefully, so a build that speaks 1
+        /// and a build that speaks 2 will not silently agree on a plan they read differently.
+        /// </remarks>
+        public const byte FormatVersion = 2;
 
         public Plan(int seat, int moleIndex, WeaponId weapon, RoutePoint[] route, PlanAction[] actions)
         {
@@ -115,11 +122,16 @@ namespace MoleSim.Match
         // is simply nothing to press for it. The number is left vacant rather than reused so the
         // wire encoding of everything else is untouched.
 
-        /// <summary>The turn's single shot, stamped where the mole has been steered to.</summary>
+        /// <summary>A use of a weapon, stamped where the mole has been steered to.</summary>
         Fire = 2,
 
-        /// <summary>Plant the Boom Beets, which does not spend the turn's shot.</summary>
-        Dynamite = 3,
+        // 3 was Dynamite: plant the Boom Beets, outside the turn's shot and with no per-turn limit
+        // of its own. It existed because firing meant aiming and winding up, which is nonsense for
+        // something dropped at your feet, so planting was given its own action and its own button
+        // rather than a place on the wheel. Both problems are now solved where they belong: a
+        // planted weapon asks for a press and nothing else, and the beets are on the wheel with
+        // everything else. The number is left vacant rather than reused, like Brace above, so the
+        // wire encoding of the rest is untouched.
     }
 
     /// <summary>One scheduled action.</summary>
@@ -133,13 +145,15 @@ namespace MoleSim.Match
         /// <summary>Fixed-point scale for the stored aim components.</summary>
         public const int AimScale = 4096;
 
-        private PlanAction(int tick, PlanActionKind kind, short aimX, short aimY, byte power)
+        private PlanAction(
+            int tick, PlanActionKind kind, short aimX, short aimY, byte power, WeaponId weapon)
         {
             Tick = (ushort)tick;
             Kind = kind;
             AimX = aimX;
             AimY = aimY;
             Power = power;
+            Weapon = weapon;
         }
 
         /// <summary>When in the round it happens, in ticks from the start.</summary>
@@ -156,21 +170,39 @@ namespace MoleSim.Match
         public byte Power { get; }
 
         /// <summary>
+        /// Which weapon this use is of, or None to mean the plan's own weapon.
+        /// </summary>
+        /// <remarks>
+        /// A turn is one attack and one movement ability, so a plan can name two weapons and the
+        /// plan's single Weapon field cannot carry both. Rather than a second field on the plan,
+        /// which would fix the shape at exactly two for ever, a use says what it is a use of.
+        ///
+        /// None meaning "the plan's weapon" is what keeps every existing plan valid and every
+        /// existing caller compiling: the ordinary case, a turn that fires the loaded weapon once,
+        /// writes nothing here and behaves exactly as it did.
+        /// </remarks>
+        public WeaponId Weapon { get; }
+
+        /// <summary>
         /// Rebuilds an action from its stored fields. For the codec only: everything else
         /// should go through the named factories so an aim is always normalised.
         /// </summary>
         internal static PlanAction FromWire(
-            ushort tick, PlanActionKind kind, short aimX, short aimY, byte power) =>
-            new PlanAction(tick, kind, aimX, aimY, power);
+            ushort tick, PlanActionKind kind, short aimX, short aimY, byte power, WeaponId weapon) =>
+            new PlanAction(tick, kind, aimX, aimY, power, weapon);
 
         public static PlanAction Hop(int tick) =>
-            new PlanAction(tick, PlanActionKind.Hop, 0, 0, 0);
+            new PlanAction(tick, PlanActionKind.Hop, 0, 0, 0, WeaponId.None);
 
-        public static PlanAction Dynamite(int tick) =>
-            new PlanAction(tick, PlanActionKind.Dynamite, 0, 0, 0);
-
-        /// <summary>Stamps the turn's shot: a direction, a power and a moment.</summary>
-        public static PlanAction Fire(int tick, Vec2 aim, byte power)
+        /// <summary>
+        /// Stamps a use of a weapon: a direction, a power and a moment.
+        /// </summary>
+        /// <param name="weapon">
+        /// Which weapon, or None to use the plan's own. Only a turn spending both its allowances
+        /// needs to say, and then only for the second of them.
+        /// </param>
+        public static PlanAction Fire(
+            int tick, Vec2 aim, byte power, WeaponId weapon = WeaponId.None)
         {
             Vec2 unit = aim.Normalised();
 
@@ -179,7 +211,8 @@ namespace MoleSim.Match
                 PlanActionKind.Fire,
                 (short)Fix64.ToInt(unit.X * Fix64.FromInt(AimScale)),
                 (short)Fix64.ToInt(unit.Y * Fix64.FromInt(AimScale)),
-                power);
+                power,
+                weapon);
         }
 
         /// <summary>Aim as a direction, normalised so a rounded encoding still launches true.</summary>
@@ -204,13 +237,16 @@ namespace MoleSim.Match
             && Kind == other.Kind
             && AimX == other.AimX
             && AimY == other.AimY
-            && Power == other.Power;
+            && Power == other.Power
+            && Weapon == other.Weapon;
 
         public override bool Equals(object? obj) => obj is PlanAction other && Equals(other);
 
         public override int GetHashCode() =>
-            (Tick << 16) ^ ((int)Kind << 8) ^ (AimX * 31) ^ (AimY * 17) ^ Power;
+            (Tick << 16) ^ ((int)Kind << 8) ^ (AimX * 31) ^ (AimY * 17) ^ Power
+            ^ ((int)Weapon * 7);
 
-        public override string ToString() => $"{Kind}@{Tick}";
+        public override string ToString() =>
+            Weapon == WeaponId.None ? $"{Kind}@{Tick}" : $"{Kind}({Weapon})@{Tick}";
     }
 }

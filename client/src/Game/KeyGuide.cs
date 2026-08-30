@@ -81,7 +81,6 @@ public partial class KeyGuide : Control
         System.Action<CanvasItem, Vector2, float>[] icons =
         {
             (into, where, size) => Glyphs.Fire(into, where, size, Palette.OnPanel),
-            (into, where, size) => Glyphs.Dynamite(into, where, size, Palette.OnPanel),
             (into, where, size) => Glyphs.Hop(into, where, size, Palette.OnPanel),
             (into, where, size) => Glyphs.Mole(into, where, size * 0.95f, Palette.OnPanel),
         };
@@ -89,7 +88,10 @@ public partial class KeyGuide : Control
         // Right button rather than left, which is the one binding nobody would guess: the left
         // button drags the map, because a drag on a map means that everywhere else. And C is a mole
         // rather than the aiming reticle it used to borrow, which read as a second way to aim.
-        string[] keys = { "RMB", "F", "SPACE", "C" };
+        //
+        // F is gone with the button it described. It planted the Boom Beets, which are now a weapon
+        // on the wheel like the rest, so the one press that fires covers them too.
+        string[] keys = { "RMB", "SPACE", "C" };
 
         float width = Steer(glyph) + Reach(glyph, "R");
 
