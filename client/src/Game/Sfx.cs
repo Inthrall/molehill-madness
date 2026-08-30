@@ -25,6 +25,52 @@ public enum Sound
 
     /// <summary>A crate arriving.</summary>
     Thunk = 6,
+
+    // Everything below arrives as a recording rather than a waveform, so there is no generator
+    // for any of it. A sound with neither a sample nor a generator is silent and harmless, which
+    // is what lets this list run ahead of the audio folder.
+
+    /// <summary>Walking on turf.</summary>
+    Walk = 7,
+
+    /// <summary>Walking underground, which is the same act muffled.</summary>
+    Burrow = 8,
+
+    /// <summary>Arriving back on the ground.</summary>
+    Land = 9,
+
+    /// <summary>A bag of soil landing in a heap.</summary>
+    Sandbag = 10,
+
+    /// <summary>The Big Whack connecting.</summary>
+    Whack = 11,
+
+    /// <summary>A snap trap closing.</summary>
+    Snap = 12,
+
+    /// <summary>An acorn mortar leaving, and the split when it clusters.</summary>
+    Mortar = 13,
+
+    /// <summary>A helmet spinning to a stop.</summary>
+    Helmet = 14,
+
+    /// <summary>The stretcher squad's wheels.</summary>
+    Stretcher = 15,
+
+    /// <summary>One notch of the weapon wheel, quieter than a button.</summary>
+    Notch = 16,
+
+    /// <summary>A plan locked in.</summary>
+    Commit = 17,
+
+    /// <summary>A turn torn up.</summary>
+    Reset = 18,
+
+    /// <summary>The last few seconds of the planning clock.</summary>
+    Warn = 19,
+
+    /// <summary>A crate claimed.</summary>
+    Collect = 20,
 }
 
 /// <summary>
@@ -53,6 +99,17 @@ public partial class Sfx : Node
     private readonly Dictionary<Sound, AudioStreamWav> _streams =
         new Dictionary<Sound, AudioStreamWav>();
 
+    /// <summary>
+    /// Recorded variants per sound, which take precedence over anything synthesised.
+    /// </summary>
+    /// <remarks>
+    /// Several per sound wherever the library had them. The wobble below stops a repeat sounding
+    /// like a stuck record, but a pitch-shifted copy of one recording is still one recording, and
+    /// digging fires often enough for that to wear through in a single turn.
+    /// </remarks>
+    private readonly Dictionary<Sound, AudioStream[]> _samples =
+        new Dictionary<Sound, AudioStream[]>();
+
     private readonly List<AudioStreamPlayer> _players = new List<AudioStreamPlayer>();
     private readonly Random _wobble = new Random(20260827);
     private int _next;
@@ -67,6 +124,12 @@ public partial class Sfx : Node
         _streams[Sound.Click] = Click();
         _streams[Sound.Thunk] = Thunk();
 
+        // After the waveforms, because a recording wins wherever one exists. The generators stay as
+        // the fallback for everything the audio folder has not reached yet: explosions, the fuse,
+        // steam, wind and the rest are still synthesised, and a mixed set is a great deal better
+        // than either a silent game or waiting for the whole list to be recorded.
+        LoadSamples();
+
         // A pool, so a busy tick can stack four explosions without any of them cutting
         // another one off.
         for (int voice = 0; voice < Voices; voice++)
@@ -79,7 +142,14 @@ public partial class Sfx : Node
 
     public void Play(Sound sound, float volumeDb = 0f, float pitchSpread = 0.12f)
     {
-        if (!_streams.TryGetValue(sound, out AudioStreamWav? stream) || _players.Count == 0)
+        if (_players.Count == 0)
+        {
+            return;
+        }
+
+        AudioStream? stream = Pick(sound);
+
+        if (stream is null)
         {
             return;
         }
@@ -91,6 +161,78 @@ public partial class Sfx : Node
         player.VolumeDb = volumeDb;
         player.PitchScale = 1f + (float)((_wobble.NextDouble() - 0.5) * 2 * pitchSpread);
         player.Play();
+    }
+
+    /// <summary>
+    /// Whichever recording or waveform this sound should use, or nothing if it has neither.
+    /// </summary>
+    private AudioStream? Pick(Sound sound)
+    {
+        if (_samples.TryGetValue(sound, out AudioStream[]? variants) && variants.Length > 0)
+        {
+            return variants[_wobble.Next(variants.Length)];
+        }
+
+        return _streams.TryGetValue(sound, out AudioStreamWav? built) ? built : null;
+    }
+
+    /// <summary>
+    /// Loads whatever is in the audio folder, by name.
+    /// </summary>
+    /// <remarks>
+    /// Convention rather than a table: a sound called Dig looks for dig_0.ogg, dig_1.ogg and so on
+    /// until one is missing. That means a new recording is added by dropping a file in and running
+    /// the import, with no code change at all, which matters because two thirds of the list is still
+    /// missing and will arrive a few files at a time.
+    ///
+    /// Missing is not an error. The folder is expected to be incomplete for a long while, and a
+    /// sound with no recording falls back to its waveform or stays silent.
+    /// </remarks>
+    private void LoadSamples()
+    {
+        foreach (Sound sound in Enum.GetValues<Sound>())
+        {
+            string name = sound.ToString().ToLowerInvariant();
+            List<AudioStream> found = new List<AudioStream>();
+
+            for (int variant = 0; ; variant++)
+            {
+                string path = $"res://audio/{name}_{variant}.ogg";
+
+                if (!ResourceLoader.Exists(path))
+                {
+                    break;
+                }
+
+                if (ResourceLoader.Load(path) is AudioStream stream)
+                {
+                    found.Add(stream);
+                }
+            }
+
+            if (found.Count > 0)
+            {
+                _samples[sound] = found.ToArray();
+            }
+        }
+
+        // One line, because the folder is meant to be incomplete and the interesting question on
+        // any given build is which half of the list is real yet. Cheap to read and cheaper to grep.
+        GD.Print(
+            $"sfx: {_samples.Count} of {Enum.GetValues<Sound>().Length} sounds recorded, "
+            + $"{CountVariants()} files");
+    }
+
+    private int CountVariants()
+    {
+        int total = 0;
+
+        foreach (AudioStream[] variants in _samples.Values)
+        {
+            total += variants.Length;
+        }
+
+        return total;
     }
 
     // ---- The waveforms ---------------------------------------------------------------
