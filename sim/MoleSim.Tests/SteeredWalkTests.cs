@@ -416,4 +416,94 @@ public sealed class SteeredWalkTests
             walk.Position.Y, Is.LessThanOrEqualTo(floor),
             "the mole sank through a bag that should have been under its feet");
     }
+
+    // ---- Hazards in the preview -----------------------------------------------------
+
+    /// <summary>
+    /// A mole can plant a vent and be thrown into the air by it in the same turn.
+    /// </summary>
+    /// <remarks>
+    /// The last of the invisible tools. A geyser cap arms in the round it is planted, so this was
+    /// always possible and never showed: the vent existed only in the match, and the planning screen
+    /// moves a ghost. A player could plant one, walk onto it, and see a mole standing calmly on a
+    /// vent that would launch it the moment the round ran.
+    /// </remarks>
+    [Test]
+    public void AGhostIsLaunchedByAVentItPlantedItself()
+    {
+        MoleMatch match = NewMatch();
+        SteeredWalk walk = SteeredWalk.From(
+            FirstActor(match), match.Terrain, match.Placements, match.Round);
+
+        Fix64 startY = walk.Position.Y;
+
+        walk.Plant(WeaponId.GeyserCap);
+        Push(walk, Vec2.Zero, 6);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(walk.Position.Y, Is.LessThan(startY), "the vent did not throw it");
+            Assert.That(walk.IsFalling, Is.True, "it should be off the ground");
+        });
+    }
+
+    /// <summary>
+    /// A trap laid this turn does not catch the mole that laid it, because it arms later.
+    /// </summary>
+    /// <remarks>
+    /// The other half of the vent case, and the reason the arming rules had to be shared rather than
+    /// reimplemented: a preview that sprang your own trap on you would be worse than one that showed
+    /// nothing at all.
+    /// </remarks>
+    [Test]
+    public void ATrapLaidThisTurnDoesNotCatchItsOwner()
+    {
+        MoleMatch match = NewMatch();
+        Mole actor = FirstActor(match);
+        SteeredWalk walk = SteeredWalk.From(actor, match.Terrain, match.Placements, match.Round);
+
+        walk.Plant(WeaponId.SnapTrap);
+        Push(walk, Vec2.Zero, 10);
+
+        Assert.That(walk.Pluck, Is.EqualTo(100), "it sprang its own trap");
+    }
+
+    /// <summary>
+    /// The preview never spends the real placements.
+    /// </summary>
+    /// <remarks>
+    /// The one way this could have gone badly wrong. A snap trap goes off by marking itself spent, so
+    /// handing the ghost the real objects would mean that merely considering a route over a trap
+    /// disarmed it for the whole match, and for every other player.
+    /// </remarks>
+    [Test]
+    public void WalkingAGhostOntoATrapDoesNotDisarmTheRealOne()
+    {
+        MoleMatch match = NewMatch();
+        Mole placer = FirstActor(match);
+
+        match.SubmitPlan(new Plan(
+            0, placer.Index, WeaponId.SnapTrap, System.Array.Empty<RoutePoint>(),
+            new[] { PlanAction.Fire(3, Vec2.UnitY, 0, WeaponId.SnapTrap) }));
+        match.SubmitPlan(Plan.Idle(1, 0));
+        match.ResolveRound();
+
+        Assert.That(match.Placements, Is.Not.Empty, "nothing was placed");
+
+        // A round later the trap is armed. Walk a ghost onto it, repeatedly.
+        Mole next = FirstActor(match);
+        next.Position = match.Placements[0].Position;
+
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            SteeredWalk walk = SteeredWalk.From(
+                next, match.Terrain, match.Placements, match.Round);
+
+            Push(walk, Vec2.Zero, 5);
+        }
+
+        Assert.That(
+            match.Placements[0].Spent, Is.False,
+            "thinking about it disarmed the trap for everybody");
+    }
 }

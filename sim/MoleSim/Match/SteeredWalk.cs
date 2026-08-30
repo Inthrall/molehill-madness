@@ -43,10 +43,23 @@ namespace MoleSim.Match
         private readonly List<Vec2> _path;
         private readonly List<Vec2> _waypoints = new List<Vec2>();
 
-        private SteeredWalk(Mole ghost, TerrainGrid scratch)
+        /// <summary>
+        /// The traps, snares and vents the ghost can walk into, as copies.
+        /// </summary>
+        /// <remarks>
+        /// Copies because a snap trap goes off by marking itself spent, and the preview walks the
+        /// ghost over the same hazards to work out what a turn would cost: handing it the real
+        /// placements would let merely thinking about stepping on a trap disarm it for everybody.
+        /// </remarks>
+        private readonly List<Placement> _placements = new List<Placement>();
+
+        private readonly int _round;
+
+        private SteeredWalk(Mole ghost, TerrainGrid scratch, int round)
         {
             _ghost = ghost;
             _scratch = scratch;
+            _round = round;
             _startingStamina = ghost.Stamina;
             _start = ghost.Position;
             _path = new List<Vec2>(MatchSettings.TicksPerRound + 1) { ghost.Position };
@@ -56,7 +69,18 @@ namespace MoleSim.Match
         /// Starts a turn for one mole, on a copy of the world so neither the mole nor the map is
         /// touched by anything the player tries out.
         /// </summary>
-        public static SteeredWalk From(Mole mole, TerrainGrid terrain)
+        /// <param name="placements">
+        /// What is already lying about the map. Copied, and checked against the ghost every tick, so
+        /// a turn walked over an armed trap or onto a vent shows what it will cost. Omit for a plain
+        /// walk with no hazards, which is what most tests want.
+        /// </param>
+        /// <param name="round">
+        /// Which round this turn is, since whether a placement is live depends on it. A trap arms a
+        /// round after it is laid, so getting this wrong would either hide a live trap or invent one.
+        /// </param>
+        public static SteeredWalk From(
+            Mole mole, TerrainGrid terrain,
+            IReadOnlyList<Placement>? placements = null, int round = 0)
         {
             // A stand-in carrying the real mole's state, so the walk accounts for a stamina
             // budget already shortened by the stalemate nudge, and for a snare or cheap digging.
@@ -70,7 +94,38 @@ namespace MoleSim.Match
                 IsSnared = mole.IsSnared,
             };
 
-            return new SteeredWalk(ghost, terrain.Clone());
+            SteeredWalk walk = new SteeredWalk(ghost, terrain.Clone(), round);
+
+            if (placements is not null)
+            {
+                foreach (Placement placement in placements)
+                {
+                    walk._placements.Add(placement.Copy());
+                }
+            }
+
+            return walk;
+        }
+
+        /// <summary>
+        /// Leaves a trap, snare or vent where the ghost is standing, as resolution will.
+        /// </summary>
+        /// <remarks>
+        /// The vent is the one that matters this turn. It arms in the round it is planted, so a mole
+        /// can plant one and be thrown into the air by it before the turn is over, and without this
+        /// none of that showed while the turn was being planned. Traps arm a round later and snares
+        /// only catch other people usefully, but they go in for nothing and the preview is then
+        /// honest about all three rather than about one.
+        /// </remarks>
+        public void Plant(WeaponId weapon)
+        {
+            Placement? left = PlacementRules.Make(
+                weapon, _ghost.Seat, _ghost.Position, _round, TicksUsed);
+
+            if (left is not null)
+            {
+                _placements.Add(left);
+            }
         }
 
         /// <summary>Where the mole has got to, which is where the rest of the plan happens from.</summary>
@@ -101,6 +156,46 @@ namespace MoleSim.Match
         /// <summary>Whether a torpedo is cutting, which like falling runs without being asked.</summary>
         public bool IsDrilling => _ghost.IsDrilling;
 
+        /// <summary>
+        /// What the ghost has left, which a turn walked into a trap will have spent some of.
+        /// </summary>
+        /// <remarks>
+        /// Worth showing. Being hit ends a mole's turn, so a route over an armed trap does not merely
+        /// cost pluck, it throws away the rest of the plan, and that is the sort of thing a player
+        /// should find out while there is still time to walk round it.
+        /// </remarks>
+        public int Pluck => _ghost.Pluck;
+
+        /// <summary>Whether the ghost has been caught by a snare.</summary>
+        public bool IsSnared => _ghost.IsSnared;
+
+        /// <summary>
+        /// Whether something live is acting on the ghost where it stands.
+        /// </summary>
+        /// <remarks>
+        /// Like falling and like drilling, this is something happening to the mole rather than
+        /// something it is choosing, so the ticks have to go by whether or not anybody is pushing.
+        /// Standing still normally costs nothing and skips the tick entirely, which meant a mole
+        /// stood on its own capped vent was never stepped and so was never thrown: the preview showed
+        /// it standing calmly on something that would launch it the moment the round ran.
+        /// </remarks>
+        public bool IsHazarded
+        {
+            get
+            {
+                foreach (Placement placement in _placements)
+                {
+                    if (PlacementRules.IsLive(placement, _round)
+                        && PlacementRules.Touches(placement, _ghost))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+        }
+
         /// <summary>Whether the mole has gone anywhere worth committing to.</summary>
         public bool HasMoved => Vec2.Distance(_start, _ghost.Position) > MatchSettings.Radius;
 
@@ -128,6 +223,14 @@ namespace MoleSim.Match
             // regardless: without this the preview stopped dead between pushes and the tunnel
             // appeared in instalments as the player fidgeted with the stick.
             if (_ghost.IsDrilling)
+            {
+                Step(null);
+                return;
+            }
+
+            // Standing on something live is not standing still. A vent throws whoever is on it every
+            // tick it can, so the ticks have to pass for the throw to happen at all.
+            if (!pushing && IsHazarded)
             {
                 Step(null);
                 return;
@@ -278,6 +381,7 @@ namespace MoleSim.Match
             _ghost.StalledTicks = 0;
 
             MoleMotion.Step(_ghost, _scratch, route);
+            CheckPlacements();
             _path.Add(_ghost.Position);
 
             Vec2 sinceLast = _waypoints.Count > 0 ? _waypoints[_waypoints.Count - 1] : _start;
@@ -285,6 +389,27 @@ namespace MoleSim.Match
             if (Vec2.Distance(sinceLast, _ghost.Position) >= WaypointSpacing)
             {
                 _waypoints.Add(_ghost.Position);
+            }
+        }
+
+        /// <summary>
+        /// Runs the hazards against the ghost, by the same rules the round uses.
+        /// </summary>
+        /// <remarks>
+        /// After the move rather than before it, which is the order the round uses: a mole is caught
+        /// by what it walked into during the tick, not by what it was standing on at the start of it.
+        /// </remarks>
+        private void CheckPlacements()
+        {
+            foreach (Placement placement in _placements)
+            {
+                if (!PlacementRules.IsLive(placement, _round)
+                    || !PlacementRules.Touches(placement, _ghost))
+                {
+                    continue;
+                }
+
+                PlacementRules.Apply(placement, _ghost);
             }
         }
     }

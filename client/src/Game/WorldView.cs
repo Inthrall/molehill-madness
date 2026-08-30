@@ -1820,11 +1820,24 @@ public partial class WorldView : Control
             Glyphs.Hop(this, at, marker * 0.52f, new Color(seat, 0.85f));
         }
 
-        // The charge used to be drawn here, with a ring around it the size of its blast. Both are
-        // gone: the beets are an ordinary weapon on the wheel now, so a planted one appears as the
-        // placement it is, and a blast ring drawn at planning time was answering a question nobody
-        // asked. Nothing else in the arsenal advertises its radius before it goes off, and the ring
-        // was the largest mark on the map for the smallest reason.
+        // Anything the turn leaves on the ground, marked where it will be left. The mole is thrown
+        // by a vent it plants and walks into a snare it lays, and until these were drawn the
+        // preview did both to a mole standing next to nothing at all.
+        //
+        // No blast ring. There used to be one around a planted charge and it was the largest mark on
+        // the map for the smallest reason: nothing else in the arsenal advertises its radius before
+        // it goes off.
+        foreach (PlanAction use in planner.Uses)
+        {
+            if (!SeatPlanner.LeavesSomething(use.Weapon))
+            {
+                continue;
+            }
+
+            Vector2 left = ToPixels(planner.UsePosition(use)) + new Vector2(0, radius * 0.6f);
+
+            Glyphs.Weapon(this, use.Weapon, left, radius * 1.5f, new Color(seat, 0.9f));
+        }
 
         DrawAim(planner);
     }

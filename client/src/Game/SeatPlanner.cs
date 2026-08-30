@@ -388,7 +388,8 @@ public sealed class SeatPlanner
         // not finished cutting.
         bool idle = direction.LengthSquared() == Fix64.Zero
             && !Walk.IsFalling
-            && !Walk.IsDrilling;
+            && !Walk.IsDrilling
+            && !Walk.IsHazarded;
 
         if (idle || !Walk.HasTimeLeft)
         {
@@ -626,11 +627,14 @@ public sealed class SeatPlanner
                 Walk?.DropSandbag();
                 break;
 
+            case WeaponId.GeyserCap:
+            case WeaponId.SnapTrap:
+            case WeaponId.RootSnare:
+                Walk?.Plant(use.Weapon);
+                break;
+
             default:
-                // Everything else either throws something, which no weapon previews, or leaves
-                // something on the ground for a later round to trip over. The vents, traps and
-                // snares are the honest gap here: they are placements, and the preview has no
-                // notion of a placement, so a mole cannot be planned onto its own geyser.
+                // Everything left throws something, and no weapon previews its flight.
                 break;
         }
     }
@@ -715,6 +719,23 @@ public sealed class SeatPlanner
     /// <summary>Where a hop was booked, for the client to mark it.</summary>
     public Vec2 HopPosition(PlanAction hop) =>
         Walk?.PositionAt(hop.Tick) ?? Actor?.Position ?? Vec2.Zero;
+
+    /// <summary>
+    /// Where a booked use happens, which for anything left on the ground is where it is left.
+    /// </summary>
+    /// <remarks>
+    /// The same lookup a hop uses, and for the same reason: these are scheduled at a moment rather
+    /// than at a place, so where they happen is wherever the mole had walked to by then.
+    /// </remarks>
+    public Vec2 UsePosition(PlanAction use) =>
+        Walk?.PositionAt(use.Tick) ?? Actor?.Position ?? Vec2.Zero;
+
+    /// <summary>Whether a weapon leaves something on the ground worth marking on the plan.</summary>
+    public static bool LeavesSomething(WeaponId weapon) =>
+        weapon == WeaponId.GeyserCap
+        || weapon == WeaponId.SnapTrap
+        || weapon == WeaponId.RootSnare
+        || weapon == WeaponId.BoomBeets;
 
     /// <summary>Which tick of the round the mole has walked as far as.</summary>
     private int Now()
@@ -824,7 +845,12 @@ public sealed class SeatPlanner
 
     private void StartWalk()
     {
-        Walk = Actor is null ? null : SteeredWalk.From(Actor, _match.Terrain);
+        // The hazards go in with the terrain. Without them a turn could be walked straight over an
+        // armed snap trap with the gauges reporting a clean run, which is the same fault the tools
+        // had: the round knew and the planning screen did not.
+        Walk = Actor is null
+            ? null
+            : SteeredWalk.From(Actor, _match.Terrain, _match.Placements, _match.Round);
     }
 
     // ---- Committing ----------------------------------------------------------------

@@ -721,22 +721,20 @@ namespace MoleSim.Match
                     Tools.DropSandbag(Terrain, actor.Position);
                     break;
 
+                // All three leave something behind, and when it arms and how long it lasts are the
+                // balance, which lives in PlacementRules so the planning preview plants the same
+                // thing this does.
                 case WeaponId.SnapTrap:
-                    _placements.Add(new Placement(
-                        weapon, actor.Seat, actor.Position, Round, action.Tick,
-                        Round + MatchSettings.TrapArmDelay, int.MaxValue));
-                    break;
-
                 case WeaponId.RootSnare:
-                    // Live at once and gone after this round, so it costs its victim
-                    // exactly one turn.
-                    _placements.Add(new Placement(
-                        weapon, actor.Seat, actor.Position, Round, action.Tick, Round, Round));
-                    break;
-
                 case WeaponId.GeyserCap:
-                    _placements.Add(new Placement(
-                        weapon, actor.Seat, actor.Position, Round, action.Tick, Round, int.MaxValue));
+                    Placement? left = PlacementRules.Make(
+                        weapon, actor.Seat, actor.Position, Round, action.Tick);
+
+                    if (left is not null)
+                    {
+                        _placements.Add(left);
+                    }
+
                     break;
 
                 case WeaponId.TunnelTorpedo:
@@ -824,58 +822,38 @@ namespace MoleSim.Match
         {
             foreach (Placement placement in _placements)
             {
-                if (!placement.IsArmed(Round))
+                if (!PlacementRules.IsLive(placement, Round))
                 {
                     continue;
                 }
 
-                WeaponSpec spec = WeaponTable.Of(placement.Weapon);
-
                 foreach (Mole mole in _moles)
                 {
-                    if (mole.IsOffDuty)
+                    if (!PlacementRules.Touches(placement, mole))
                     {
                         continue;
                     }
 
-                    if (Vec2.Distance(mole.Position, placement.Position) > spec.BlastRadius)
+                    PlacementRules.Bite bite = PlacementRules.Apply(placement, mole);
+
+                    if (!bite.Hurt)
                     {
                         continue;
                     }
 
-                    switch (placement.Weapon)
+                    WeaponSpec spec = WeaponTable.Of(placement.Weapon);
+
+                    // The owner rather than a mole, because a trap has nobody standing behind it by
+                    // the time it goes off. Minus one is the mole index that means "not a mole".
+                    result.Hits.Add(new BlastHit(
+                        mole.Seat, mole.Index, bite.Damage, bite.WentOffDuty,
+                        placement.OwnerSeat, -1));
+
+                    if (bite.WentOffDuty)
                     {
-                        case WeaponId.SnapTrap:
-                            placement.Spent = true;
-                            bool wentOffDuty = mole.TakeDamage(spec.Damage);
-                            mole.AddImpulse(-Vec2.UnitY * spec.Knockback);
-                            result.Hits.Add(new BlastHit(
-                                mole.Seat, mole.Index, spec.Damage, wentOffDuty,
-                                placement.OwnerSeat, -1));
-
-                            if (wentOffDuty)
-                            {
-                                RecordKnockout(
-                                    result, mole.Seat, mole.Index, KnockoutCause.Trap,
-                                    spec.Damage, spec.Knockback);
-                            }
-
-                            break;
-
-                        case WeaponId.RootSnare:
-                            mole.IsSnared = true;
-                            break;
-
-                        case WeaponId.GeyserCap:
-                            if (!mole.IsAirborne)
-                            {
-                                mole.AddImpulse(-Vec2.UnitY * spec.Knockback);
-                            }
-
-                            break;
-
-                        default:
-                            break;
+                        RecordKnockout(
+                            result, mole.Seat, mole.Index, KnockoutCause.Trap,
+                            bite.Damage, spec.Knockback);
                     }
                 }
             }

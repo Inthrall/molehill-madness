@@ -64,5 +64,21 @@ namespace MoleSim.Match
         public bool Spent { get; set; }
 
         public bool IsArmed(int round) => !Spent && round >= ArmsOnRound && round <= ExpiresAfterRound;
+
+        /// <summary>
+        /// A copy, for the planning preview to spend without spending the real one.
+        /// </summary>
+        /// <remarks>
+        /// Spent is settable, and a trap goes off by setting it. The preview walks a ghost over the
+        /// same hazards to show what a turn would cost, so handing it the real placements would let
+        /// merely thinking about walking onto a trap disarm it for everybody.
+        /// </remarks>
+        public Placement Copy() =>
+            new Placement(
+                Weapon, OwnerSeat, Position, PlacedOnRound, PlacedOnTick,
+                ArmsOnRound, ExpiresAfterRound)
+            {
+                Spent = Spent,
+            };
     }
 }
