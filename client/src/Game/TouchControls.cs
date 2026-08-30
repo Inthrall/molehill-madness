@@ -97,17 +97,25 @@ public partial class TouchControls : Control
         float right = screen.X - margin - _button;
         float bottom = screen.Y - margin - _button;
 
-        // Everything that acts goes under the right thumb. There was a third button here for
-        // planting the Boom Beets, which existed only because firing meant aiming and winding up; a
-        // planted weapon now asks for a press like any other, so the beets went to the wheel and
-        // jumping took the empty slot.
+        // Fire in the middle of the bottom edge, which is a deliberate move out of the corner it
+        // used to sit in. Two reasons, and the second is the one that decided it.
         //
-        // Jumping belongs on this side. It was over on the left with the reset, which put the two
-        // most-used presses in a turn at opposite corners: a jump is part of getting somewhere and
-        // gets pressed several times a turn, and the reset is pressed once a match if that.
-        _fire = new Vector2(right, bottom);
-        _hop = new Vector2(right - (_button * 2.2f), bottom);
-        _commit = new Vector2(right, bottom - (_button * 2.2f));
+        // It is the one control a new player has to find, and a corner is where a game puts the
+        // things you already know are there. More than that, firing here is a press and a drag: the
+        // direction comes out of which way the thumb moves off the button, so the button is the
+        // origin of the gesture, and an origin in a corner can only be dragged into one quadrant.
+        // From the middle it can be dragged anywhere, which is what the gesture actually means.
+        //
+        // It costs a reach. Firing is a considered press once a turn rather than a rapid one, so a
+        // deliberate reach is the right price, and the two presses that do want to be under a
+        // resting thumb keep the corner.
+        _fire = new Vector2(screen.X / 2f, bottom);
+
+        // Ending the turn and jumping keep the right corner, stacked. Jump is on this side because
+        // it is pressed several times a turn and belongs near a resting thumb, and end turn is the
+        // last press of a turn so it can be the furthest.
+        _commit = new Vector2(right, bottom);
+        _hop = new Vector2(right, bottom - (_button * 2.2f));
 
         // The stick takes the bottom left corner, where a thumb rests without being told to.
         _stickHome = new Vector2(
@@ -133,7 +141,11 @@ public partial class TouchControls : Control
         // it is turned every turn; the movement wheel sits inboard of it, reached deliberately, which
         // suits something used once a turn at most.
         float wheelHeight = _button * 4.2f;
-        float wheelTop = _commit.Y - (_button * 1.4f) - wheelHeight;
+        // Above the topmost button on this side rather than above end turn, which used to be the
+        // topmost and is now the lowest. Anchored to whichever it is, so moving them again cannot
+        // drop the wheels onto a button: the wheels are flicked and the buttons are pressed, and a
+        // flick that lands on a button is the worst of both.
+        float wheelTop = Mathf.Min(_commit.Y, _hop.Y) - (_button * 1.4f) - wheelHeight;
 
         _wheel = new Rect2(right - _button, wheelTop, _button * 2f, wheelHeight);
         _abilities = new Rect2(
@@ -240,6 +252,16 @@ public partial class TouchControls : Control
 
     /// <summary>The same, for the movement wheel, which turns independently.</summary>
     public float AbilitySlide { get; set; }
+
+    /// <summary>
+    /// How much of the bottom of the screen the controls occupy.
+    /// </summary>
+    /// <remarks>
+    /// The panes draw their own gauges along the bottom middle, which is where the fire button now
+    /// is. Reported rather than guessed at, so moving a button cannot silently bury a gauge under it:
+    /// this is the same clearance the keyboard strip reports, arriving by the same route.
+    /// </remarks>
+    public float Depth => (_button * 2f) + (_button * 0.55f * 2f);
 
     /// <summary>How far outside the stick's ring still counts as grabbing it.</summary>
     private const float StickGrab = 1.35f;

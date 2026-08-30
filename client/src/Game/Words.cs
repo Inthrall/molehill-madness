@@ -19,8 +19,19 @@ using Godot;
 /// reason a font is committed rather than falling back on what Godot ships with: the drawn digits
 /// exist precisely because a system typeface in a game with no other type in it looked like a bug.
 ///
-/// Kept to labels. If something here ever wants a sentence, that is a sign the picture is not doing
-/// its job, and the picture is what should change.
+/// The menu is the exception, and it is the only one. That is a decision rather than a tendency, so
+/// it is written here where anybody reaching for this class will read it: the game itself stays
+/// wordless, and type belongs to the screens around a match rather than to a match.
+///
+/// Which means the menu, the settings and the credits, and nothing in the arena. No tooltips, no
+/// labels on the weapon wheels, no tutorial line, no damage in words. The pressure to add each of
+/// those will be real and each would be reasonable on its own, and the reason to refuse them is
+/// that the wordless rule is what makes the game legible to a seven-year-old and to somebody who
+/// reads no English at all. A weapon is taught by firing it once, which is a thing the game can do
+/// and a label is not.
+///
+/// If something in the arena seems to want a sentence, the picture is not doing its job, and the
+/// picture is what should change.
 /// </remarks>
 public static class Words
 {

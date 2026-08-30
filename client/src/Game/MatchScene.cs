@@ -1765,17 +1765,11 @@ public partial class MatchScene : Node2D
         {
             if (_touch is not null)
             {
-                // A phone is one player at a time, and its screen has no room to be divided.
-                return SplitLayout.Shared(band);
-            }
-
-            // One phone is one screen. Four panes on a handset are four unreadable panes, and the
-            // arrangement people actually use on one is passing it round, which the turn card
-            // handles: full screen for whoever is holding it, and a card in their colour when it
-            // changes hands. A couch full of people round a keyboard or a television still gets a
-            // pane each, because there the screen is big enough to divide and nobody is passing it.
-            if (Flags.WantsTouch() && !_forceSplit)
-            {
+                // A phone is one player at a time, and its screen has no room to be divided. This
+                // is also what the turn card depends on: full screen for whoever is holding the
+                // phone, and a card in their colour when it changes hands. A second branch saying
+                // the same thing was added below here and removed again, having been dead on
+                // arrival, which is a fair warning that this is easy to miss.
                 return SplitLayout.Shared(band);
             }
 
@@ -3071,9 +3065,11 @@ public partial class MatchScene : Node2D
 
         // The keyboard strip owns the bottom of the screen while it is up, so the shared tally
         // moves above it rather than being drawn underneath it.
+        // Whichever set of controls is along the bottom. They are never both up: the key strip
+        // is for a keyboard and the touch controls replace it entirely.
         float guide = _guide?.Visible == true
             ? KeyGuide.Height(GetViewportRect().Size)
-            : 0f;
+            : _touch?.Depth ?? 0f;
 
         // The panes want it too: their own gauges sit along the bottom middle now, and the strip
         // owns the bottom of the screen while it is up.
