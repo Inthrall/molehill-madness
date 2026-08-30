@@ -134,8 +134,14 @@ public static class Matchmaker
 
                 foreach (IReadOnlyList<Ticket> group in Pair(paced, playerCount))
                 {
-                    Seat(store, group, pace, now);
-                    made++;
+                    // Counted only when it actually happened. A group whose members have not all
+                    // stayed in the pool is left alone rather than half seated, and whoever is still
+                    // waiting is picked up by the next pass.
+                    if (store.SeatGroup(
+                            group.Select(ticket => ticket.Id).ToArray(), group.Count, pace, now))
+                    {
+                        made++;
+                    }
                 }
             }
         }
@@ -143,28 +149,6 @@ public static class Matchmaker
         return made;
     }
 
-    private static void Seat(
-        MatchStore store, IReadOnlyList<Ticket> group, Pace pace, DateTimeOffset now)
-    {
-        (Match match, Seat host) = store.Open(group.Count, pace, now);
-
-        store.Seated(group[0].Id, match.Code, host.Number, host.Token);
-
-        for (int index = 1; index < group.Count; index++)
-        {
-            (Seat? seat, JoinRefusal refusal) = store.Join(match.Code, now);
-
-            if (seat is null || refusal != JoinRefusal.None)
-            {
-                // Cannot happen with a lobby this service opened a moment ago for exactly this many
-                // people, and if it ever does, the answer is to leave the ticket in the queue rather
-                // than to strand somebody in a lobby nobody else is coming to.
-                return;
-            }
-
-            store.Seated(group[index].Id, match.Code, seat.Number, seat.Token);
-        }
-    }
 }
 
 /// <summary>

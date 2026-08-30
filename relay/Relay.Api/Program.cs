@@ -58,6 +58,10 @@ builder.Services.AddHostedService<LiveWatcher>();
 // The matchmaking pool. Empty most of the time and cheap to sweep when it is not.
 builder.Services.AddHostedService<PoolFiller>();
 
+// Meters the handful of endpoints that answer questions about a game code. See Guessing for why a
+// five-letter code needs it and what the numbers are set against.
+builder.Services.AddCodeGuessing();
+
 // Codes for linking an address. A mail server if one is configured, the log if not, on the same
 // argument the notifications use: during development the question is whether the right code reached
 // the right claim, and a log line answers it as well as an inbox would.
@@ -89,6 +93,8 @@ IReadOnlyDictionary<string, string> approvalKeys = Approvals.Configured(app.Conf
 // connection during a planning phase nobody is typing into.
 app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) });
 
+app.UseRateLimiter();
+
 app.MapGet("/health", () => Results.Ok(new { ok = true }));
 
 // ---- Lobbies --------------------------------------------------------------------------
@@ -104,7 +110,7 @@ app.MapPost("/lobbies", (OpenLobby request, MatchStore store, TimeProvider clock
         request.PlayerCount, request.Pace, clock.GetUtcNow(), request.WindowSeconds);
 
     return Results.Created($"/lobbies/{match.Code}", Joined.From(match, host, seatsTaken: 1));
-});
+}).RequireRateLimiting(Guessing.Policy);
 
 app.MapPost("/lobbies/{code}/seats", (string code, MatchStore store, TimeProvider clock) =>
 {
@@ -129,7 +135,7 @@ app.MapPost("/lobbies/{code}/seats", (string code, MatchStore store, TimeProvide
     Match match = store.Find(tidy)!;
 
     return Results.Ok(Joined.From(match, seat, store.SeatsTaken(tidy)));
-});
+}).RequireRateLimiting(Guessing.Policy);
 
 app.MapGet("/lobbies/{code}", (string code, MatchStore store) =>
 {
@@ -149,7 +155,7 @@ app.MapGet("/lobbies/{code}", (string code, MatchStore store) =>
         windowSeconds = match.WindowSeconds,
         deadline = match.Deadline,
     });
-});
+}).RequireRateLimiting(Guessing.Policy);
 
 // A player coming back to a match they are already in, which is not the same as joining one.
 // Joining would hand them a second seat or refuse them as full, and neither is what somebody
@@ -193,7 +199,7 @@ app.MapPost("/accounts", (OpenAccount request, MatchStore store, TimeProvider cl
     // there must not be one.
     return Results.Created(
         $"/accounts/{account.Id}", new Opened(account.Id, secret, account.Band.ToString()));
-});
+}).RequireRateLimiting(Guessing.Policy);
 
 app.MapPut("/accounts/band", (
     SetBand request, HttpRequest http, MatchStore store, TimeProvider clock) =>
@@ -288,7 +294,12 @@ app.MapPost("/accounts/email", async (
     // Anybody who can call this can cause mail to be sent to an address they do not own, so an
     // account gets one of these a minute. Without it this endpoint is a button that posts mail to
     // anywhere as fast as it can be called, and the relay is the tool rather than the target.
-    if (Emails.TooSoon(store.Claimed(id), now))
+    // Two limits, because they stop different things. The first meters the account, which stops
+    // one player hammering the button. The second meters the address, which is the one that matters:
+    // accounts are free and unlimited, so without it a handful of fresh ones aims as much mail as it
+    // likes at somebody else's inbox and this relay is the thing doing the aiming.
+    if (Emails.TooSoon(store.Claimed(id), now)
+        || Emails.WrittenToRecently(store.LastAskedFor(address), now))
     {
         return Results.StatusCode(StatusCodes.Status429TooManyRequests);
     }
@@ -476,11 +487,20 @@ app.MapPost("/matches/{code}/rounds/{round:int}/plan", async (
 });
 
 app.MapGet("/matches/{code}/rounds/{round:int}", (
-    string code, int round, MatchStore store, TimeProvider clock) =>
+    string code, int round, HttpRequest http, MatchStore store, TimeProvider clock) =>
 {
     if (GameCode.Parse(code) is not string tidy || store.Find(tidy) is not Match match)
     {
         return Results.NotFound(new { error = "No such game code." });
+    }
+
+    // For the people in the match. This was the one read that took no token, which made a code
+    // enough to pull every plan of every settled round plus the seed, and it is not a read at all:
+    // it sweeps the forfeits, advances the match and decides who gets a notification. Handing that
+    // to anybody who can name a lobby was two problems wearing one coat.
+    if (store.SeatOf(tidy, http.Headers["X-Seat-Token"].ToString()) is not int _)
+    {
+        return Results.Unauthorized();
     }
 
     DateTimeOffset now = clock.GetUtcNow();

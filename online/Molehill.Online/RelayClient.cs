@@ -324,10 +324,10 @@ namespace Molehill.Online
         /// Asks for a round, which answers with every plan in it or with how many are missing.
         /// </summary>
         public Task<Reply<RoundRelease>> Round(
-            string code, int round, CancellationToken cancel = default) =>
+            string code, string token, int round, CancellationToken cancel = default) =>
             Call(
-                () => new HttpRequestMessage(
-                    HttpMethod.Get, $"/matches/{Tidy(code)}/rounds/{round}"),
+                () => Signed(
+                    HttpMethod.Get, $"/matches/{Tidy(code)}/rounds/{round}", token),
                 element => ReadRound(element, round),
                 cancel);
 

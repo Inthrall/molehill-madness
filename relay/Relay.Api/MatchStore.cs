@@ -408,10 +408,29 @@ public sealed class MatchStore : IDisposable
         lock (_gate)
         {
             using SqliteCommand insert = _connection.CreateCommand();
+
+            // Refused if that seat has already forfeited the round, and refused if the match has
+            // moved past it, both decided here rather than by the caller. A seat that both submitted
+            // and forfeited is a contradiction every client resolves by giving up on the match, so
+            // the two have to be mutually exclusive somewhere, and the only place that can be sure
+            // is the one statement that writes.
+            //
+            // The window this closes is not the narrow one it looks like. The endpoint checks the
+            // round before it awaits the request body, and a body arrives at whatever speed a phone
+            // on a train can manage, so a plan can be several seconds late by the time it lands. The
+            // sweep that forfeits an expired round runs on a timer and on every read of it. Without
+            // this, a slow upload across a deadline wrote a plan into a round its sender had already
+            // been forfeited from, and the next release contained both. Four people lost the match
+            // because one of them had a bad connection.
             insert.CommandText =
                 """
                 INSERT OR IGNORE INTO submissions (code, round, seat, payload, at)
-                VALUES ($code, $round, $seat, $payload, $at);
+                SELECT $code, $round, $seat, $payload, $at
+                WHERE NOT EXISTS (
+                          SELECT 1 FROM forfeits
+                          WHERE code = $code AND round = $round AND seat = $seat)
+                  AND EXISTS (
+                          SELECT 1 FROM matches WHERE code = $code AND round = $round);
                 """;
             insert.Parameters.AddWithValue("$code", code);
             insert.Parameters.AddWithValue("$round", round);
@@ -615,17 +634,36 @@ public sealed class MatchStore : IDisposable
         lock (_gate)
         {
             using SqliteCommand update = _connection.CreateCommand();
-            update.CommandText =
-                """
-                UPDATE accounts SET band = $band, seen_at = $now
-                WHERE id = $id AND secret = $secret;
-                """;
+
+            // An account that moves below the threshold loses its address in the same statement.
+            // The design gives under-threshold accounts no email collection, and an address kept
+            // because it was collected while the answer was different is still an address held
+            // against somebody the rule says we should be holding nothing for. Kept for an adult,
+            // dropped otherwise, decided here so no caller can forget.
+            update.CommandText = band == AgeBand.Adult
+                ? """
+                  UPDATE accounts SET band = $band, seen_at = $now
+                  WHERE id = $id AND secret = $secret;
+                  """
+                : """
+                  UPDATE accounts SET band = $band, seen_at = $now, email = NULL
+                  WHERE id = $id AND secret = $secret;
+                  """;
             update.Parameters.AddWithValue("$id", id);
             update.Parameters.AddWithValue("$secret", secret);
             update.Parameters.AddWithValue("$band", (int)band);
             update.Parameters.AddWithValue("$now", Stamp(now));
 
-            return update.ExecuteNonQuery() > 0;
+            bool moved = update.ExecuteNonQuery() > 0;
+
+            if (moved && band != AgeBand.Adult)
+            {
+                // And any address half-claimed but not yet proved, which is the same collection at
+                // an earlier stage.
+                Execute("DELETE FROM email_claims WHERE account = $account;", ("$account", id));
+            }
+
+            return moved;
         }
     }
 
@@ -681,6 +719,31 @@ public sealed class MatchStore : IDisposable
                 """,
                 ("$account", account), ("$email", email), ("$code", code),
                 ("$now", Stamp(now)), ("$expires", Stamp(expires)));
+        }
+    }
+
+    /// <summary>
+    /// When anybody last had a code sent to that address.
+    /// </summary>
+    /// <remarks>
+    /// By address rather than by account, and that is the whole point of it existing. The per-account
+    /// limit meters the asker, and an account is free and unlimited, so twenty-five fresh accounts
+    /// bought twenty-five codes to one inbox in a fraction of a second: measured at about fifty
+    /// thousand a minute against a relay with the account limit already in place. A limit keyed on
+    /// something the sender can mint more of is not a limit, and the person it fails to protect is
+    /// whoever owns the address.
+    /// </remarks>
+    public DateTimeOffset? LastAskedFor(string email)
+    {
+        lock (_gate)
+        {
+            using SqliteCommand read = _connection.CreateCommand();
+            read.CommandText = "SELECT MAX(asked_at) FROM email_claims WHERE email = $email;";
+            read.Parameters.AddWithValue("$email", email);
+
+            return read.ExecuteScalar() is string stamped && stamped.Length > 0
+                ? When(stamped)
+                : null;
         }
     }
 
@@ -867,6 +930,61 @@ public sealed class MatchStore : IDisposable
                 WHERE ticket = $ticket AND code IS NULL;
                 """,
                 ("$ticket", ticket), ("$code", code), ("$seat", seat), ("$token", token));
+        }
+    }
+
+    /// <summary>
+    /// Seats a whole group into one fresh lobby, or seats none of them.
+    /// </summary>
+    /// <remarks>
+    /// All of it inside one lock, which is the point rather than an implementation detail. The pool
+    /// works from a snapshot: it decides who goes together, and then opens a lobby and claims a seat
+    /// for each. Anybody in that group can give up in between, and when they did, the update that
+    /// records their seat silently matched no rows while the seat itself stayed claimed. The others
+    /// got a match with a participant who was never coming, and nothing on the relay could tell that
+    /// seat from a player whose phone was simply slow: Live waited out the ninety-second downgrade,
+    /// and Anytime blocked the round until the window expired, which is a day.
+    ///
+    /// Checking everybody is still waiting and then seating them without letting go of the lock is
+    /// what makes that impossible. The lock is re-entrant, so the calls below take it again and cost
+    /// nothing.
+    /// </remarks>
+    public bool SeatGroup(
+        IReadOnlyList<string> tickets, int playerCount, Pace pace, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(tickets);
+
+        lock (_gate)
+        {
+            foreach (string ticket in tickets)
+            {
+                if (Held(ticket) is not Ticket held || held.Seated)
+                {
+                    return false;
+                }
+            }
+
+            (Match match, Seat host) = Open(playerCount, pace, now);
+
+            Seated(tickets[0], match.Code, host.Number, host.Token);
+
+            for (int index = 1; index < tickets.Count; index++)
+            {
+                (Seat? seat, JoinRefusal refusal) = Join(match.Code, now);
+
+                if (seat is null || refusal != JoinRefusal.None)
+                {
+                    // Cannot happen: this lobby was opened a few statements ago for exactly this
+                    // many people and nothing else can have reached it, since its code has not been
+                    // handed out yet. Guarded anyway, because the alternative to a guard here is a
+                    // stranded seat, which is the whole thing this method exists to prevent.
+                    return false;
+                }
+
+                Seated(tickets[index], match.Code, seat.Number, seat.Token);
+            }
+
+            return true;
         }
     }
 
@@ -1200,10 +1318,19 @@ public sealed class MatchStore : IDisposable
         lock (_gate)
         {
             using SqliteCommand insert = _connection.CreateCommand();
+
+            // Refused if that seat has already submitted, which is the other half of the rule the
+            // submission side enforces. The sweep does read the submissions before deciding, but
+            // that read and this insert are two statements, and a plan landing between them left a
+            // seat holding both answers. One seat, one answer, decided by whichever arrived first
+            // and settled in the statement that writes rather than in the one that looked.
             insert.CommandText =
                 """
                 INSERT OR IGNORE INTO forfeits (code, round, seat, at)
-                VALUES ($code, $round, $seat, $at);
+                SELECT $code, $round, $seat, $at
+                WHERE NOT EXISTS (
+                          SELECT 1 FROM submissions
+                          WHERE code = $code AND round = $round AND seat = $seat);
                 """;
             insert.Parameters.AddWithValue("$code", code);
             insert.Parameters.AddWithValue("$round", round);

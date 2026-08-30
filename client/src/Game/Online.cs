@@ -140,12 +140,43 @@ public static class Online
     /// </remarks>
     public static void Listen()
     {
-        if (Match?.Seating is null || Match.Hearing || Relay.Relay is not Uri where)
+        // Guarded on having a doorbell rather than on its socket being up. Hearing goes false for
+        // the whole of a connect and every reconnect backoff, and this is called every frame while
+        // the match is arriving, so guarding on it built a new doorbell per frame and disposed the
+        // one that was still dialling.
+        if (Match?.Seating is null || Match.Listening || Relay.Relay is not Uri where)
         {
             return;
         }
 
         Match.Listen(new LiveDoorbell(where, Match.Code, Match.Seating.Token));
+    }
+
+    /// <summary>
+    /// Tells the relay this device's age band, when there is an account to tell it about.
+    /// </summary>
+    /// <remarks>
+    /// Nothing used to call this, which left the band a thing the relay was told exactly once, when
+    /// the account was made. A child's account therefore stayed a child's account for ever: they
+    /// turn thirteen, the local gate notices the answer could have changed and asks again, the
+    /// device records an adult, and the relay carries on refusing the stranger pool with no way for
+    /// anybody to correct it. The comment on the relay's own endpoint said the client re-asks and
+    /// sends the new answer, and the sending half did not exist.
+    ///
+    /// Safe to call whenever the answer changes. A device with no account has nothing to update, and
+    /// one that has never been asked has nothing worth saying.
+    /// </remarks>
+    public static void PushBand()
+    {
+        if (Player.RelayAccount is not AccountKey account || Player.Band == AgeBand.Unknown)
+        {
+            return;
+        }
+
+        // Not awaited. The band is already recorded on the device, the screen that asked has moved
+        // on, and a failure here costs the player nothing until they next press the one button that
+        // needs it, by which time this will have been called again.
+        _ = Relay.SetBand(account, Player.Band);
     }
 
     private static bool Recall(out string code, out string token)

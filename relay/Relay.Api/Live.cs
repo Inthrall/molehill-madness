@@ -478,13 +478,18 @@ public sealed partial class LiveWatcher : BackgroundService
             (IReadOnlyList<byte[]> notices, LiveWatch.Seen state) =
                 LiveWatch.Look(_store, code, before);
 
-            _seen[code] = state;
-
+            // Said first, remembered second. The other order writes down that a match has been
+            // told about a round and then tries to tell it, so anything that goes wrong in between
+            // loses the notice rather than delaying it, and the next look sees nothing new to say.
+            // It costs latency rather than correctness, since the socket is only ever a doorbell and
+            // the poll underneath is the truth, but there is no reason to pay even that.
             foreach (byte[] notice in notices)
             {
                 await _hub.Tell(code, notice).ConfigureAwait(false);
                 told++;
             }
+
+            _seen[code] = state;
         }
 
         // Matches nobody is listening to any more are forgotten, so a long-running relay does not

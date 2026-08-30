@@ -126,6 +126,18 @@ public static class Emails
     public static bool TooSoon(EmailClaim? claim, DateTimeOffset now) =>
         claim is not null && now - claim.AskedAt < Between;
 
+    /// <summary>
+    /// Whether that address has been written to too recently, whoever did the asking.
+    /// </summary>
+    /// <remarks>
+    /// The limit that actually protects anybody. Metering the account is metering the sender, and a
+    /// sender can have as many accounts as it likes for nothing, so the per-account rule alone let
+    /// one machine aim tens of thousands of codes a minute at one inbox. The address is the thing
+    /// being spent here, so the address is what has to be metered.
+    /// </remarks>
+    public static bool WrittenToRecently(DateTimeOffset? lastAsked, DateTimeOffset now) =>
+        lastAsked is DateTimeOffset when && now - when < Between;
+
     /// <summary>Whether a claim is still worth checking a code against.</summary>
     public static bool Live(EmailClaim? claim, DateTimeOffset now) =>
         claim is not null && now < claim.Expires && claim.Tries < Guesses;

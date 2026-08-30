@@ -101,6 +101,9 @@ public sealed class NudgeTests
         Match match = Started(2);
         Devices(match.Code, 0, 1);
 
+        // On round two before anybody submits for it. The store only takes a plan for the round the
+        // match is on, which is what the endpoint has always enforced.
+        _store.Advance(match.Code, 2, _now);
         _store.Submit(match.Code, 2, 0, new byte[] { 1 }, _now);
 
         IReadOnlyList<Nudge> decided = Nudges.Decide(_store, match.Code, round: 2, _now);

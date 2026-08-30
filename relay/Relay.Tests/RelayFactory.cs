@@ -64,6 +64,25 @@ internal static class Replies
     public static async Task<Joined> AsJoined(this HttpResponseMessage response) =>
         (await response.Content.ReadFromJsonAsync<Joined>(Options))!;
 
+    /// <summary>
+    /// Reads a round as somebody who is in the match.
+    /// </summary>
+    /// <remarks>
+    /// Signed, because reading a round is for the seats in it: it hands back every plan and the
+    /// seed, and it sweeps the forfeits and advances the match on the way past. It used to take no
+    /// token at all, so a code was enough.
+    /// </remarks>
+    public static Task<HttpResponseMessage> GetRound(
+        this HttpClient client, string code, int round, string token)
+    {
+        HttpRequestMessage request =
+            new HttpRequestMessage(HttpMethod.Get, $"/matches/{code}/rounds/{round}");
+
+        request.Headers.Add("X-Seat-Token", token);
+
+        return client.SendAsync(request);
+    }
+
     /// <summary>Posts a plan as the raw bytes it is, with the seat token that owns it.</summary>
     public static Task<HttpResponseMessage> PostPlan(
         this HttpClient client, string code, int round, string token, byte[] payload)

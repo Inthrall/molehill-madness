@@ -159,7 +159,7 @@ public sealed class RelayEndpointTests
 
         await _client.PostPlan(host.Code, 1, host.Token, new byte[] { 1 });
         await _client.PostPlan(host.Code, 1, guest.Token, new byte[] { 2 });
-        await _client.GetAsync($"/matches/{host.Code}/rounds/1");
+        await _client.GetRound(host.Code, 1, host.Token);
 
         Joined resumed = await (await Resume(host.Code, guest.Token)).AsJoined();
 
@@ -309,7 +309,7 @@ public sealed class RelayEndpointTests
         await _client.PostPlan(host.Code, 1, host.Token, new byte[] { 1 });
         await _client.PostPlan(host.Code, 1, second.Token, new byte[] { 2 });
 
-        JsonElement round = await (await _client.GetAsync($"/matches/{host.Code}/rounds/1")).Json();
+        JsonElement round = await (await _client.GetRound(host.Code, 1, host.Token)).Json();
 
         Assert.That(round.GetProperty("complete").GetBoolean(), Is.False);
         Assert.That(round.GetProperty("waitingOn").GetInt32(), Is.EqualTo(1));
@@ -330,7 +330,7 @@ public sealed class RelayEndpointTests
         await _client.PostPlan(host.Code, 1, host.Token, hostPlan);
         await _client.PostPlan(host.Code, 1, guest.Token, guestPlan);
 
-        JsonElement round = await (await _client.GetAsync($"/matches/{host.Code}/rounds/1")).Json();
+        JsonElement round = await (await _client.GetRound(host.Code, 1, host.Token)).Json();
 
         Assert.That(round.GetProperty("complete").GetBoolean(), Is.True);
         Assert.That(round.GetProperty("seed").GetString(), Is.EqualTo(host.Seed));
@@ -356,8 +356,8 @@ public sealed class RelayEndpointTests
         await _client.PostPlan(host.Code, 1, host.Token, new byte[] { 1 });
         await _client.PostPlan(host.Code, 1, guest.Token, new byte[] { 2 });
 
-        await _client.GetAsync($"/matches/{host.Code}/rounds/1");
-        await _client.GetAsync($"/matches/{host.Code}/rounds/1");
+        await _client.GetRound(host.Code, 1, host.Token);
+        await _client.GetRound(host.Code, 1, host.Token);
 
         JsonElement lobby = await (await _client.GetAsync($"/lobbies/{host.Code}")).Json();
 
@@ -372,7 +372,7 @@ public sealed class RelayEndpointTests
 
         await _client.PostPlan(host.Code, 1, host.Token, new byte[] { 1 });
         await _client.PostPlan(host.Code, 1, guest.Token, new byte[] { 2 });
-        await _client.GetAsync($"/matches/{host.Code}/rounds/1");
+        await _client.GetRound(host.Code, 1, host.Token);
 
         HttpResponseMessage next = await _client.PostPlan(host.Code, 2, host.Token, new byte[] { 3 });
 

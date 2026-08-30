@@ -361,6 +361,18 @@ namespace Molehill.Online
         /// <summary>Whether a socket is up, which is only ever of interest to a log.</summary>
         public bool Hearing => _bell is not null && _bell.Listening;
 
+        /// <summary>
+        /// Whether this session has a doorbell at all, connected or not.
+        /// </summary>
+        /// <remarks>
+        /// The question to ask before making one. <see cref="Hearing"/> is whether a socket is up
+        /// right now, which is false for the whole of a connect and the whole of every reconnect
+        /// backoff, so a caller guarding on that built a fresh doorbell every frame and threw away
+        /// the one that was in the middle of dialling. Against an unreachable relay that is sixty
+        /// sockets a second for as long as the wait lasts.
+        /// </remarks>
+        public bool Listening => _bell is not null;
+
         private void Hush()
         {
             _bell?.Dispose();
@@ -820,7 +832,7 @@ namespace Molehill.Online
                     return;
                 }
 
-                _asking = _relay.Round(Seating!.Code, Round);
+                _asking = _relay.Round(Seating!.Code, Seating.Token, Round);
                 _quiet = 0;
                 return;
             }

@@ -70,6 +70,18 @@ public static class Approvals
             // Read as a key here rather than at the point of use, so a mistyped one stops the
             // process while somebody is watching rather than failing the first time a child tries
             // to play.
+            // Checked before it is imported, because ImportFromPem is happy to take either half
+            // of a key pair and this service must never hold the half that signs. A private key here
+            // would work perfectly and quietly turn "the relay only holds public keys" into a
+            // sentence in a comment: anything that later wanted to mint an approval could, and the
+            // one property that makes a platform's word worth taking is that we cannot forge it.
+            if (!pem.Contains("BEGIN PUBLIC KEY", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"The approval key for '{platform.Key}' has to be a public key. "
+                    + "This relay must never be given the half that signs.");
+            }
+
             using ECDsa checking = ECDsa.Create();
 
             try

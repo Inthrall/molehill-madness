@@ -222,6 +222,12 @@ public sealed class MatchStoreTests
         (Match match, Seat host) = _store.Open(playerCount: 2, Pace.Live, _now);
 
         Assert.That(_store.Submit(match.Code, 1, host.Number, new byte[] { 1 }, _now), Is.True);
+
+        // Moved on first, because a plan is only accepted for the round the match is actually on.
+        // Submitting straight into round two used to work here and never could through an endpoint,
+        // which refuses a mismatched round outright; the store agrees with it now.
+        _store.Advance(match.Code, 2, _now);
+
         Assert.That(_store.Submit(match.Code, 2, host.Number, new byte[] { 2 }, _now), Is.True);
     }
 

@@ -218,6 +218,10 @@ public partial class GateScene : Control
 
         Player.Answer(born);
 
+        // The relay is told too, if this device has an account for it to be about. Recording the
+        // answer only on the device is what left a child's account stuck as a child's account.
+        Online.PushBand();
+
         GetTree().CallDeferred(
             SceneTree.MethodName.ChangeSceneToFile, "res://scenes/Menu.tscn");
     }
