@@ -160,6 +160,7 @@ jobs:
       STEAM_USERNAME: ${{ secrets.STEAM_USERNAME }}
       STEAM_CONFIG_VDF: ${{ secrets.STEAM_CONFIG_VDF }}
       PLAY_UPLOAD_KEYSTORE: ${{ secrets.PLAY_UPLOAD_KEYSTORE }}
+      PLAY_UPLOAD_KEY_PASSWORD: ${{ secrets.PLAY_UPLOAD_KEY_PASSWORD }}
       PLAY_SERVICE_ACCOUNT: ${{ secrets.PLAY_SERVICE_ACCOUNT }}
 
     steps:
@@ -341,7 +342,7 @@ jobs:
       # Both of these steps are skipped, loudly, when the secrets are not set. The bundle cannot
       # be built without a key to sign it with, and there is no useful half of that to do.
       - name: Export the Play bundle
-        if: env.PLAY_UPLOAD_KEYSTORE != ''
+        if: env.PLAY_UPLOAD_KEYSTORE != '' && env.PLAY_UPLOAD_KEY_PASSWORD != ''
         env:
           GODOT_ANDROID_KEYSTORE_RELEASE_USER: ${{ secrets.PLAY_UPLOAD_KEY_ALIAS }}
           GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD: ${{ secrets.PLAY_UPLOAD_KEY_PASSWORD }}
@@ -404,11 +405,14 @@ jobs:
           status: completed
 
       - name: Say if Play was skipped
-        if: env.PLAY_UPLOAD_KEYSTORE == '' || env.PLAY_SERVICE_ACCOUNT == ''
+        if: env.PLAY_UPLOAD_KEYSTORE == '' || env.PLAY_UPLOAD_KEY_PASSWORD == '' || env.PLAY_SERVICE_ACCOUNT == ''
         run: |
-          echo "::notice::Play skipped: no credentials configured. See docs/play-release.md."
-          echo "::notice::Needs PLAY_UPLOAD_KEYSTORE, PLAY_UPLOAD_KEY_ALIAS,"
-          echo "::notice::PLAY_UPLOAD_KEY_PASSWORD and PLAY_SERVICE_ACCOUNT."
+          echo "::notice::Play skipped. See docs/play-release.md. Missing:"
+          [ -n "$PLAY_UPLOAD_KEYSTORE" ]     || echo "::notice::  PLAY_UPLOAD_KEYSTORE"
+          [ -n "$PLAY_UPLOAD_KEY_PASSWORD" ] || echo "::notice::  PLAY_UPLOAD_KEY_PASSWORD"
+          [ -n "$PLAY_SERVICE_ACCOUNT" ]     || echo "::notice::  PLAY_SERVICE_ACCOUNT"
+          echo "::notice::PLAY_UPLOAD_KEY_ALIAS is needed too and cannot be checked here,"
+          echo "::notice::because an empty alias is a value rather than an absence."
 
       - name: Package the Windows build
         run: |
@@ -432,7 +436,7 @@ jobs:
       # fails a run that is missing anything it names. Nobody sideloads a bundle: this is here so a
       # release that went to Play can be told apart from one that did not.
       - name: Upload the bundle
-        if: env.PLAY_UPLOAD_KEYSTORE != ''
+        if: env.PLAY_UPLOAD_KEYSTORE != '' && env.PLAY_UPLOAD_KEY_PASSWORD != ''
         uses: actions/upload-artifact@v7
         with:
           name: bundle
