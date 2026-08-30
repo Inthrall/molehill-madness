@@ -52,7 +52,9 @@ public sealed class EncoderTests
         Assert.That(line, Does.Contain("-video_size 1080x1920"));
         Assert.That(line, Does.Contain("-framerate 15"));
         Assert.That(line, Does.Contain("-i -"), "The frames arrive on standard input.");
-        Assert.That(line, Does.EndWith("/tmp/out.mp4"));
+        // Quoted whether or not it looks like it needs to be, so nothing about the path can end
+        // the argument early.
+        Assert.That(line, Does.EndWith("\"/tmp/out.mp4\""));
     }
 
     /// <summary>
@@ -76,6 +78,31 @@ public sealed class EncoderTests
         string line = FfmpegEncoder.Arguments(16, 16, 15, @"C:\Users\Someone Else\out.mp4");
 
         Assert.That(line, Does.EndWith("\"C:\\Users\\Someone Else\\out.mp4\""));
+    }
+
+    /// <summary>
+    /// And a quote inside the path is escaped rather than ending the argument. The temp path is
+    /// built from the user name, and Windows lets that contain most things.
+    /// </summary>
+    [Test]
+    public void AQuoteInThePathDoesNotEndTheArgument()
+    {
+        string line = FfmpegEncoder.Arguments(16, 16, 15, "/tmp/od\"d/out.mp4");
+
+        Assert.That(line, Does.Contain("od\\\"d"));
+        Assert.That(line, Does.EndWith("\""));
+    }
+
+    /// <summary>A frame of the wrong size is a caller bug, and noticing it late says nothing.</summary>
+    [Test]
+    public void AFrameOfTheWrongSizeIsRefusedWhenItArrives()
+    {
+        using ApngEncoder encoder = new ApngEncoder();
+
+        encoder.Begin(4, 4, 15);
+
+        Assert.That(() => encoder.Add(new byte[8]), Throws.ArgumentException);
+        Assert.That(() => encoder.Add(Frame(4, 4, 0x11)), Throws.Nothing);
     }
 
     // ---- Finding one ---------------------------------------------------------------------

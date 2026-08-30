@@ -112,7 +112,24 @@ namespace Molehill.Clip
             _frames.Clear();
         }
 
-        public void Add(byte[] rgba) => _frames.Add(rgba);
+        public void Add(byte[] rgba)
+        {
+            ArgumentNullException.ThrowIfNull(rgba);
+
+            // Checked here rather than at the end. A frame of the wrong size is a caller bug, and
+            // taken quietly it surfaces forty-four frames later as an exception from the writer with
+            // nothing left to say which frame was wrong.
+            int expected = _width * _height * 4;
+
+            if (rgba.Length != expected)
+            {
+                throw new ArgumentException(
+                    $"A frame is {expected} bytes at {_width} by {_height}; this one is {rgba.Length}.",
+                    nameof(rgba));
+            }
+
+            _frames.Add(rgba);
+        }
 
         public ClipFile? Finish()
         {
@@ -510,8 +527,18 @@ namespace Molehill.Clip
             _output = null;
         }
 
+        /// <summary>
+        /// A path as a command-line argument, quoted whether or not it looks like it needs it.
+        /// </summary>
+        /// <remarks>
+        /// Always, rather than only when there is a space in it, and with any quote inside escaped.
+        /// The old version wrapped a path only if it contained a space and did nothing about what
+        /// was inside, so a temp directory with a quote in it produced an argument that ended early
+        /// and turned the rest of the path into further arguments. Windows lets a user name contain
+        /// most things, and the temp path is built from it.
+        /// </remarks>
         private static string Quoted(string path) =>
-            path.Contains(' ', StringComparison.Ordinal) ? $"\"{path}\"" : path;
+            $"\"{path.Replace("\"", "\\\"", StringComparison.Ordinal)}\"";
     }
 
     /// <summary>
