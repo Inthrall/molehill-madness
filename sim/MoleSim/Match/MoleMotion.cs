@@ -28,6 +28,15 @@ namespace MoleSim.Match
                 return;
             }
 
+            // A drill in progress owns the mole: it is not walking, not falling, and not steerable
+            // while it is cutting. Ahead of the airborne branch on purpose, because a torpedo fired
+            // in mid air keeps drilling rather than reverting to a ballistic arc.
+            if (mole.IsDrilling)
+            {
+                StepDrill(mole, terrain);
+                return;
+            }
+
             if (mole.IsAirborne)
             {
                 // The route goes in now. A mole off the ground used to be handed nothing, so a jump
@@ -272,6 +281,78 @@ namespace MoleSim.Match
         }
 
         // ---- Falling ------------------------------------------------------------------
+
+        /// <summary>
+        /// Advances a Tunnel Torpedo by one tick, cutting as it goes.
+        /// </summary>
+        /// <remarks>
+        /// The whole twelve metres used to be cut inside the tick the torpedo was ordered on, so the
+        /// tunnel appeared complete and the mole was instantly at the far end of it. Nothing about
+        /// that was watchable, and in the planning preview it did not happen at all, because the
+        /// preview steps moles through this function and the drilling lived in the match.
+        ///
+        /// Substepped for the same reason the ballistic path is: at fourteen metres a second a tick
+        /// covers most of a body length, and cutting in body-length jumps would let a torpedo pass
+        /// straight through a thin slab of bedrock without noticing it.
+        /// </remarks>
+        private static void StepDrill(Mole mole, TerrainGrid terrain)
+        {
+            Fix64 travel = MatchSettings.TorpedoSpeed * MatchSettings.TickDuration;
+
+            if (travel > mole.DrillLeft)
+            {
+                travel = mole.DrillLeft;
+            }
+
+            // Carried on the mole rather than left at whatever it was before, because a mole
+            // crossing twelve metres with a velocity of zero is a lie that other things read. The
+            // camera decides whether to follow from it, the replay records it, and the pose picker
+            // asks it whether the mole is moving: all three were being told the mole stood still.
+            // Nothing integrates it while drilling, so it is a report rather than a force.
+            mole.Velocity = mole.DrillHeading * MatchSettings.TorpedoSpeed;
+
+            Fix64 stride = WorldScale.CellSize * Fix64.FromInt(2);
+            Fix64 cut = Fix64.Zero;
+
+            while (cut < travel)
+            {
+                Fix64 step = travel - cut;
+
+                if (step > stride)
+                {
+                    step = stride;
+                }
+
+                Vec2 next = mole.Position + (mole.DrillHeading * step);
+
+                // Carve first, then ask whether anything is still in the way. Asking what material
+                // is at the body's centre would stop the drill before it started, because a mole on
+                // the surface has open air at its centre: the same mistake the walking solver made.
+                TerrainQuery.CarveBody(terrain, next, MatchSettings.Radius);
+
+                if (TerrainQuery.IsBlocked(terrain, next, MatchSettings.Radius))
+                {
+                    // Bedrock, which is the one thing that stops a torpedo. The drill ends here
+                    // rather than at its full range, and the mole keeps the ground it won.
+                    mole.DrillLeft = Fix64.Zero;
+                    return;
+                }
+
+                mole.Position = next;
+                cut += step;
+            }
+
+            mole.DrillLeft -= cut;
+
+            // Left where it stopped rather than dropped. Whether the far end of the tunnel has a
+            // floor is the grounded solver's question, and it gets asked on the next tick once the
+            // drill is spent.
+            if (mole.DrillLeft <= Fix64.Zero)
+            {
+                mole.DrillLeft = Fix64.Zero;
+                mole.Velocity = Vec2.Zero;
+            }
+        }
 
         private static void StepBallistic(Mole mole, TerrainGrid terrain, Vec2[]? route)
         {

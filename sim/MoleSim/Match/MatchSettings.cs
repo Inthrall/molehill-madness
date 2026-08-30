@@ -161,6 +161,20 @@ namespace MoleSim.Match
         public static Fix64 TorpedoRange => Fix64.FromInt(12);
 
         /// <summary>
+        /// How fast it drills, in metres per second.
+        /// </summary>
+        /// <remarks>
+        /// The drill used to happen inside the tick it was ordered on: the whole twelve metres of
+        /// tunnel appeared at once and the mole was simply somewhere else, which is not something a
+        /// player can watch, learn from or be scared of. Spread over time it is about four fifths of
+        /// a second, which is long enough to see and short enough to still feel like a torpedo.
+        ///
+        /// Faster than a hop and much faster than a walk, because it is the one thing in the game
+        /// that goes through packed soil at speed.
+        /// </remarks>
+        public static Fix64 TorpedoSpeed => Fix64.FromInt(14);
+
+        /// <summary>
         /// Rounds before a placed trap becomes dangerous. One, so it is visible as a
         /// suspicious mound for a whole round before anybody can be caught by it.
         /// </summary>

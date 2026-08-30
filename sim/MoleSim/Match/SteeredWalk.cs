@@ -98,6 +98,9 @@ namespace MoleSim.Match
         /// </summary>
         public bool IsFalling => _ghost.IsAirborne;
 
+        /// <summary>Whether a torpedo is cutting, which like falling runs without being asked.</summary>
+        public bool IsDrilling => _ghost.IsDrilling;
+
         /// <summary>Whether the mole has gone anywhere worth committing to.</summary>
         public bool HasMoved => Vec2.Distance(_start, _ghost.Position) > MatchSettings.Radius;
 
@@ -119,6 +122,16 @@ namespace MoleSim.Match
             }
 
             bool pushing = direction.LengthSquared() != Fix64.Zero;
+
+            // A drill in progress runs whether or not anybody is pushing, and cannot be steered. It
+            // is not something the mole is choosing tick by tick, so like falling the ticks go by
+            // regardless: without this the preview stopped dead between pushes and the tunnel
+            // appeared in instalments as the player fidgeted with the stick.
+            if (_ghost.IsDrilling)
+            {
+                Step(null);
+                return;
+            }
 
             if (_ghost.IsAirborne)
             {
@@ -153,12 +166,41 @@ namespace MoleSim.Match
         /// </remarks>
         public bool Hop()
         {
-            if (_ghost.IsAirborne)
+            if (_ghost.IsAirborne || _ghost.IsDrilling)
             {
                 return false;
             }
 
             _ghost.AddImpulse(-Vec2.UnitY * MatchSettings.HopSpeed);
+            return true;
+        }
+
+        /// <summary>
+        /// Sets the ghost drilling, exactly as resolution will set the mole drilling.
+        /// </summary>
+        /// <remarks>
+        /// Without this, ordering a Tunnel Torpedo did nothing whatsoever on the planning screen.
+        /// The action went into the plan and the drilling happened at resolution, so the one weapon
+        /// whose whole purpose is to move the mole twelve metres showed no movement at all while the
+        /// move was being planned, and the route the plan recorded was the route of a mole that had
+        /// stood still. It is the same two fields resolution sets, off the same setting, and refused
+        /// while already drilling for the same reason as a hop: a preview that disagrees with the
+        /// round is worse than no preview.
+        /// </remarks>
+        public bool Drill(Vec2 aim)
+        {
+            if (_ghost.IsDrilling || aim.LengthSquared() == Fix64.Zero)
+            {
+                return false;
+            }
+
+            Vec2 heading = aim.Normalised();
+
+            _ghost.Facing = heading;
+            _ghost.DrillHeading = heading;
+            _ghost.DrillLeft = MatchSettings.TorpedoRange;
+            _ghost.IsAirborne = false;
+            _ghost.Velocity = Vec2.Zero;
             return true;
         }
 

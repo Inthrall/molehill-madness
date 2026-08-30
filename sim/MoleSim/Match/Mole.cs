@@ -97,7 +97,27 @@ namespace MoleSim.Match
             StalledTicks = 0;
             DiggingIsCheap = false;
             IsSnared = false;
+            DrillLeft = Fix64.Zero;
+            DrillHeading = Vec2.Zero;
         }
+
+        /// <summary>
+        /// How much tunnel a Tunnel Torpedo has left to cut, or zero when it is not drilling.
+        /// </summary>
+        /// <remarks>
+        /// Held on the mole rather than in the match so that the one function both the planning
+        /// preview and the round itself go through can advance it. The preview steps moles through
+        /// MoleMotion and nothing else; anything the match does on its own is invisible while a turn
+        /// is being planned, which is exactly how a drill that worked perfectly in the round did
+        /// nothing at all in the ghost.
+        /// </remarks>
+        public Fix64 DrillLeft { get; set; }
+
+        /// <summary>Which way it is drilling. Only meaningful while <see cref="DrillLeft"/> is positive.</summary>
+        public Vec2 DrillHeading { get; set; }
+
+        /// <summary>Whether a torpedo is currently cutting.</summary>
+        public bool IsDrilling => DrillLeft > Fix64.Zero;
 
         /// <summary>
         /// Applies damage and ends this mole's go. Returns true if it went off duty.

@@ -381,7 +381,14 @@ public sealed class SeatPlanner
             return;
         }
 
-        bool idle = direction.LengthSquared() == Fix64.Zero && !Walk.IsFalling;
+        // Drilling counts as not idle, for the same reason falling does: it happens whether or not
+        // anybody is pushing, so the ticks have to go by. Without this a drill ordered and then left
+        // alone froze the moment the thumb came off the stick, which is precisely when a player
+        // would take it off, and the preview showed a mole standing in the mouth of a tunnel it had
+        // not finished cutting.
+        bool idle = direction.LengthSquared() == Fix64.Zero
+            && !Walk.IsFalling
+            && !Walk.IsDrilling;
 
         if (idle || !Walk.HasTimeLeft)
         {
@@ -571,6 +578,7 @@ public sealed class SeatPlanner
         if (UsesLeft > 0)
         {
             _uses.Add(use);
+            Preview(use);
             return;
         }
 
@@ -586,6 +594,27 @@ public sealed class SeatPlanner
                 _uses[index] = use;
                 return;
             }
+        }
+    }
+
+    /// <summary>
+    /// Shows a use on the planning screen, for the ones that move the mole.
+    /// </summary>
+    /// <remarks>
+    /// Most weapons leave the mole where it stands, so booking one changes nothing about the route
+    /// and there is nothing to preview. The Tunnel Torpedo is the exception and was the whole of the
+    /// complaint: ordering one did nothing visible at all while planning, because the drilling
+    /// happened at resolution and the ghost is the only thing the planning screen moves.
+    ///
+    /// Only on a fresh booking, not on a replacement. Re-aiming a drill the ghost has already run
+    /// would have to rewind the route to undo the first one, and the ghost has no rewind: the reset
+    /// token is what undoes a drill you regret.
+    /// </remarks>
+    private void Preview(PlanAction use)
+    {
+        if (use.Weapon == WeaponId.TunnelTorpedo)
+        {
+            Walk?.Drill(use.AimDirection());
         }
     }
 

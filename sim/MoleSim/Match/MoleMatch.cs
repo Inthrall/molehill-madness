@@ -346,10 +346,21 @@ namespace MoleSim.Match
                 routes[seat] = plan.ToWorldRoute();
             }
 
+            // Who was drilling at the top of the tick, so a torpedo that runs out during the move
+            // can be spotted and detonated below. Allocated once rather than per tick.
+            bool[] drilling = new bool[_moles.Length];
+
             for (int tick = 0; tick < MatchSettings.TicksPerRound; tick++)
             {
                 FireScheduledActions(tick, actors, result);
+
+                for (int slot = 0; slot < _moles.Length; slot++)
+                {
+                    drilling[slot] = _moles[slot].IsDrilling;
+                }
+
                 MoveEverybody(actors, routes);
+                FinishDrills(drilling, result);
                 AdvanceShots(result);
                 CheckPlacements(result);
                 LandAndClaimCrates(tick, result);
@@ -734,7 +745,7 @@ namespace MoleSim.Match
                     break;
 
                 case WeaponId.TunnelTorpedo:
-                    Drill(actor, weapon, action, result);
+                    Drill(actor, action);
                     break;
 
                 default:
@@ -746,7 +757,7 @@ namespace MoleSim.Match
         /// Drills a straight line through dirt and bowls over whatever is where it
         /// surfaces. The mole-est move in the game.
         /// </summary>
-        private void Drill(Mole actor, WeaponId weapon, PlanAction action, RoundResult result)
+        private static void Drill(Mole actor, PlanAction action)
         {
             Vec2 aim = AimOf(actor, action);
 
@@ -755,53 +766,60 @@ namespace MoleSim.Match
                 return;
             }
 
-            Fix64 stride = WorldScale.CellSize * Fix64.FromInt(2);
-            Fix64 travelled = Fix64.Zero;
-            Vec2 at = actor.Position;
-
-            while (travelled < MatchSettings.TorpedoRange)
-            {
-                Vec2 next = at + (aim * stride);
-
-                // Carve first, then see whether anything is still in the way. Asking
-                // whether the material at the body's centre is diggable would stop the
-                // drill before it started, because a mole standing on the surface has open
-                // air at its centre: the same mistake the walking solver made once already.
-                TerrainQuery.CarveBody(Terrain, next, MatchSettings.Radius);
-
-                if (TerrainQuery.IsBlocked(Terrain, next, MatchSettings.Radius))
-                {
-                    // Bedrock, which is the one thing that stops a torpedo.
-                    break;
-                }
-
-                at = next;
-                travelled += stride;
-            }
-
-            actor.Position = at;
+            // Set going rather than carried out. The cutting itself belongs to the motion solver,
+            // which is the one thing the planning preview and the round both step moles through, so
+            // putting it there is what makes the ghost drill at all. It also spreads twelve metres
+            // over about four fifths of a second instead of finishing inside the ordering tick.
             actor.Facing = aim;
+            actor.DrillHeading = aim;
+            actor.DrillLeft = MatchSettings.TorpedoRange;
+            actor.IsAirborne = false;
+            actor.Velocity = Vec2.Zero;
+        }
 
-            foreach (BlastHit hit in Blast.Detonate(
-                         Terrain, _moles, at, WeaponTable.Of(weapon),
-                         bySeat: actor.Seat, byMoleIndex: actor.Index))
+        /// <summary>
+        /// Goes off where a torpedo stopped, on the tick it stops.
+        /// </summary>
+        /// <remarks>
+        /// The blast used to happen in the same breath as the drilling, which was fine while the
+        /// drilling was instant and wrong the moment it took time: a torpedo would have detonated at
+        /// the mouth of its own tunnel before cutting it. Watched for here instead, so the bang
+        /// lands where the drill ran out, whether that is at full range or against bedrock.
+        /// </remarks>
+        private void FinishDrills(bool[] wereDrilling, RoundResult result)
+        {
+            for (int slot = 0; slot < _moles.Length; slot++)
             {
-                if (hit.Seat == actor.Seat && hit.MoleIndex == actor.Index)
+                Mole mole = _moles[slot];
+
+                if (!wereDrilling[slot] || mole.IsDrilling)
                 {
                     continue;
                 }
 
-                result.Hits.Add(hit);
+                WeaponSpec spec = WeaponTable.Of(WeaponId.TunnelTorpedo);
 
-                if (hit.WentOffDuty)
+                foreach (BlastHit hit in Blast.Detonate(
+                             Terrain, _moles, mole.Position, spec,
+                             bySeat: mole.Seat, byMoleIndex: mole.Index))
                 {
-                    RecordKnockout(
-                        result, hit.Seat, hit.MoleIndex, KnockoutCause.Explosion,
-                        hit.Damage, WeaponTable.Of(weapon).Knockback);
-                }
-            }
+                    if (hit.Seat == mole.Seat && hit.MoleIndex == mole.Index)
+                    {
+                        continue;
+                    }
 
-            result.Blasts.Add(new Detonation(at, WeaponTable.Of(weapon).BlastRadius));
+                    result.Hits.Add(hit);
+
+                    if (hit.WentOffDuty)
+                    {
+                        RecordKnockout(
+                            result, hit.Seat, hit.MoleIndex, KnockoutCause.Explosion,
+                            hit.Damage, spec.Knockback);
+                    }
+                }
+
+                result.Blasts.Add(new Detonation(mole.Position, spec.BlastRadius));
+            }
         }
 
         /// <summary>

@@ -371,6 +371,44 @@ public sealed class ArsenalTests
         });
     }
 
+    /// <summary>
+    /// The torpedo goes off where it stopped, not where it started.
+    /// </summary>
+    /// <remarks>
+    /// The blast used to be raised in the same breath as the drilling, which was harmless while the
+    /// drilling was instant: start and finish were the same tick, so the same position. Now that a
+    /// drill takes about four fifths of a second, raising the blast when the torpedo is ordered would
+    /// detonate it at the mouth of a tunnel it had not cut yet, hurting whoever was standing behind
+    /// the driller rather than whoever was at the far end.
+    /// </remarks>
+    [Test]
+    public void ATorpedoGoesOffAtTheFarEndOfItsTunnel()
+    {
+        MoleMatch match = NewMatch();
+        Mole driller = MoleOf(match, 0, 0);
+        Fix64 startX = driller.Position.X;
+
+        match.SubmitPlan(Wield(0, 0, WeaponId.TunnelTorpedo, Vec2.UnitX, 255, tick: 1));
+        match.SubmitPlan(Plan.Idle(1, 0));
+
+        RoundResult result = match.ResolveRound();
+
+        Assert.That(result.Blasts, Is.Not.Empty, "the torpedo never went off");
+
+        Detonation blast = result.Blasts[result.Blasts.Count - 1];
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                blast.At.X - startX, Is.GreaterThan(Fix64.FromInt(8)),
+                "it went off at the mouth of its own tunnel");
+            Assert.That(
+                Vec2.Distance(blast.At, driller.Position),
+                Is.LessThan(MatchSettings.Radius * Fix64.FromInt(4)),
+                "the blast and the mole parted company");
+        });
+    }
+
     [Test]
     public void ASnapTrapIsHarmlessTheRoundItIsPlacedAndDangerousAfter()
     {

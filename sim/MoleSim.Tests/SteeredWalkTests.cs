@@ -262,4 +262,81 @@ public sealed class SteeredWalkTests
             Vec2.Distance(result.Recording!.PositionOf(walk.TicksUsed, slot), steeredTo),
             Is.LessThan(MatchSettings.Radius * Fix64.FromInt(3)));
     }
+
+    // ---- The drill ------------------------------------------------------------------
+
+    /// <summary>
+    /// A Tunnel Torpedo drills in the preview, not only in the round.
+    /// </summary>
+    /// <remarks>
+    /// The complaint, exactly: the drill did nothing in ghost mode. Weapon uses are carried out by
+    /// the match at resolution, and the planning screen moves the ghost and nothing else, so the one
+    /// weapon whose entire purpose is to move the mole twelve metres showed no movement at all while
+    /// the move was being planned. Worse, the route the plan recorded was the route of a mole that
+    /// had stood still.
+    /// </remarks>
+    [Test]
+    public void TheGhostDrillsWhenAToredoIsOrdered()
+    {
+        MoleMatch match = NewMatch();
+        SteeredWalk walk = SteeredWalk.From(FirstActor(match), match.Terrain);
+        Fix64 startX = walk.Position.X;
+
+        Assert.That(walk.Drill(Vec2.UnitX), Is.True, "the ghost refused to drill");
+
+        // Nothing held, which is what a thumb off the stick hands over. A drill runs anyway.
+        Push(walk, Vec2.Zero, MatchSettings.TicksPerSecond * 2);
+
+        Assert.That(
+            walk.Position.X - startX, Is.GreaterThan(Fix64.FromInt(8)),
+            "the ghost stayed put while the plan said it would travel twelve metres");
+    }
+
+    /// <summary>
+    /// And it takes time rather than happening all at once.
+    /// </summary>
+    /// <remarks>
+    /// The other half of the complaint. The whole tunnel used to be cut inside the tick the torpedo
+    /// was ordered on, so there was nothing to watch, nothing to react to and nothing to learn from.
+    /// A tick is checked partway through: the mole should be somewhere in the middle of its tunnel
+    /// and not already at the end of it.
+    /// </remarks>
+    [Test]
+    public void TheDrillTakesTimeRatherThanHappeningAtOnce()
+    {
+        MoleMatch match = NewMatch();
+        SteeredWalk walk = SteeredWalk.From(FirstActor(match), match.Terrain);
+        Fix64 startX = walk.Position.X;
+
+        walk.Drill(Vec2.UnitX);
+        Push(walk, Vec2.Zero, 1);
+
+        Fix64 afterOneTick = walk.Position.X - startX;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(afterOneTick, Is.GreaterThan(Fix64.Zero), "it did not start");
+            Assert.That(
+                afterOneTick, Is.LessThan(MatchSettings.TorpedoRange / Fix64.FromInt(2)),
+                "the whole drill happened in one tick, which is what this is here to prevent");
+            Assert.That(walk.IsDrilling, Is.True, "it finished in a single tick");
+        });
+    }
+
+    [Test]
+    public void ADrillCannotBeSteeredOrJumpedOutOf()
+    {
+        MoleMatch match = NewMatch();
+        SteeredWalk walk = SteeredWalk.From(FirstActor(match), match.Terrain);
+
+        walk.Drill(Vec2.UnitX);
+        Fix64 startY = walk.Position.Y;
+
+        // Pushing straight down mid-drill, and asking for a hop, neither of which a torpedo obeys.
+        Assert.That(walk.Hop(), Is.False, "a hop interrupted the drill");
+
+        Push(walk, Vec2.UnitY, 4);
+
+        Assert.That(walk.Position.Y, Is.EqualTo(startY), "the drill was steered off its line");
+    }
 }
