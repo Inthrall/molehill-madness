@@ -612,9 +612,26 @@ public sealed class SeatPlanner
     /// </remarks>
     private void Preview(PlanAction use)
     {
-        if (use.Weapon == WeaponId.TunnelTorpedo)
+        switch (use.Weapon)
         {
-            Walk?.Drill(use.AimDirection());
+            case WeaponId.TunnelTorpedo:
+                Walk?.Drill(use.AimDirection());
+                break;
+
+            case WeaponId.PowerClaws:
+                Walk?.Claw();
+                break;
+
+            case WeaponId.Sandbag:
+                Walk?.DropSandbag();
+                break;
+
+            default:
+                // Everything else either throws something, which no weapon previews, or leaves
+                // something on the ground for a later round to trip over. The vents, traps and
+                // snares are the honest gap here: they are placements, and the preview has no
+                // notion of a placement, so a mole cannot be planned onto its own geyser.
+                break;
         }
     }
 

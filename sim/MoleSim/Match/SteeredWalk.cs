@@ -205,6 +205,37 @@ namespace MoleSim.Match
         }
 
         /// <summary>
+        /// Sharpens the ghost's claws, exactly as resolution sharpens the mole's.
+        /// </summary>
+        /// <remarks>
+        /// The Power Claws only ever do one thing, which is make digging cheap, and the planning
+        /// screen is the only place that number is ever shown. Without this the gauge quoted the full
+        /// price for a turn the round would charge a quarter of: measured at 62.6 stamina previewed
+        /// against 15.0 actually charged, for the same dig. Using the claws appeared to do nothing at
+        /// all, so there was no way to learn what they were for.
+        ///
+        /// From this moment rather than for the whole turn, because that is what resolution does: the
+        /// claws come out at the tick they are used, and digging done before that is charged in full.
+        /// </remarks>
+        public void Claw()
+        {
+            _ghost.DiggingIsCheap = true;
+        }
+
+        /// <summary>
+        /// Drops a sandbag into the ghost's own copy of the world.
+        /// </summary>
+        /// <remarks>
+        /// The preview walks a clone of the terrain, so a bag dropped this turn did not exist in it
+        /// and a mole could not be planned onto something it was about to build. Standing on your own
+        /// bag is most of the reason to carry one.
+        /// </remarks>
+        public void DropSandbag()
+        {
+            Tools.DropSandbag(_scratch, _ghost.Position);
+        }
+
+        /// <summary>
         /// The waypoints to hand the simulation: where the mole stood, every so often, plus
         /// wherever it finished.
         /// </summary>

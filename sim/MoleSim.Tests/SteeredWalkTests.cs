@@ -339,4 +339,81 @@ public sealed class SteeredWalkTests
 
         Assert.That(walk.Position.Y, Is.EqualTo(startY), "the drill was steered off its line");
     }
+
+    // ---- The other movement tools ---------------------------------------------------
+
+    /// <summary>
+    /// Power Claws make digging cheap in the preview, not only in the round.
+    /// </summary>
+    /// <remarks>
+    /// The claws do exactly one thing, and the planning screen is the only place that thing is ever
+    /// shown as a number. Without this the gauge quoted the full price for a turn the round would
+    /// charge a quarter of, so using them appeared to do nothing and there was no way to learn what
+    /// they were for. Measured at 62.6 stamina previewed against 15.0 charged before this.
+    /// </remarks>
+    [Test]
+    public void ClawsMakeDiggingCheapInThePreview()
+    {
+        MoleMatch match = NewMatch();
+        SteeredWalk plain = SteeredWalk.From(FirstActor(match), match.Terrain);
+        SteeredWalk clawed = SteeredWalk.From(FirstActor(match), match.Terrain);
+
+        clawed.Claw();
+
+        Push(plain, Vec2.UnitY, 40);
+        Push(clawed, Vec2.UnitY, 40);
+
+        Assert.That(
+            clawed.StaminaSpent, Is.LessThan(plain.StaminaSpent / Fix64.FromInt(2)),
+            "the claws changed nothing the player could see");
+    }
+
+    /// <summary>
+    /// The claws only apply from the moment they are used, as they do at resolution.
+    /// </summary>
+    /// <remarks>
+    /// Digging done before the claws come out is charged in full. Applying them to the whole turn
+    /// would be a preview that flattered the plan, which is worse than one that overcharges it.
+    /// </remarks>
+    [Test]
+    public void ClawsDoNotRefundDiggingAlreadyDone()
+    {
+        MoleMatch match = NewMatch();
+        SteeredWalk walk = SteeredWalk.From(FirstActor(match), match.Terrain);
+
+        Push(walk, Vec2.UnitY, 20);
+        Fix64 beforeClaws = walk.StaminaSpent;
+
+        walk.Claw();
+        Push(walk, Vec2.UnitY, 20);
+
+        Assert.That(
+            walk.StaminaSpent, Is.GreaterThan(beforeClaws),
+            "the claws refunded the expensive half of the turn");
+    }
+
+    /// <summary>
+    /// A sandbag dropped this turn exists in the preview's own world.
+    /// </summary>
+    /// <remarks>
+    /// The preview walks a clone of the terrain taken when the turn began, so a bag dropped during
+    /// it did not exist and a mole could not be planned onto something it was about to build.
+    /// Standing on your own bag is most of the reason to carry one.
+    /// </remarks>
+    [Test]
+    public void ASandbagDroppedInThePreviewIsThereToStandOn()
+    {
+        MoleMatch match = NewMatch();
+        SteeredWalk walk = SteeredWalk.From(FirstActor(match), match.Terrain);
+
+        Push(walk, Vec2.UnitY, 20);
+        Fix64 floor = walk.Position.Y;
+
+        walk.DropSandbag();
+        Push(walk, Vec2.Zero, 10);
+
+        Assert.That(
+            walk.Position.Y, Is.LessThanOrEqualTo(floor),
+            "the mole sank through a bag that should have been under its feet");
+    }
 }

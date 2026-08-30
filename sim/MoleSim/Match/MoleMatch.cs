@@ -718,12 +718,7 @@ namespace MoleSim.Match
                     break;
 
                 case WeaponId.Sandbag:
-                    // Counts as loose soil, so it is cheap for anybody to dig back out.
-                    Terrain.DepositCircle(
-                        WorldScale.ToCell(actor.Position.X),
-                        WorldScale.ToCell(actor.Position.Y) + 2,
-                        Fix64.FloorToInt(WeaponTable.Of(weapon).BlastRadius / WorldScale.CellSize),
-                        Material.LooseSoil);
+                    Tools.DropSandbag(Terrain, actor.Position);
                     break;
 
                 case WeaponId.SnapTrap:
