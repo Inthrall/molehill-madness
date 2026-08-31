@@ -358,8 +358,16 @@ jobs:
           code=${{ github.run_number }}
           sed -i "s|^version/code=.*|version/code=$code|" client/export_presets.cfg
 
+          # The version name is what a tester reads in the store listing, and unlike the code it
+          # is only a label. A tag names itself. Anything else keeps the name in the preset with the
+          # run number after it, because uploading to the internal track on every push to main means
+          # a dozen builds a week that would otherwise all call themselves the same thing, and
+          # "which build are you on?" has to have an answer somebody can read off their phone.
           if [ "${{ github.ref_type }}" = "tag" ]; then
             sed -i "s|^version/name=.*|version/name=\"${GITHUB_REF_NAME#v}\"|" client/export_presets.cfg
+          else
+            name=$(grep -m1 '^version/name=' client/export_presets.cfg | cut -d'"' -f2)
+            sed -i "s|^version/name=.*|version/name=\"$name build $code\"|" client/export_presets.cfg
           fi
 
           grep -n '^version/' client/export_presets.cfg
@@ -387,13 +395,28 @@ jobs:
 
           echo "Bundle: $(du -h build/android/molehill-madness.aab | cut -f1)"
 
-      # Tags only, and to the closed track rather than to production. Every push to main would
-      # spend a version code and tell the testers there is something new, several times an
-      # afternoon, and a tester who stops looking at the notification is a tester who has stopped
-      # testing. Promotion out of the closed track is a decision made in the console.
+      # Every push to main, and every tag, to the internal track.
+      #
+      # This used to be tags only, and the argument written here against doing it on main was that
+      # each push spends a version code and tells the testers there is something new several times
+      # an afternoon, and a tester who stops reading the notification has stopped testing. That
+      # argument is about a closed track, where the testers are twelve people who were asked to
+      # help. It is much weaker for the internal track, which is a short list of people who already
+      # know the build changes constantly and is the only track a phone can install from without a
+      # sideload. The cost of the old arrangement was that the thing on the phone was whatever was
+      # tagged last, so testing a change meant cutting a release for it.
+      #
+      # Main and tags rather than every branch, which is what the push trigger above actually
+      # matches: a feature branch that uploaded to Play would put unreviewed work in front of
+      # testers and burn a version code doing it.
+      #
+      # None of this reaches a closed track or production. Promotion out of internal stays a
+      # decision made in the console, which matters more than it sounds: the twelve testers for
+      # fourteen days that a new personal account needs before production unlocks only counts on a
+      # closed test, so nothing here starts that clock. See docs/play-release.md.
       - name: Upload to Play
         if: >
-          github.ref_type == 'tag'
+          (github.ref == 'refs/heads/main' || github.ref_type == 'tag')
           && env.PLAY_UPLOAD_KEYSTORE != ''
           && env.PLAY_SERVICE_ACCOUNT != ''
         uses: r0adkll/upload-google-play@v1

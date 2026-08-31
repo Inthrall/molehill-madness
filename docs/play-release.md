@@ -11,7 +11,7 @@ The build half is written and lives in [`.github/workflows/release.yml`](../.git
 3. Make an upload key, and put it in the repository's secrets.
 4. Make a service account, give it access to this app, and put its key in the secrets.
 5. Fill in the console: content rating, target audience, data safety, privacy policy, store listing.
-6. Tag a release. CI builds the bundle and sends it to the internal track.
+6. Push to main. CI builds the bundle and sends it to the internal track.
 
 Steps 1, 2, 4 and 5 are console work and cannot be done from here. Steps 3 and 6 are commands.
 
@@ -88,18 +88,24 @@ The Google Play Android Developer API has to be enabled on that Cloud project, a
 - **A privacy policy at a public URL.** [`privacy.html`](privacy.html) is it, served at https://inthrall.github.io/molehill-madness/privacy.html from this repository's own `docs` folder through GitHub Pages. It is written against the relay's schema, so it and the data safety form say the same thing by construction.
 - **Store listing**: title, short and full description, a feature graphic, screenshots for phone and tablet. The clip pipeline renders 1080x1920 already, which is the shape the store wants for a phone screenshot.
 
-## 6. Cutting a release
+## 6. Getting a build onto a phone
+
+Push to main. That is the whole procedure.
+
+The release workflow builds the Windows zip, the sideload APK and the Play bundle, and sends the bundle to the **internal** track with the release marked complete, so the newest main is what an internal tester's phone offers them. Promotion from internal to a closed track, and from there to production, stays a decision made in the console.
+
+Tags upload too, and are still how a version gets a name and its artifacts attached to a GitHub release:
 
 ```bash
 git tag v0.8.0
 git push origin v0.8.0
 ```
 
-That runs the release workflow, which builds the Windows zip, the sideload APK and the Play bundle, and sends the bundle to the **internal** track with the release marked complete. Promotion from internal to a closed track, and from there to production, stays a decision made in the console.
+Every push to every branch builds the bundle when the secrets exist; main and tags are the only refs that upload it. A feature branch that uploaded would put unreviewed work in front of testers and spend a version code doing it.
 
-Every push to any branch builds the bundle when the secrets exist, and only a tag uploads it. A push that uploaded would spend a version code and tell every tester there was something new several times an afternoon, and a tester who stops reading the notification has stopped testing.
+This was tags only to begin with, and the argument for that is worth keeping in view even though it did not survive: every upload spends a version code and tells the testers there is something new, and a tester who stops reading the notification has stopped testing. That argument is about a closed track, where the testers are twelve people who were asked to help. The internal track is a short list of people who already know the build changes all day, and it is the only way onto a phone that is not a sideload, so the cost of the old arrangement was that the thing on the phone was whatever happened to be tagged last.
 
-The version code comes from the workflow run number, because Play refuses an upload whose code is not higher than the last one. It is not the tag: `0.7.10` sorts below `0.7.9` as a number and nobody expects that. The version name comes from the tag with its `v` removed.
+The version code comes from the workflow run number, because Play refuses an upload whose code is not higher than the last one. It is not the tag: `0.7.10` sorts below `0.7.9` as a number and nobody expects that. The version name comes from the tag with its `v` removed, or on a push to main from the name in `export_presets.cfg` with the run number after it, so a dozen builds in a week do not all call themselves the same thing when somebody is asked which one they are on.
 
 ## The console forms, answer by answer
 
@@ -236,6 +242,8 @@ The graphics it needs, none of which exist yet: a 512x512 icon, which is a resiz
 | Countries | New Zealand at least; add anywhere a tester lives |
 
 A release sitting in **draft** reaches nobody. It has to be rolled out before testers can install it, and before any fourteen day clock starts counting.
+
+⚠️ **Nothing CI does starts that clock.** The workflow only ever uploads to the internal track, and the twelve testers for fourteen consecutive days counts on a closed test. Opening the closed track, and promoting a build into it, is console work that has to be done deliberately.
 
 ## What is not verified
 
