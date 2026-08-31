@@ -168,15 +168,17 @@ The deletion answer has to be a web page rather than an email address, because a
 
 Data types to declare:
 
-| Category and type | Collected | Shared | Optional? | Purpose | What it is |
-| --- | --- | --- | --- | --- | --- |
-| Personal info, User IDs | Yes | No | Optional | App functionality, Account management | The relay's opaque account id. Google's definition of User IDs names account IDs outright, so this counts even though it identifies nobody |
-| Personal info, Other info | Yes | No | Optional | App functionality | The age band. It is the "such as date of birth" case in coarser form |
-| Personal info, Email address | Yes | No | Optional | Account management | Only for the sixteen and over band, refused for everybody else |
-| App activity, Other actions | Yes | No | Optional | App functionality | The match: game code, seed, each round's plans, the result |
-| Messages, Other in-app messages | Yes | No | Optional | App functionality | Emotes. A preset symbol is still a message from one player to another, and the relay stores them |
+| Category and type | Collected | Shared | Ephemeral | Optional? | Purpose | What it is |
+| --- | --- | --- | --- | --- | --- | --- |
+| Personal info, User IDs | Yes | No | No | Optional | App functionality, Account management | The relay's opaque account id. Google's definition of User IDs names account IDs outright, so this counts even though it identifies nobody |
+| Personal info, Other info | Yes | No | No | Optional | App functionality | The age band. It is the "such as date of birth" case in coarser form |
+| Personal info, Email address | Yes | No | No | Optional | Account management | Only for the sixteen and over band, refused for everybody else |
+| App activity, Other actions | Yes | No | No | Optional | App functionality | The match: game code, seed, each round's plans, the result |
+| Messages, Other in-app messages | Yes | No | No | Optional | App functionality | Emotes. A preset symbol is still a message from one player to another, and the relay stores them |
 
-Optional rather than required, all of it, because a player who only plays on the couch creates no account and sends nothing anywhere. Collection begins when somebody chooses to play online, which is Play's own definition of optional. None of it is processed ephemerally: it is in a database.
+Optional rather than required, all of it, because a player who only plays on the couch creates no account and sends nothing anywhere. Collection begins when somebody chooses to play online, which is Play's own definition of optional.
+
+Ephemeral is No for every row, and there is no room to argue about it. Play means data held only in memory and for no longer than it takes to answer the request that brought it. Every one of these is a column in the relay's SQLite database: the account and its band outlive the match, the match outlives the round, and the emotes sit in a table of their own. A plan is arguably the closest to ephemeral, since it is only needed until the round resolves, and it is still written down and still there afterwards.
 
 Everything else is No. In particular:
 
