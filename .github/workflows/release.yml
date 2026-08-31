@@ -424,7 +424,14 @@ jobs:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT }}
           packageName: nz.molehill.madness
           releaseFiles: build/android/molehill-madness.aab
-          track: internal
+
+          # Plural, and comma separated, because the action deprecated the singular and warns on
+          # every run that it will be removed. Setting both is a hard error rather than a warning,
+          # so the old one has to go rather than stay as a fallback.
+          #
+          # Worth being careful with, because of how the action behaves when it finds neither: it
+          # defaults to production. A misspelled input name here would not fail, it would publish.
+          tracks: internal
           status: completed
 
       - name: Say if Play was skipped
