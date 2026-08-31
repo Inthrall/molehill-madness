@@ -16,6 +16,7 @@ Both are single-file HTML, readable in any browser.
 Two runbooks sit beside them, in markdown because they are worked through rather than read:
 
 - [`docs/perf.md`](docs/perf.md) — how to measure frame times, what the game measures at, and why two obvious ways of measuring it give confident wrong answers.
+- [`docs/privacy.html`](docs/privacy.html) — the privacy policy, which is also the page Google Play points at. Written against the relay's schema rather than a template, so it says what is actually held.
 - [`docs/play-release.md`](docs/play-release.md) — publishing to Google Play. The pipeline is written and inert until four secrets exist; the console half is a person's job and has a fortnight of waiting in it.
 
 ## Layout
