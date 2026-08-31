@@ -19,6 +19,7 @@ public partial class EmoteWheel : Control
     private OnlineMatch? _online;
     private bool _open;
     private Vector2 _middle;
+    private Vector2 _ring;
     private float _button;
     private readonly Vector2[] _spots = new Vector2[Wheel.Count];
     private float _spot;
@@ -129,19 +130,29 @@ public partial class EmoteWheel : Control
 
         Vector2 viewport = Size;
 
-        _button = Mathf.Clamp(Mathf.Min(viewport.X, viewport.Y) * 0.045f, 22f, 40f);
+        _button = ButtonFor(viewport);
+        _spot = _button * 0.92f;
 
-        // Top left, in the sky.
+        // Bottom right, with the rest of the furniture a thumb reaches for.
         //
-        // It was bottom left to begin with, which is where the touch stick lives, and the numbers
-        // were worse than they looked: at 1280 by 720 the wheel's button sat inside the stick's grab
-        // ring, and an open wheel blanketed the stick completely. Since the wheel gets first refusal
-        // on presses, that made the movement control unusable on a phone in an online match, which is
-        // every online match on a phone.
-        //
-        // Nothing else is up here. The tally is centred at the bottom, the thumbs own both bottom
-        // corners, and the waiting band is top centre.
-        _middle = new Vector2(_button * 2.2f, _button * 2.2f);
+        // It was bottom left first, which is where the touch stick lives, and an open wheel
+        // blanketed the stick completely; then top left, in the sky, which fixed that and put the
+        // one chatty control on the screen as far from the hand as a corner can be. The thumbs own
+        // the bottom corners, and this is a thing said with a thumb, so the touch layout gives up
+        // the corner instead: see TouchControls.CornerSpoken, which is fed from Reach below.
+        _middle = viewport - new Vector2(_button * 2.2f, _button * 2.2f);
+
+        // Where the open ring is centred, which is not where its button is. Eight spots at a
+        // radius of three buttons do not fit in a corner, and the first version simply drew them
+        // off the screen: at 1280 by 720 the topmost emote of a wheel opened in the top left corner
+        // sat a whole button above the top edge, so one of the eight could never be tapped. The
+        // ring springs inward far enough to fit, and the wash over the map is what makes that read
+        // as one control rather than two.
+        float clearance = (_button * OpenReach) + _spot + (_button * 0.4f);
+
+        _ring = new Vector2(
+            Mathf.Clamp(_middle.X, clearance, Mathf.Max(clearance, viewport.X - clearance)),
+            Mathf.Clamp(_middle.Y, clearance, Mathf.Max(clearance, viewport.Y - clearance)));
 
         if (_open)
         {
@@ -150,6 +161,33 @@ public partial class EmoteWheel : Control
 
         DrawButton();
     }
+
+    /// <summary>How far out the open wheel's spots sit, in buttons.</summary>
+    private const float OpenReach = 3.1f;
+
+    /// <summary>How big the button is on a screen of this size.</summary>
+    /// <remarks>
+    /// A function of the screen rather than a field written while drawing, so <see cref="Reach"/>
+    /// can answer before the first frame has been drawn. Reading the field there left the touch
+    /// layout believing the corner was free for exactly one frame.
+    /// </remarks>
+    private static float ButtonFor(Vector2 viewport) =>
+        Mathf.Clamp(Mathf.Min(viewport.X, viewport.Y) * 0.045f, 22f, 40f);
+
+    /// <summary>
+    /// How much of its corner this needs kept clear, in pixels.
+    /// </summary>
+    /// <remarks>
+    /// Read by the touch layout, which lifts its own corner buttons by this much. The wheel gets
+    /// first refusal on every press in the match scene, so anything it sits on top of is a control
+    /// that has silently stopped working, and "end turn opens the emotes" is not a fault anybody
+    /// would think to look for.
+    ///
+    /// Zero while the wheel is not on the screen, which is every match that is not online. The
+    /// touch layout then keeps its corner, which is what it had before there was a wheel to give it
+    /// up to.
+    /// </remarks>
+    public float Reach => Visible ? ButtonFor(Size) * 2.6f : 0f;
 
     private void DrawButton()
     {
@@ -168,12 +206,11 @@ public partial class EmoteWheel : Control
 
     private void DrawOpen()
     {
-        float reach = _button * 3.1f;
-        _spot = _button * 0.92f;
+        float reach = _button * OpenReach;
 
         // A wash over the map, so the open wheel reads as a thing in front of the game rather than
         // eight buttons floating on it.
-        DrawCircle(_middle, reach + _spot, new Color(Palette.Ink, 0.35f));
+        DrawCircle(_ring, reach + _spot, new Color(Palette.Ink, 0.35f));
 
         for (int spot = 0; spot < _spots.Length; spot++)
         {
@@ -181,7 +218,7 @@ public partial class EmoteWheel : Control
             // list cannot drift apart.
             float angle = Mathf.DegToRad(-90f + (spot * 360f / _spots.Length));
 
-            _spots[spot] = _middle + (new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * reach);
+            _spots[spot] = _ring + (new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * reach);
 
             DrawCircle(_spots[spot], _spot, Palette.Panel);
             DrawArc(_spots[spot], _spot, 0, Mathf.Tau, 28, new Color(Palette.OnPanel, 0.45f), 2f);

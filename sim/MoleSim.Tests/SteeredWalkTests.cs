@@ -291,7 +291,7 @@ public sealed class SteeredWalkTests
         SteeredWalk walk = SteeredWalk.From(FirstActor(match), match.Terrain);
         Fix64 startX = walk.Position.X;
 
-        Assert.That(walk.Drill(Vec2.UnitX), Is.True, "the ghost refused to drill");
+        Assert.That(walk.Drill(Vec2.UnitX, byte.MaxValue), Is.True, "the ghost refused to drill");
 
         // Nothing held, which is what a thumb off the stick hands over. A drill runs anyway.
         Push(walk, Vec2.Zero, MatchSettings.TicksPerSecond * 2);
@@ -317,7 +317,7 @@ public sealed class SteeredWalkTests
         SteeredWalk walk = SteeredWalk.From(FirstActor(match), match.Terrain);
         Fix64 startX = walk.Position.X;
 
-        walk.Drill(Vec2.UnitX);
+        walk.Drill(Vec2.UnitX, byte.MaxValue);
         Push(walk, Vec2.Zero, 1);
 
         Fix64 afterOneTick = walk.Position.X - startX;
@@ -338,7 +338,7 @@ public sealed class SteeredWalkTests
         MoleMatch match = NewMatch();
         SteeredWalk walk = SteeredWalk.From(FirstActor(match), match.Terrain);
 
-        walk.Drill(Vec2.UnitX);
+        walk.Drill(Vec2.UnitX, byte.MaxValue);
         Fix64 startY = walk.Position.Y;
 
         // Pushing straight down mid-drill, and asking for a hop, neither of which a torpedo obeys.

@@ -213,6 +213,40 @@ public static class Art
     public static Texture2D Object(string name) => Held($"object/{name}.png", 1).Art;
 
     /// <summary>
+    /// The object a weapon actually is on the map, or null for the ones that are not objects.
+    /// </summary>
+    /// <remarks>
+    /// There are two drawings of most of the arsenal: a glyph sheet made for the wheel, and the
+    /// sprite the thing is when it is lying in the dirt or sailing through the air. They are not the
+    /// same picture, and having both meant a player chose a small dark shape off a wheel and then
+    /// watched a differently shaped object come out of the mole, with nothing saying they were the
+    /// same weapon. The wheel shows the object now, which is the one place a picture of a beetroot
+    /// is worth more than a picture of a beetroot icon.
+    ///
+    /// Four weapons have no object at all and keep their glyph: Fracking is a derrick that exists
+    /// for a second, the Big Whack is a swing, the Power Claws are the mole's own claws, and a
+    /// Tunnel Torpedo in the world is an animated drill rather than a sprite. All four are things
+    /// that happen rather than things that sit there, which is exactly why the glyph sheet had to
+    /// exist in the first place.
+    /// </remarks>
+    public static string? ObjectFor(MoleSim.Match.WeaponId weapon) => weapon switch
+    {
+        MoleSim.Match.WeaponId.ClodLobber => "clod",
+        MoleSim.Match.WeaponId.BeetleLauncher => "beetle",
+        MoleSim.Match.WeaponId.AcornMortar => "acorns",
+        MoleSim.Match.WeaponId.SnapTrap => "snaptrap",
+        MoleSim.Match.WeaponId.RootSnare => "snare",
+        MoleSim.Match.WeaponId.Sandbag => "sandbag",
+        MoleSim.Match.WeaponId.GeyserCap => "vent",
+        MoleSim.Match.WeaponId.BoomBeets => "beetroot",
+        MoleSim.Match.WeaponId.SpecialDelivery => "sack",
+        MoleSim.Match.WeaponId.MolyHandGrenade => "relic",
+        MoleSim.Match.WeaponId.GnomeMercy => "gnome",
+        MoleSim.Match.WeaponId.Girder => "girder",
+        _ => null,
+    };
+
+    /// <summary>
     /// A weapon's glyph, by the id the simulation already has.
     /// </summary>
     /// <remarks>
@@ -361,7 +395,7 @@ public static class Art
     private static readonly string[] InTheWorld =
     {
         "clod", "beetle", "acorn", "acorns", "beetroot", "relic", "gnome", "sack",
-        "mound", "snaptrap", "snare", "vent", "sandbag",
+        "mound", "snaptrap", "snare", "vent", "sandbag", "girder",
         "chute-0", "chute-1", "chute-2", "landed", "open", "closed", "marker",
     };
 

@@ -59,6 +59,9 @@ namespace MoleSim.Match
 
         /// <summary>A trap it walked into.</summary>
         Trap = 5,
+
+        /// <summary>The ground, arriving faster than expected.</summary>
+        Fall = 6,
     }
 
     /// <summary>Picks the exit animation.</summary>
@@ -95,6 +98,13 @@ namespace MoleSim.Match
 
                 case KnockoutCause.Trap:
                     return KnockoutExit.SpinAndPoof;
+
+                case KnockoutCause.Fall:
+                    // Sits down heavily, stars and birds, tips over like a plank, which is the one
+                    // exit in the reel that is already a drawing of somebody who fell over. Named
+                    // rather than left to the default, so a fall does not cost a draw from the match
+                    // stream to choose between two exits that suit it less well.
+                    return KnockoutExit.DizzyBirds;
 
                 case KnockoutCause.Explosion:
                     if (shove >= HardShove)

@@ -777,7 +777,7 @@ public sealed class SeatPlanner
         switch (use.Weapon)
         {
             case WeaponId.TunnelTorpedo:
-                Walk?.Drill(use.AimDirection());
+                Walk?.Drill(use.AimDirection(), use.Power);
                 break;
 
             case WeaponId.PowerClaws:
@@ -928,12 +928,26 @@ public sealed class SeatPlanner
         return false;
     }
 
-    /// <summary>Whether a weapon leaves something on the ground worth marking on the plan.</summary>
+    /// <summary>
+    /// Whether using this weapon puts an object on the map that will still be there afterwards.
+    /// </summary>
+    /// <remarks>
+    /// The sandbag and the girder joined the traps and the beets here, and they should have been on
+    /// the list from the start: both are things a turn builds, both are placed relative to wherever
+    /// the mole has got to, and neither showed on the planning screen at all. A player laid a beam
+    /// to bridge a gap, saw nothing, and found out where it had gone once the round ran.
+    ///
+    /// Both are terrain in the simulation rather than objects, which is what kept them off the list
+    /// and is beside the point: what matters here is whether the player is about to leave something
+    /// somewhere, and a plank of soil across a chasm is the most consequential thing on this list.
+    /// </remarks>
     public static bool LeavesSomething(WeaponId weapon) =>
         weapon == WeaponId.GeyserCap
         || weapon == WeaponId.SnapTrap
         || weapon == WeaponId.RootSnare
-        || weapon == WeaponId.BoomBeets;
+        || weapon == WeaponId.BoomBeets
+        || weapon == WeaponId.Sandbag
+        || weapon == WeaponId.Girder;
 
     /// <summary>Which tick of the round the mole has walked as far as.</summary>
     private int Now()

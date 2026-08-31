@@ -71,6 +71,14 @@ namespace MoleSim.Tests;
 /// cover you can hide behind and blow apart on the same terms as everything else, and the ground a
 /// match is played on is different from the first tick again. Same class of movement as before: the
 /// field changed, no rule about what a mole or a shell does was touched.
+///
+/// Updated an eighth time when hitting the ground started to cost something. Landing above the safe
+/// speed takes pluck, capped, and like every other kind of damage it ends the mole's turn. Only one
+/// of the five pins moved, which is worth reading rather than glossing over: four of these scripts
+/// walk moles about on the surface and shell each other, and nothing in them ever falls far enough
+/// or is thrown hard enough to be charged for it. The one that moved is the long match, where the
+/// lava trampolines moles into the air from round eight onwards and they come back down. That is a
+/// fair description of when the rule bites in play as well.
 /// </remarks>
 [TestFixture]
 public sealed class CorpusTests
@@ -219,7 +227,7 @@ public sealed class CorpusTests
     {
         // Past Boiling Point, so the rise, the closing sides and the three-strike rule are
         // all in the hash rather than only the early game.
-        Assert.That(Play(playerCount: 4, seed: 777UL, rounds: 26), Is.EqualTo(0xB8919C68607F1B0AUL));
+        Assert.That(Play(playerCount: 4, seed: 777UL, rounds: 26), Is.EqualTo(0x3902AEB14E384F93UL));
     }
 
     [Test]

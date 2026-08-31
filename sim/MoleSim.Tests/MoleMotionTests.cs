@@ -741,4 +741,82 @@ public sealed class MoleMotionTests
                 "it got into the roof without paying, so it did not dig");
         });
     }
+
+    // ---- Landing --------------------------------------------------------------------
+
+    /// <summary>
+    /// A hop costs nothing to come down from.
+    /// </summary>
+    /// <remarks>
+    /// The floor under the whole falling-damage rule. A hop is the one thing in the game a player
+    /// does several times a turn on purpose, and it leaves at exactly the speed it comes back at, so
+    /// a threshold set anywhere near it would charge for the game's own verb.
+    /// </remarks>
+    [Test]
+    public void AHopLandsForNothing()
+    {
+        TerrainGrid grid = FlatGround();
+        Mole mole = StandingOnSurface(grid, 100);
+
+        mole.AddImpulse(-Vec2.UnitY * MatchSettings.HopSpeed);
+
+        Fix64 hardest = Fix64.Zero;
+
+        for (int tick = 0; tick < 90; tick++)
+        {
+            MoleMotion.Step(mole, grid, route: null);
+            hardest = Fix64.Max(hardest, mole.LandedAt);
+        }
+
+        Assert.That(
+            Falls.DamageFor(hardest), Is.Zero,
+            "a hop was charged for landing, at " + hardest);
+    }
+
+    /// <summary>
+    /// A long drop is measured, and it costs pluck.
+    /// </summary>
+    /// <remarks>
+    /// Falling used to be free at any height, so a mole blown off the top of the map landed as
+    /// gently as one stepping off a kerb and knockback was a free ride to anywhere. The height is
+    /// chosen well past the safe speed rather than just over it, because what is being defended is
+    /// that the rule exists at all, not where its edge sits.
+    /// </remarks>
+    [Test]
+    public void ALongDropHurts()
+    {
+        TerrainGrid grid = FlatGround();
+        Mole mole = StandingOnSurface(grid, 100);
+
+        // Twenty metres up, in open air, and then let go.
+        mole.Position = new Vec2(mole.Position.X, mole.Position.Y - Fix64.FromInt(20));
+        mole.IsAirborne = true;
+
+        int pluck = mole.Pluck;
+        Fix64 hardest = Fix64.Zero;
+
+        for (int tick = 0; tick < MatchSettings.TicksPerRound; tick++)
+        {
+            MoleMotion.Step(mole, grid, route: null);
+            hardest = Fix64.Max(hardest, mole.LandedAt);
+        }
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                Falls.DamageFor(hardest), Is.GreaterThan(0),
+                "twenty metres of fall was free, at " + hardest);
+            Assert.That(mole.IsAirborne, Is.False, "it never landed");
+            Assert.That(pluck, Is.EqualTo(MatchSettings.StartingPluck));
+        });
+    }
+
+    /// <summary>The cap holds, so terminal velocity is not a knockout on its own.</summary>
+    [Test]
+    public void NoLandingCostsMoreThanTheCap()
+    {
+        Assert.That(
+            Falls.DamageFor(MatchSettings.TerminalSpeed),
+            Is.EqualTo(MatchSettings.WorstFallDamage));
+    }
 }

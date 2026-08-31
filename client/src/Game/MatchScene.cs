@@ -252,15 +252,27 @@ public partial class MatchScene : Node2D
 
         if (Online.Playing)
         {
-            _card = new TurnCard();
-            AddChild(_card);
-
             _waiting = new WaitingSign();
             overlay.AddChild(_waiting);
 
             _wheel = new EmoteWheel();
             overlay.AddChild(_wheel);
             _wheel.Watch(Online.Match);
+        }
+
+        // The handover card, for the one arrangement that needs one: several platoons taking turns
+        // on a single phone. It used to be built inside the branch above, which is exactly the
+        // arrangement it is not for, so the card was created only in matches where SharingOneDevice
+        // is false by definition and never appeared in the matches it was written for. The condition
+        // here is the front half of that method, and the back half is a fact about how many platoons
+        // are still standing, which cannot be known until the match has begun.
+        //
+        // On the overlay rather than parented straight to this Node2D, like everything else that
+        // draws on top of the world.
+        if (!Online.Playing && Flags.WantsTouch())
+        {
+            _card = new TurnCard();
+            overlay.AddChild(_card);
         }
 
         if (!Flags.Asked("--mute"))
@@ -435,6 +447,16 @@ public partial class MatchScene : Node2D
 
         System.Array.Clear(_driven, 0, _driven.Length);
         _pointerSeat = NextPointerSeat(from: 0);
+
+        // A round begins on a shared phone the same way it changes hands in the middle of one:
+        // somebody has to pick the thing up. Only the handover was covered before, so the first
+        // player of every round got a turn that had already started, which is the whole fault the
+        // card exists to fix and it was happening once a round to somebody.
+        if (SharingOneDevice() && _pointerSeat >= 0)
+        {
+            _card?.Hand(_pointerSeat);
+        }
+
         RecentreViews();
     }
 
@@ -844,8 +866,61 @@ public partial class MatchScene : Node2D
             + $"{_result.Knockouts.Count} out{ending}");
     }
 
-    private double PlaybackDuration() =>
-        (double)(_result?.Recording?.Duration.ToDecimal() ?? 0m);
+    /// <summary>
+    /// How much of the round is worth watching, which is not the same as how long it is.
+    /// </summary>
+    /// <remarks>
+    /// A round is always eight seconds because everybody plans against the same clock, and it used
+    /// to be watched for all eight however little was in it. Most rounds are over well before that:
+    /// the moles stop, the shells land, and then there are three or four seconds of a still picture
+    /// with the aftermath waiting behind it. That is dead air in the one beat of the game where
+    /// everybody is watching.
+    ///
+    /// The recording says when it went quiet; the tail is this end's business, and it is the longer
+    /// of a second and however long the last pratfall needs. A second is enough to see the dust
+    /// settle without waiting for nothing, and the exits are the design's slapstick payoff, so
+    /// cutting one of those off halfway would be a worse trade than the wait it saves.
+    /// </remarks>
+    private double PlaybackDuration()
+    {
+        RoundRecording? recording = _result?.Recording;
+
+        if (recording is null)
+        {
+            return 0;
+        }
+
+        double whole = (double)recording.Duration.ToDecimal();
+        int upTo = Mathf.Max(recording.SettledTick + QuietTailTicks, LastPratfallEnds());
+
+        return Mathf.Min((upTo + 1) / (double)MatchSettings.TicksPerSecond, whole);
+    }
+
+    /// <summary>How long the replay holds after the last thing that happened in it.</summary>
+    private const int QuietTailTicks = MatchSettings.TicksPerSecond;
+
+    /// <summary>
+    /// When the last mole to go out has finished going out, or nothing if nobody did.
+    /// </summary>
+    /// <remarks>
+    /// A knockout is over in the recording the moment the mole goes off duty, and on screen it is
+    /// only just beginning: the exit reel runs a second and a half from there. Trimming to the
+    /// recording alone would cut the stretcher squad off before they arrived.
+    /// </remarks>
+    private int LastPratfallEnds()
+    {
+        int latest = -1;
+
+        foreach (int tick in _stage.ExitTick)
+        {
+            if (tick > latest)
+            {
+                latest = tick;
+            }
+        }
+
+        return latest < 0 ? 0 : latest + Stage.ExitTicks;
+    }
 
     /// <summary>
     /// Walks the map forward to wherever the clock has got to. The journal is in the order
@@ -933,6 +1008,10 @@ public partial class MatchScene : Node2D
 
         if (_touch is not null)
         {
+            // Told what the emote wheel has claimed before the layout is worked out, so the corner
+            // buttons come up above it rather than under it. Nothing when there is no wheel, which
+            // is every match that is not online.
+            _touch.CornerSpoken = _wheel?.Reach ?? 0f;
             _touch.LayOut(GetViewportRect().Size);
             _touch.Planner = Pointed();
             _touch.QueueRedraw();
@@ -1941,6 +2020,22 @@ public partial class MatchScene : Node2D
             return;
         }
 
+        // The handover card holds everything until the phone has been picked up. It consumes its
+        // own presses as a Control, which is what stops the map being dragged through it; this is
+        // the other half, for anything that reaches the scene instead, and it is also what makes the
+        // card a full input blocker rather than a picture with a button on it.
+        if (_card?.Waiting == true)
+        {
+            if (Pressing(@event, out _)
+                || @event is InputEventKey { Pressed: true, Echo: false })
+            {
+                _card.Taken();
+                Click();
+            }
+
+            return;
+        }
+
         // The offer of the other clock, while this device is in the pool. Above the guard below for
         // the same reason escape is: there is no match yet, and this is the one thing a player
         // waiting on one can usefully do.
@@ -2269,9 +2364,25 @@ public partial class MatchScene : Node2D
 
     private void BeginTouch(SeatPlanner? planner, long index, Vector2 at)
     {
-        TouchTarget target = planner is null || _beat != Beat.Planning
-            ? TouchTarget.None
-            : _touch!.Hit(at);
+        // Asked whatever the beat is, because one of the controls is not part of a turn. The touch
+        // layout refuses everything else itself when nobody is planning, which is where that rule
+        // belongs: it is the thing that knows which of its buttons are on the screen.
+        TouchTarget target = _touch!.Hit(at);
+
+        if (target == TouchTarget.Settings)
+        {
+            // Not filed as a finger. It is a tap and nothing about it continues, and leaving it in
+            // the dictionary would make AnyFingerOnAControl say a control is still held while the
+            // pause menu is up.
+            _pause?.Toggle();
+            Click();
+            return;
+        }
+
+        if (planner is null || _beat != Beat.Planning)
+        {
+            target = TouchTarget.None;
+        }
 
         _fingers[index] = new Finger { Target = target, At = at };
 
@@ -3071,6 +3182,12 @@ public partial class MatchScene : Node2D
         {
             return;
         }
+
+        // The driver picks the phone up. A handover card holds the clock until somebody says the
+        // device has changed hands, which is exactly right for four people round a table and a dead
+        // stop for a run with nobody at it: under --touch --demo the card comes up at the start of
+        // every round and the match would wait for a thumb that is never coming.
+        _card?.Taken();
 
         if (_beat == Beat.Finished)
         {

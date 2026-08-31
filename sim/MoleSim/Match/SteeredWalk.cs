@@ -284,13 +284,18 @@ namespace MoleSim.Match
         /// <remarks>
         /// Without this, ordering a Tunnel Torpedo did nothing whatsoever on the planning screen.
         /// The action went into the plan and the drilling happened at resolution, so the one weapon
-        /// whose whole purpose is to move the mole twelve metres showed no movement at all while the
+        /// whose whole purpose is to move the mole a dozen metres showed no movement at all while the
         /// move was being planned, and the route the plan recorded was the route of a mole that had
         /// stood still. It is the same two fields resolution sets, off the same setting, and refused
         /// while already drilling for the same reason as a hop: a preview that disagrees with the
         /// round is worse than no preview.
         /// </remarks>
-        public bool Drill(Vec2 aim)
+        /// <param name="power">
+        /// The wind-up, which is how far it cuts. Taken rather than assumed full for the same reason
+        /// the heading is taken: the plan carries one, and a preview that always drilled the longest
+        /// tunnel would put the mole somewhere the round will not.
+        /// </param>
+        public bool Drill(Vec2 aim, byte power)
         {
             if (_ghost.IsDrilling || aim.LengthSquared() == Fix64.Zero)
             {
@@ -301,7 +306,7 @@ namespace MoleSim.Match
 
             _ghost.Facing = heading;
             _ghost.DrillHeading = heading;
-            _ghost.DrillLeft = MatchSettings.TorpedoRange;
+            _ghost.DrillLeft = MatchSettings.TorpedoRangeFor(power);
             _ghost.IsAirborne = false;
             _ghost.Velocity = Vec2.Zero;
             return true;
@@ -387,6 +392,7 @@ namespace MoleSim.Match
             _ghost.StalledTicks = 0;
 
             MoleMotion.Step(_ghost, _scratch, route);
+            TakeTheFall();
             CheckPlacements();
             _path.Add(_ghost.Position);
 
@@ -395,6 +401,25 @@ namespace MoleSim.Match
             if (Vec2.Distance(sinceLast, _ghost.Position) >= WaypointSpacing)
             {
                 _waypoints.Add(_ghost.Position);
+            }
+        }
+
+        /// <summary>
+        /// Charges the ghost for a hard landing, by the same rule the round uses.
+        /// </summary>
+        /// <remarks>
+        /// Without this a route that walked off the top of a cave read as free while planning and
+        /// cost the mole its turn and a fifth of its pluck when the round ran, which is the same
+        /// class of lie the untraversed trap used to be. The preview is meant to be the round with
+        /// nobody else in it.
+        /// </remarks>
+        private void TakeTheFall()
+        {
+            int damage = Falls.DamageFor(_ghost.LandedAt);
+
+            if (damage > 0)
+            {
+                _ghost.TakeDamage(damage);
             }
         }
 

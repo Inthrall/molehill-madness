@@ -26,43 +26,42 @@ public static class Glyphs
 
     // ---- Weapons --------------------------------------------------------------------
 
+    /// <summary>
+    /// A weapon, as the object it is on the map.
+    /// </summary>
+    /// <remarks>
+    /// The wheel used to draw from a glyph sheet made for the purpose, so choosing a weapon meant
+    /// picking a small icon and then watching a different-looking thing come out of the mole. The
+    /// four weapons that are events rather than objects still use the sheet, since there is nothing
+    /// in the world to show instead: see <see cref="Art.ObjectFor"/>.
+    ///
+    /// This also retired a line drawing of a girder. The girder had no glyph, so it had one drawn
+    /// from primitives here among fourteen painted ones, which looked exactly like what it was; the
+    /// beam the game lays is a painted object and always was.
+    ///
+    /// Only the ink's alpha is used, and that is a real loss worth naming. The glyph sheet is white
+    /// so that it can be tinted, and callers did tint it: a platoon's armed weapon was drawn in the
+    /// platoon's colour. An object sprite cannot be, because it already has colours of its own, and
+    /// multiplying one by a seat colour makes a green beetle or a red sandbag rather than a tinted
+    /// icon. Since the two sets have to sit on the same wheel, neither is tinted now. Whose weapon
+    /// it is was never being carried by the hue anyway: both places that used to tint also draw a
+    /// disc in the platoon's colour behind it, and that is what says it.
+    ///
+    /// The alpha is kept because that is the other half of what callers ask for, and it means
+    /// something quite different: it is how the wheel fades its neighbours out and how a spent
+    /// allowance greys its button.
+    /// </remarks>
     public static void Weapon(CanvasItem into, WeaponId weapon, Vector2 at, float size, Color ink)
     {
-        // The girder has no painted icon yet, so it gets a drawn one. Marked here rather than
-        // hidden, because the artist should replace it: everything else on the wheel is an object
-        // in the game's own hand and a line drawing among them looks like what it is.
-        if (weapon == WeaponId.Girder)
+        Color showing = new Color(1f, 1f, 1f, ink.A);
+
+        if (Art.ObjectFor(weapon) is string named)
         {
-            Girder(into, at, size, ink);
+            Fit(into, Art.Object(named), at, size, showing);
             return;
         }
 
-        Fit(into, Art.Weapon(weapon), at, size, ink);
-    }
-
-    /// <summary>A plank, seen end-on and slightly along, which is what a girder is.</summary>
-    private static void Girder(CanvasItem into, Vector2 at, float size, Color ink)
-    {
-        float unit = size / 2f;
-        float line = size * Stroke;
-
-        // The plank itself, laid across and tilted a little so it reads as a thing rather than a
-        // divider.
-        Vector2 left = at + new Vector2(-unit * 0.82f, unit * 0.26f);
-        Vector2 right = at + new Vector2(unit * 0.82f, -unit * 0.26f);
-
-        into.DrawLine(left, right, ink, line * 2.6f);
-
-        // Two studs, which is the difference between a plank and a stroke.
-        Vector2 along = (right - left).Normalized();
-        Vector2 across = new Vector2(-along.Y, along.X) * (unit * 0.3f);
-
-        into.DrawLine(
-            left + (along * unit * 0.42f) + across,
-            left + (along * unit * 0.42f) - across, ink, line);
-        into.DrawLine(
-            right - (along * unit * 0.42f) + across,
-            right - (along * unit * 0.42f) - across, ink, line);
+        Fit(into, Art.Weapon(weapon), at, size, showing);
     }
 
     /// <summary>An interface glyph, by the name the importer gave it.</summary>

@@ -359,12 +359,24 @@ namespace MoleSim.Match
         /// drops at the mole's feet and the other shakes the ground the mole is standing on.
         ///
         /// Tool is the one kind that splits, so the split is written out rather than guessed. The
-        /// Tunnel Torpedo drills along an aim; the other five happen at the mole and would be
-        /// asking for a direction they then throw away.
+        /// Girder is laid along an aim; the other four happen at the mole and would be asking for a
+        /// direction they then throw away.
+        ///
+        /// The Tunnel Torpedo is the one Tool that wants the wind-up as well. It used to take a
+        /// direction only, on the grounds that a drill has one strength, which was true and beside
+        /// the point: a drill has a length, and spending the whole twelve metres to go through a
+        /// wall two metres thick is the same waste as throwing a clod off the map. The wind-up buys
+        /// distance rather than force, which is what <see cref="MatchSettings.TorpedoRangeFor"/>
+        /// says and the only thing about a torpedo a player would want to choose.
         /// </remarks>
         public static AimStyle AimingFor(WeaponId weapon)
         {
-            if (weapon == WeaponId.TunnelTorpedo || weapon == WeaponId.Girder)
+            if (weapon == WeaponId.TunnelTorpedo)
+            {
+                return AimStyle.DirectionAndPower;
+            }
+
+            if (weapon == WeaponId.Girder)
             {
                 return AimStyle.Direction;
             }

@@ -28,6 +28,10 @@ namespace MoleSim.Match
                 return;
             }
 
+            // Last tick's landing, cleared before this one can record its own. A stale value would
+            // charge a mole for the same drop again on every tick it then stood still for.
+            mole.LandedAt = Fix64.Zero;
+
             // A drill in progress owns the mole: it is not walking, not falling, and not steerable
             // while it is cutting. Ahead of the airborne branch on purpose, because a torpedo fired
             // in mid air keeps drilling rather than reverting to a ballistic arc.
@@ -377,6 +381,11 @@ namespace MoleSim.Match
             if (velocity.Y >= Fix64.Zero
                 && TerrainQuery.IsSupported(terrain, mole.Position, MatchSettings.Radius))
             {
+                // Arriving on top of something, and this is the arrival that matters most: support
+                // reaches further than a body does, so a mole dropping onto open ground is caught
+                // here rather than by Collide, and a fall charged only in Collide would be free
+                // exactly when it was longest.
+                mole.LandedAt = velocity.Y;
                 mole.IsAirborne = false;
                 mole.Velocity = Vec2.Zero;
 
@@ -621,6 +630,13 @@ namespace MoleSim.Match
             // The component into the surface is the honest question anyway. A mole sliding along a
             // slope is on the ground however fast it is sliding.
             Fix64 closing = -Vec2.Dot(velocity, escape);
+
+            // How hard the contact was, recorded whether or not the mole comes to rest on it. The
+            // first version only recorded the settle, which measured a twenty metre drop at two
+            // metres a second: a mole arriving at twenty-six bounces, keeps three tenths of it, and
+            // bounces again, so by the time it stops the speed that hurt is four bounces in the
+            // past. The impact is the first contact, and this is it.
+            mole.LandedAt = closing;
 
             if (closing <= MatchSettings.SettleSpeed)
             {

@@ -236,7 +236,7 @@
 </style>
 
 <header class="col">
-  <p class="eyebrow">Game design document · v0.9 · 26 August 2026</p>
+  <p class="eyebrow">Game design document · v0.10 · 31 August 2026</p>
   <h1 class="masthead-title">MOLE<span class="hill">HILL</span> MADNESS</h1>
   <p class="tagline">Making mountains out of molehills.</p>
   <div class="chips">
@@ -445,7 +445,7 @@
       <tbody>
         <tr><td class="k">Spin and Poof</td><td>Any small final hit</td><td>The mole spins like a top, gets faster, then vanishes in a puff of dust. Its boots stay behind, still standing, laces done up.</td></tr>
         <tr><td class="k">Stretcher Squad</td><td>Slow attrition, no knockback</td><td>Two worm medics jog in with a tiny stretcher and carry the dizzy mole off, who waves weakly at the camera. The signature exit and the one on the store page.</td></tr>
-        <tr><td class="k">Dizzy Birds</td><td>Seismic damage</td><td>The mole sits down heavily, cartoon stars and tweeting birds orbit its head, it tips over stiffly like a felled plank, and a little OFF DUTY sign flips up.</td></tr>
+        <tr><td class="k">Dizzy Birds</td><td>Seismic damage, or a landing nobody planned</td><td>The mole sits down heavily, cartoon stars and tweeting birds orbit its head, it tips over stiffly like a felled plank, and a little OFF DUTY sign flips up.</td></tr>
         <tr><td class="k">Balloon Exit</td><td>Explosive final hit</td><td>The mole inflates like a balloon and zips off screen on a long raspberry, ricocheting once off a molehill on the way.</td></tr>
         <tr><td class="k">Mole-Shaped Hole</td><td>Big knockback into terrain</td><td>Punched clean through a dirt wall leaving a perfect mole-shaped hole, pops out the far side, keeps going, salutes, exits.</td></tr>
         <tr><td class="k">Helmet Spin</td><td>The Big Whack</td><td>Launched straight up out of frame. The helmet stays behind, spinning on the spot for an unreasonably long time, then clangs flat.</td></tr>
@@ -723,6 +723,7 @@
         <tr><td class="k">Stamina</td><td>100 per round, full refill</td><td>With the per-metre costs above: 40 m of surface, ~14 m of packed soil, or a mix.</td></tr>
         <tr><td class="k">Round clock</td><td>Plan 45 s (couch) / 60 s (Live) / up to 24 h (Anytime) · resolve 8 s · aftermath 4 s</td><td>Roughly one minute per round at the table.</td></tr>
         <tr><td class="k">Pluck</td><td>100 per mole · staples deal 15&#8211;45 · rarities 50&#8211;75</td><td>Two to four good hits per mole; a full match runs 15&#8211;24 rounds.</td></tr>
+        <tr><td class="k">Falling</td><td>Free up to 14 m/s, which is a drop of about 5.5 m · then 2 pluck for every m/s over, capped at 50</td><td>A hop leaves the ground at 9 m/s and arrives back at 9, so the one move a player makes on purpose several times a turn is always free. What costs is the drop nobody chose, and like every other kind of damage it ends the mole's turn.</td></tr>
         <tr><td class="k">Wind</td><td>0&#8211;8 m/s either way, rolled each round, Beetle Launcher only</td><td>Full wind bends a full-length flight about 5 m. Shown as drifting dandelion seeds, identical for everyone.</td></tr>
         <tr><td class="k">Lava</td><td>Arrives round 8 · rises 3 m per round · sides close 4 m per round each once past halfway · bounces cost 10 pluck, knockout on the third landing</td><td>The surface fight starts near round 18 and the box forces a finish in the low twenties.</td></tr>
       </tbody>
@@ -732,6 +733,7 @@
   <ul>
     <li><strong>Tunnels persist</strong> for the whole match. By round ten the cross-section reads like an ant farm, and because nothing else records where players have been, that dug history is the only intelligence anyone gets (<a href="#s7">§7</a>).</li>
     <li><strong>Underground trade-off:</strong> a buried mole is immune to ballistics but exposed to Fracking, collapses and the rising lava, and it cannot fire, because a shot needs open air (<a href="#s7">§7</a>). The Tunnel Torpedo is the one thing that reaches out of the dirt.</li>
+    <li><strong>Height is a weapon nobody has to carry.</strong> A mole that comes off the roof of a cave, or is thrown off a ledge by somebody else's blast, is charged for the landing. Knockback is therefore not a free ride, the sixty metres between the top of the map and the bottom of it mean something, and blowing the floor out from under an opponent is a shot in its own right rather than a way of rearranging where they stand.</li>
     <li><strong>Craters deny movement.</strong> Because travel happens through dirt, blowing dirt up removes roads as well as cover, and blowing a tunnel open turns a cheap highway into an expensive detour. Area weapons are route weapons, which keeps every shot interesting even when it misses.</li>
     <li><strong>Stamina is per round and refills.</strong> There is no fatigue to manage across turns; the only lasting consequences of a route are the tunnel it leaves behind and whoever saw you make it.</li>
   </ul>
@@ -805,7 +807,7 @@
         <tr><td class="k">The Big Whack</td><td>Melee</td><td>Predict it</td><td>60</td><td>A giant fairground mallet, whack-a-mole in reverse. You must be adjacent at the swing timestamp: the hardest read, the biggest payoff, massive knockback, and the Helmet Spin exit.</td></tr>
         <tr><td class="k">Snap Trap</td><td>Trap</td><td>Learnable</td><td>35</td><td>A comically oversized mousetrap. Placed this round, arms next round, visible as a suspicious mound. Area denial that opponents can respect or test.</td></tr>
         <tr><td class="k">Root Snare</td><td>Trap</td><td>Learnable</td><td>0</td><td>Zone that halves movement and blocks digging for a round. Sets up mortars, the Whack, and oncoming lava.</td></tr>
-        <tr><td class="k">Tunnel Torpedo</td><td>Tool + attack</td><td>Partly</td><td>25</td><td>Drill-dash through dirt on a straight line; bowls over and launches anything where you surface. The mole-est move in the game.</td></tr>
+        <tr><td class="k">Tunnel Torpedo</td><td>Tool + attack</td><td>Partly</td><td>25</td><td>Drill-dash through dirt on a straight line; bowls over and launches anything where you surface. The wind-up buys distance rather than force, from 3 m to the full 12 m, so what is being aimed at is the far end of the tunnel: going through a wall two metres thick should not cost the same as crossing a chasm. The mole-est move in the game.</td></tr>
         <tr><td class="k">Power Claws</td><td>Tool</td><td>&#8212;</td><td>&#8212;</td><td>This turn's digging costs walk-price stamina. Turns you into earthmoving equipment.</td></tr>
         <tr><td class="k">Boom Beets</td><td>Satchel</td><td>Run</td><td>50</td><td>The dynamite: a bundle of overripe beetroots wired to a sparkler, planted at the mole's feet by its own dedicated button (<a href="#s13">§13</a>), so it does not spend the turn's shot. Three-second fuse, enormous blast, deep crater, tremendous knockback. Each platoon starts with two; crates restock them. Plant, run, regret.</td></tr>
         <tr><td class="k">Sandbag</td><td>Tool</td><td>&#8212;</td><td>&#8212;</td><td>Deposits a blob of fresh terrain. Builds bridges, plugs a tunnel behind you, walls off a mortar line. Counts as loose soil, so it is cheap to dig back out.</td></tr>
@@ -1470,5 +1472,5 @@
 </section>
 
 <footer class="col footer-note">
-  <p>Molehill Madness · game design document v0.9 · updated 26 August 2026. Changes since v0.8: iOS is out of scope until after the MVP, so the game ships on Steam and Android with cross-play between them, and the reach that costs is recorded as a checkpoint rather than waved through. Earlier, changes since v0.7: plans are laid in ink with one reset per turn (spares in crates) and damage now ends a mole's input, Worms-style; lava bounces twice at 10 pluck before the third landing knocks out; Boom Beets dynamite arrives on its own button and the Periscope leaves; Gnome Mercy is named; crates land centrally and equidistant, pillowforts stay legal; the resolution camera merges by proximity and splits when the fight spreads; joining moves from invite URLs to Kahoot-style game codes with a host who picks the player count; Anytime pace replaces Daily with a hard 24-hour forfeit; damage numbers are on by default and mole names show in clips. Every decision is now made; §21 lists the reality checks. Source lives at <code>C:\Personal\Molehill\docs\</code>.</p>
+  <p>Molehill Madness · game design document v0.10 · updated 31 August 2026. Changes since v0.9: hitting the ground hard now costs pluck, so height and knockback are worth something and a fall ends a turn exactly as any other damage does; and the Tunnel Torpedo is wound up for distance rather than always cutting its full twelve metres, which makes the far end of the tunnel the thing being aimed at. Earlier, changes since v0.8: iOS is out of scope until after the MVP, so the game ships on Steam and Android with cross-play between them, and the reach that costs is recorded as a checkpoint rather than waved through. Earlier still, changes since v0.7: plans are laid in ink with one reset per turn (spares in crates) and damage now ends a mole's input, Worms-style; lava bounces twice at 10 pluck before the third landing knocks out; Boom Beets dynamite arrives on its own button and the Periscope leaves; Gnome Mercy is named; crates land centrally and equidistant, pillowforts stay legal; the resolution camera merges by proximity and splits when the fight spreads; joining moves from invite URLs to Kahoot-style game codes with a host who picks the player count; Anytime pace replaces Daily with a hard 24-hour forfeit; damage numbers are on by default and mole names show in clips. Every decision is now made; §21 lists the reality checks. Source lives at <code>C:\Personal\Molehill\docs\</code>.</p>
 </footer>

@@ -198,4 +198,69 @@ public sealed class RoundRecordingTests
             recording.PositionAt(justBefore, slot),
             Is.EqualTo(recording.PositionOf(exit - 1, slot)));
     }
+
+    // ---- When the round stops being worth watching -----------------------------------
+
+    /// <summary>
+    /// A round where nobody does anything settles at once rather than at tick two hundred
+    /// and forty.
+    /// </summary>
+    /// <remarks>
+    /// The round is always the full eight seconds, because everybody plans against the same clock
+    /// and a shorter one for a quiet turn would give the simultaneous plans away. Watching it is a
+    /// different question, and this is what lets the client stop watching.
+    /// </remarks>
+    [Test]
+    public void ARoundWhereNothingHappensSettlesEarly()
+    {
+        MoleMatch match = NewMatch();
+
+        for (int seat = 0; seat < 4; seat++)
+        {
+            match.SubmitPlan(Plan.Idle(seat, 0));
+        }
+
+        RoundRecording recording = match.ResolveRound(record: true).Recording!;
+
+        Assert.That(
+            recording.SettledTick,
+            Is.LessThan(MatchSettings.TicksPerSecond),
+            "sixteen moles standing still kept the round alive");
+    }
+
+    /// <summary>
+    /// A round with a shell in it stays alive until the shell has gone off.
+    /// </summary>
+    /// <remarks>
+    /// The other half of the same rule, and the one that matters: cutting a replay short is only
+    /// safe if the cut lands after everything anybody wanted to see. Measured against the quiet
+    /// round rather than against a tick number, because when a clod goes off is the arsenal's
+    /// business and this is only claiming that a round with one in it lasts longer than a round
+    /// with nothing in it, and still less than the whole eight seconds.
+    /// </remarks>
+    [Test]
+    public void ARoundWithAShellInItStaysAliveUntilItGoesOff()
+    {
+        MoleMatch match = NewMatch();
+
+        match.SubmitPlan(Shell(0));
+
+        for (int seat = 1; seat < 4; seat++)
+        {
+            match.SubmitPlan(Plan.Idle(seat, 0));
+        }
+
+        RoundRecording recording = match.ResolveRound(record: true).Recording!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                recording.SettledTick,
+                Is.GreaterThan(MatchSettings.TicksPerSecond),
+                "the round was called quiet while a clod was still in the air");
+            Assert.That(
+                recording.SettledTick, Is.LessThan(recording.Ticks - 1),
+                "one shot kept the whole eight seconds busy, so nothing can ever be trimmed");
+        });
+    }
 }

@@ -21,6 +21,16 @@ using Molehill.Online;
 public partial class MenuScene : Control
 {
     private int _players = MatchSetup.MostPlayers;
+
+    /// <summary>
+    /// Which table the menu opens on.
+    /// </summary>
+    /// <remarks>
+    /// Settled in <c>_Ready</c> rather than here, because whether the player may sit with strangers
+    /// depends on an age band read off the disk and there is no reading anything from a field
+    /// initialiser. The couch is the fallback and is the right one: it is the table every account
+    /// may sit at.
+    /// </remarks>
     private MatchSetup.Table _where = MatchSetup.Table.Couch;
     private MatchPace _pace = MatchPace.Live;
 
@@ -57,6 +67,24 @@ public partial class MenuScene : Control
         // tree that is still being built.
         _startAtOnce =
             Flags.Driven() || Flags.Host() || Flags.Matchmake() || Flags.Join() is not null;
+
+        // Finding a game is what somebody opening the menu on their own wants, and until now the
+        // default was the couch, which needs three other people in the room. A player with nobody
+        // beside them had to notice a second table and move to it before the play button meant
+        // anything, and the design's own worry about a thin population is not helped by hiding the
+        // queue behind a press. Refused for an account that may not meet strangers, which is the one
+        // case where the couch is genuinely the only table on offer.
+        //
+        // Not under the driver, which walks straight past this screen into whatever it finds
+        // selected. A driven run that queued for strangers would sit in a pool waiting for three
+        // people who are not coming, and every render check and perf sweep in the repo starts with
+        // one of those runs.
+        if (!Flags.Driven())
+        {
+            _where = Allows(MatchSetup.Table.Strangers)
+                ? MatchSetup.Table.Strangers
+                : MatchSetup.Table.Couch;
+        }
 
         if (Flags.Host())
         {

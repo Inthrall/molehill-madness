@@ -120,6 +120,24 @@ namespace MoleSim.Match
         public bool IsDrilling => DrillLeft > Fix64.Zero;
 
         /// <summary>
+        /// How hard this mole hit the ground on the tick just stepped, or zero if it did not.
+        /// </summary>
+        /// <remarks>
+        /// Written by <see cref="MoleMotion"/> and read by whoever stepped it, which is the only
+        /// arrangement that works for both callers. The round charges for it and records the hit;
+        /// the planning preview charges the ghost so the gauges are honest about a route that walks
+        /// off a cliff. Putting the damage in the motion solver instead would mean either handing it
+        /// a round result it has no business knowing about, or hurting the ghost without anybody
+        /// being told.
+        ///
+        /// Cleared at the top of every step rather than after it is read, so a mole that lands and
+        /// is then left alone for a tick does not appear to land twice. It is deliberately outside
+        /// <see cref="MoleMatch.StateHash"/>: it never survives the tick it was written in, and it
+        /// is derived from a velocity the hash already covers.
+        /// </remarks>
+        public Fix64 LandedAt { get; set; }
+
+        /// <summary>
         /// Applies damage and ends this mole's go. Returns true if it went off duty.
         /// </summary>
         /// <remarks>

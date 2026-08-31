@@ -85,6 +85,26 @@ public static class Palette
     public static readonly Color Edge = new Color(0.91f, 0.87f, 0.75f);
 
     /// <summary>
+    /// The same line, for the layer behind the ground: where the countryside meets the deep soil.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Edge"/> muted by about a third, which is the whole of the thinking. It has to be
+    /// recognisably the same line, because the two boundaries meet wherever a tunnel breaks the
+    /// surface and a different colour there would read as two unrelated marks; and it has to sit
+    /// back, because everything in that layer is meant to be further away. Depth in a flat picture
+    /// is contrast, so a backdrop line at the foreground's strength would bring the backdrop
+    /// forward, which is the opposite of what <c>deep_shade</c> spends its whole existence doing.
+    ///
+    /// Measured off a rendered frame against the two things it actually separates, which is the
+    /// method the note above uses and the reason it can be trusted: 3.6:1 against the shaded deep
+    /// soil and 2.6:1 against the countryside. Deliberately balanced rather than spent on one side,
+    /// because unlike the foreground's line this one has no strong side. <see cref="Edge"/> in the
+    /// same places measures 8.3:1 and 1.1:1, which is a line that shouts into a hole and disappears
+    /// against the sky.
+    /// </remarks>
+    public static readonly Color Horizon = new Color(0.60f, 0.57f, 0.49f);
+
+    /// <summary>
     /// A hole somebody has walked their plan through but has not dug yet.
     /// </summary>
     /// <remarks>

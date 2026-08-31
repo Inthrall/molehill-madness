@@ -90,6 +90,7 @@ public partial class TerrainSkin : Control
         _shading.SetShaderParameter("sky_texel", backdrop.SkyTexel);
 
         _shading.SetShaderParameter("edge_colour", Palette.Edge);
+        _shading.SetShaderParameter("horizon_colour", Palette.Horizon);
 
         // Nine samples of the cell field per fragment, or five on the low setting. Set here with
         // everything else that cannot change during a match: the quality is decided once when the

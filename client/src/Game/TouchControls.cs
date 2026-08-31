@@ -43,6 +43,15 @@ public enum TouchTarget
 
     /// <summary>The movement stick, which walks the mole.</summary>
     Stick = 8,
+
+    /// <summary>
+    /// The settings button, which is what escape does on a keyboard.
+    /// </summary>
+    /// <remarks>
+    /// Ten, following the rule written on <see cref="Ability"/>: the next number, chosen by reading
+    /// the whole list rather than the line above.
+    /// </remarks>
+    Settings = 10,
 }
 
 /// <summary>
@@ -70,6 +79,7 @@ public partial class TouchControls : Control
     private Vector2 _commit;
     private Vector2 _hop;
     private Vector2 _ability;
+    private Vector2 _settings;
     private Vector2 _stickHome;
     private Rect2 _wheel;
     private Rect2 _abilities;
@@ -82,6 +92,17 @@ public partial class TouchControls : Control
 
     /// <summary>The plan being made, so the controls can show what is on it.</summary>
     public SeatPlanner? Planner { get; set; }
+
+    /// <summary>
+    /// How much of the bottom right corner something else has claimed, in pixels.
+    /// </summary>
+    /// <remarks>
+    /// The emote wheel, and only in an online match. Told rather than guessed, because this class
+    /// cannot see the wheel and the wheel cannot see these buttons, and the alternative to one
+    /// number is two layouts drifting apart until somebody plays a match on a phone and finds that
+    /// ending a turn opens the emotes.
+    /// </remarks>
+    public float CornerSpoken { get; set; }
 
     /// <summary>How far the fire button has been dragged, for the aim readout.</summary>
     public Vector2 AimDrag { get; set; }
@@ -128,15 +149,32 @@ public partial class TouchControls : Control
         // second wheel, which armed the ability and un-greyed the single fire button: correct, and
         // undiscoverable. A turn gets two uses and the screen should show two ways to spend them.
         //
-        // Inboard of fire and a little smaller. Fire is the one every turn spends and this is the one
-        // some turns spend, and the size difference is the only ranking the layout needs.
-        _ability = new Vector2(screen.X / 2f - (_button * 2.3f), bottom);
+        // Outboard of fire and a little smaller, on the side the rest of the turn's furniture is on.
+        // It sat on fire's other side to begin with, alone in the left half of the bottom edge with
+        // the stick, which made the two thumbs cross: the left one steers and the right one spends
+        // the turn, and the ability is spent rather than steered. Fire is the one every turn spends
+        // and this is the one some turns spend, and the size difference is the only ranking the
+        // layout needs.
+        _ability = new Vector2((screen.X / 2f) + (_button * 2.3f), bottom);
 
-        // Ending the turn and jumping keep the right corner, stacked. Jump is on this side because
+        // Ending the turn and jumping keep the right-hand side, stacked. Jump is on this side because
         // it is pressed several times a turn and belongs near a resting thumb, and end turn is the
         // last press of a turn so it can be the furthest.
-        _commit = new Vector2(right, bottom);
-        _hop = new Vector2(right, bottom - (_button * 2.2f));
+        //
+        // Lifted clear of whatever else has claimed the corner. Online that is the emote wheel, which
+        // gets first refusal on every press: left where it was, the wheel's button would sit on top
+        // of end turn and eat it, which is exactly the fault that moved the wheel out of the bottom
+        // left in the first place.
+        float floor = bottom - CornerSpoken;
+
+        _commit = new Vector2(right, floor);
+        _hop = new Vector2(right, floor - (_button * 2.2f));
+
+        // Settings in the top right, which is the one corner nothing else wants and the corner every
+        // phone puts a settings button in. A keyboard has escape for this and a phone had nothing at
+        // all: the pause menu existed and there was no way to open it, so a player who wanted to
+        // leave a match on a phone had to finish it or kill the process.
+        _settings = new Vector2(right, margin + _small);
 
         // The stick takes the bottom left corner, where a thumb rests without being told to.
         _stickHome = new Vector2(
@@ -161,16 +199,28 @@ public partial class TouchControls : Control
         // Two strips side by side. The attack wheel keeps the outer edge, under the thumb, because
         // it is turned every turn; the movement wheel sits inboard of it, reached deliberately, which
         // suits something used once a turn at most.
-        float wheelHeight = _button * 4.2f;
         // Above the topmost button on this side rather than above end turn, which used to be the
         // topmost and is now the lowest. Anchored to whichever it is, so moving them again cannot
         // drop the wheels onto a button: the wheels are flicked and the buttons are pressed, and a
         // flick that lands on a button is the worst of both.
-        float wheelTop = Mathf.Min(_commit.Y, _hop.Y) - (_button * 1.4f) - wheelHeight;
+        float wheelBottom = Mathf.Min(_commit.Y, _hop.Y) - (_button * 1.4f);
 
-        _wheel = new Rect2(right - _button, wheelTop, _button * 2f, wheelHeight);
+        // Four buttons of strip where there is room for it, and whatever is left where there is not.
+        //
+        // The height used to be fixed and the top derived from it, which was fine until this side of
+        // the screen gained a settings button at one end and gave up a corner at the other: the strip
+        // then reached its full length by climbing out of the top of the screen and through the
+        // settings button, which draws first and so was simply painted over. A wheel that shrinks is
+        // legible; a button that is under a wheel is gone. Clamped at its own bottom as well, so a
+        // screen too short for any of this gets a strip of no height rather than an inside-out
+        // rectangle that hit-tests as empty everywhere.
+        float wheelTop = Mathf.Min(
+            wheelBottom,
+            Mathf.Max(wheelBottom - (_button * 4.2f), _settings.Y + _small + (margin * 0.6f)));
+
+        _wheel = new Rect2(right - _button, wheelTop, _button * 2f, wheelBottom - wheelTop);
         _abilities = new Rect2(
-            _wheel.Position.X - (_button * 2.1f), wheelTop, _button * 2f, wheelHeight);
+            _wheel.Position.X - (_button * 2.1f), wheelTop, _button * 2f, wheelBottom - wheelTop);
     }
 
     /// <summary>What is under a touch, so the scene knows whether it is a control or the map.</summary>
@@ -188,6 +238,19 @@ public partial class TouchControls : Control
 
     public TouchTarget Hit(Vector2 at)
     {
+        // First, and the only one tested while nobody is planning. It is the door out of a match,
+        // so it has to work during a replay and while waiting on somebody else's phone, which is
+        // exactly when every control below it is put away.
+        if (Within(at, _settings, _small))
+        {
+            return TouchTarget.Settings;
+        }
+
+        if (Planner is null || !Planner.IsPlanning)
+        {
+            return TouchTarget.None;
+        }
+
         // The small column is tested before the stick. Its lowest button sits just outside the
         // stick's grab ring, and a thumb reaching for it lands a little short as often as not.
         if (Within(at, _hop, _button))
@@ -340,6 +403,11 @@ public partial class TouchControls : Control
 
     public override void _Draw()
     {
+        // Above the guard, because the settings button is not part of a turn. Everything else here
+        // is a way of laying a plan and goes away when there is no plan to lay; a way out of the
+        // match has to be on the screen whenever the match is.
+        DrawSettings();
+
         if (Planner is null || !Planner.IsPlanning)
         {
             return;
@@ -354,6 +422,26 @@ public partial class TouchControls : Control
         DrawButton(_reset, TouchTarget.Reset, _small);
         DrawButton(_hop, TouchTarget.Hop, _button);
         DrawAimStick();
+    }
+
+    /// <summary>
+    /// The way out: the same three-button pause menu escape opens on a keyboard.
+    /// </summary>
+    /// <remarks>
+    /// Quieter than the controls around it. It is pressed once or twice in a session, by somebody
+    /// who has decided to stop rather than by somebody in the middle of a turn, and a bright button
+    /// in the corner of every frame would be the loudest thing on a screen that is mostly garden.
+    ///
+    /// No pressed state, unlike every other button here, because there is no moment to draw one in:
+    /// the press puts the pause menu over the whole screen before the next frame.
+    /// </remarks>
+    private void DrawSettings()
+    {
+        DrawCircle(_settings, _small, new Color(Palette.Panel, 0.7f));
+        DrawArc(_settings, _small, 0, Mathf.Tau, 28, new Color(Palette.OnPanel, 0.25f), 2f);
+
+        Glyphs.Icon(
+            this, "settings", _settings, _small * 1.05f, new Color(Palette.OnPanel, 0.6f));
     }
 
     /// <summary>
@@ -440,6 +528,10 @@ public partial class TouchControls : Control
         Vector2 centre = where.Position + (where.Size / 2f);
         float spacing = where.Size.Y / 3.1f;
 
+        // Sized off the strip rather than off the button, so a wheel squeezed by whatever else is
+        // on this side of the screen shows smaller icons rather than overlapping ones.
+        float unit = Mathf.Min(_glyph, spacing);
+
         DrawRect(where, Palette.Panel);
 
         // Which wheel holds the armed weapon, so two strips cannot both look selected.
@@ -466,7 +558,7 @@ public partial class TouchControls : Control
             float away = Mathf.Abs(offset);
             float lit = Mathf.Clamp(1f - away, 0f, 1f);
             bool middle = away < 0.5f;
-            float size = _glyph * (0.78f + (0.27f * lit));
+            float size = unit * (0.78f + (0.27f * lit));
 
             if (middle)
             {

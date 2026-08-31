@@ -117,6 +117,32 @@ namespace MoleSim.Match
         public static Fix64 SettleSpeed => Fix64.Ratio(3, 2);
 
         /// <summary>
+        /// How hard a mole may hit the ground for nothing, in metres a second.
+        /// </summary>
+        /// <remarks>
+        /// Fourteen is a fall of about five and a half metres at this gravity, which is seven
+        /// mole heights. Chosen so the two things a player does on purpose are always free: a hop
+        /// leaves at nine metres a second and comes back at nine, and walking off any ledge worth
+        /// walking off lands well inside it. What is left is the drop nobody chose, off the roof
+        /// of a cave or out of somebody else's blast, which is exactly what should hurt.
+        /// </remarks>
+        public static Fix64 SafeLandingSpeed => Fix64.FromInt(14);
+
+        /// <summary>Pluck a landing costs for each metre a second past the safe speed.</summary>
+        public const int FallDamagePerSpeed = 2;
+
+        /// <summary>
+        /// The most one landing can cost, however far the drop was.
+        /// </summary>
+        /// <remarks>
+        /// Half a mole's pluck. Terminal speed is forty-five metres a second, which uncapped would
+        /// be sixty-two, and a fall that is very nearly a knockout on its own would make blast
+        /// knockback the strongest weapon in the game by a distance: everything that throws a mole
+        /// would be throwing it at the ground as well.
+        /// </remarks>
+        public const int WorstFallDamage = 50;
+
+        /// <summary>
         /// Movement is resolved in fractions of a tick so a fast mole cannot pass through
         /// a thin wall. Four is enough at walking pace; ballistic motion scales this up
         /// with speed.
@@ -166,8 +192,38 @@ namespace MoleSim.Match
         /// </remarks>
         public static Fix64 GirderLength => Fix64.FromInt(4);
 
-        /// <summary>How far a Tunnel Torpedo drills in one turn.</summary>
+        /// <summary>How far a Tunnel Torpedo drills in one turn, wound up to full.</summary>
         public static Fix64 TorpedoRange => Fix64.FromInt(12);
+
+        /// <summary>
+        /// How far it drills with barely any wind-up at all.
+        /// </summary>
+        /// <remarks>
+        /// Three metres is four mole widths: through a wall and out the other side, and no further.
+        /// It is deliberately not zero. A drill is one of a turn's two allowances and the mole is
+        /// committed to the tunnel the moment it starts, so a wind-up released a fraction early
+        /// should cost distance, not the whole use.
+        /// </remarks>
+        public static Fix64 TorpedoShortestRange => Fix64.FromInt(3);
+
+        /// <summary>
+        /// How far a torpedo cuts for a given wind-up.
+        /// </summary>
+        /// <remarks>
+        /// The drill used to take a direction and nothing else, and its whole twelve metres went in
+        /// whatever the player did: aiming it at a wall two metres away spent the same allowance as
+        /// crossing a chasm, and surfacing in the middle of somebody else's platoon was something
+        /// that happened to you rather than something you chose. Charging it for distance makes the
+        /// far end of the tunnel the thing being aimed at, which is what a player is thinking about
+        /// anyway.
+        ///
+        /// Linear between the two ranges, because the gauge sweeps linearly and a player reading it
+        /// is reading a distance. Bedrock still stops it early, so this is what it will cut through
+        /// air and soil rather than a promise about where the mole ends up.
+        /// </remarks>
+        public static Fix64 TorpedoRangeFor(byte power) =>
+            TorpedoShortestRange
+            + ((TorpedoRange - TorpedoShortestRange) * Fix64.Ratio(power, byte.MaxValue));
 
         /// <summary>
         /// How fast it drills, in metres per second.

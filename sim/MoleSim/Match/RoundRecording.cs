@@ -50,6 +50,7 @@ namespace MoleSim.Match
         private readonly Vec2[] _positions;
         private readonly Vec2[] _velocities;
         private readonly int[] _pluck;
+        private readonly Fix64[] _landed;
         private readonly bool[] _offDuty;
         private readonly List<Shot>[] _shots;
         private readonly int[] _hitsUpTo;
@@ -68,6 +69,7 @@ namespace MoleSim.Match
             _positions = new Vec2[moleCount * ticks];
             _velocities = new Vec2[moleCount * ticks];
             _pluck = new int[moleCount * ticks];
+            _landed = new Fix64[moleCount * ticks];
             _offDuty = new bool[moleCount * ticks];
             _shots = new List<Shot>[ticks];
             _hitsUpTo = new int[ticks];
@@ -96,6 +98,21 @@ namespace MoleSim.Match
         public Vec2 VelocityOf(int tick, int moleSlot) => _velocities[Index(tick, moleSlot)];
 
         public int PluckOf(int tick, int moleSlot) => _pluck[Index(tick, moleSlot)];
+
+        /// <summary>
+        /// How hard a mole hit the ground on this tick, or zero if it did not.
+        /// </summary>
+        /// <remarks>
+        /// Recorded so the client can throw dust out from under a mole that landed badly, and know
+        /// how much to throw. Falling damage was previously the only damage in the game with nothing
+        /// on the screen to explain it: the number rose over the mole and there was no picture of it
+        /// happening, so it read as the game taking pluck away for no reason.
+        ///
+        /// The speed rather than the damage, because a landing is a thing that happens whether or
+        /// not it costs anything, and how much it cost is <see cref="Falls.DamageFor"/>'s answer to
+        /// give. The client asks it the same question the round did.
+        /// </remarks>
+        public Fix64 LandedAt(int tick, int moleSlot) => _landed[Index(tick, moleSlot)];
 
         public bool IsOffDutyAt(int tick, int moleSlot) => _offDuty[Index(tick, moleSlot)];
 
@@ -136,6 +153,106 @@ namespace MoleSim.Match
 
         /// <summary>The list the grid appends to while the round resolves.</summary>
         internal List<TerrainChange> Journal { get; }
+
+        /// <summary>
+        /// The last tick anything at all happened, so a watcher need not sit through the rest.
+        /// </summary>
+        /// <remarks>
+        /// A round is always two hundred and forty ticks whatever is in it, because everybody plans
+        /// against the same eight seconds and a shorter round for a quiet turn would give the
+        /// simultaneous clock away. Watching one is a different question: most rounds have every
+        /// mole stood still and every shell landed within four or five seconds, and the rest is a
+        /// still picture with a countdown behind it.
+        ///
+        /// So this says where the round stopped being worth watching, and the client decides how
+        /// long a tail to leave on it. Presentation stays in the client and the fact stays here,
+        /// which is the same split every other field of this class is on.
+        ///
+        /// Everything is read from what was recorded rather than from a flag anybody had to
+        /// remember to set: a mole that moved, a shot in the air, a hit, a knockout, a bang, a cell
+        /// that changed. The one exception is <see cref="Stirred"/>, for the things that happen to a
+        /// crate, which leave no mark anywhere in here at all.
+        ///
+        /// Worked out once and kept, because the client asks every frame of the replay and the
+        /// answer is a scan of every tick of every mole. Safe to cache because a recording is
+        /// finished before anybody can read it: <see cref="Stirred"/> is called by the round while
+        /// it resolves and by nothing afterwards.
+        /// </remarks>
+        public int SettledTick => _settled >= 0 ? _settled : (_settled = FindSettled());
+
+        private int _settled = -1;
+
+        private int FindSettled()
+        {
+            for (int tick = Ticks - 1; tick > _stirred; tick--)
+            {
+                if (Happened(tick))
+                {
+                    return tick;
+                }
+            }
+
+            return _stirred;
+        }
+
+        /// <summary>
+        /// Notes a tick that mattered but leaves no other trace in the recording.
+        /// </summary>
+        /// <remarks>
+        /// Crates only. One landing changes no cell, moves no mole and hurts nobody, so nothing in
+        /// the arrays below can see it, and a round whose only late event was a crate coming down
+        /// would be cut off before it arrived.
+        /// </remarks>
+        internal void Stirred(int tick)
+        {
+            if (tick > _stirred)
+            {
+                _stirred = tick < Ticks ? tick : Ticks - 1;
+            }
+        }
+
+        private int _stirred;
+
+        /// <summary>Whether anything about this tick differs from the one before it.</summary>
+        private bool Happened(int tick)
+        {
+            int before = tick - 1;
+
+            if (_hitsUpTo[tick] != _hitsUpTo[before]
+                || _knockoutsUpTo[tick] != _knockoutsUpTo[before]
+                || _detonationsUpTo[tick] != _detonationsUpTo[before]
+                || _changesUpTo[tick] != _changesUpTo[before]
+                || ShotsAt(tick).Count > 0)
+            {
+                return true;
+            }
+
+            for (int slot = 0; slot < MoleCount; slot++)
+            {
+                // Position rather than velocity, because a mole walking on the ground is moved by
+                // the solver without a velocity ever being written, so a velocity test would call
+                // the whole of a walking turn quiet.
+                if (Vec2.DistanceSquared(_positions[Index(tick, slot)], _positions[Index(before, slot)])
+                    > StirringSquared)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// How far a mole has to shift in one tick to count as still moving, squared.
+        /// </summary>
+        /// <remarks>
+        /// A quarter of a cell, which is about half a metre a second: an order of magnitude below
+        /// walking pace and far below anything a player would call movement. Not zero, because a
+        /// body resting on a slope can creep by a raw unit a tick for ever, and an exact test would
+        /// let that one mole declare a round busy to its last tick and quietly turn the trim off.
+        /// </remarks>
+        private static Fix64 StirringSquared =>
+            (WorldScale.CellSize / Fix64.FromInt(4)) * (WorldScale.CellSize / Fix64.FromInt(4));
 
         /// <summary>
         /// Interpolated position, for drawing at a higher rate than the simulation runs.
@@ -181,6 +298,7 @@ namespace MoleSim.Match
                 _positions[at] = moles[slot].Position;
                 _velocities[at] = moles[slot].Velocity;
                 _pluck[at] = moles[slot].Pluck;
+                _landed[at] = moles[slot].LandedAt;
                 _offDuty[at] = moles[slot].IsOffDuty;
             }
 

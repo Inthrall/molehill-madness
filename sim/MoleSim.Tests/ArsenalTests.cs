@@ -375,6 +375,42 @@ public sealed class ArsenalTests
     }
 
     /// <summary>
+    /// A half-wound torpedo cuts a shorter tunnel than a fully wound one.
+    /// </summary>
+    /// <remarks>
+    /// The wind-up buys distance rather than force, which is the whole of what charging a drill
+    /// means: a mole aimed at a wall two metres thick should not have to spend twelve metres of
+    /// tunnel to get through it. Measured against each other rather than against a number, because
+    /// where a drill stops also depends on what it runs into, and the rule being defended is that
+    /// more wind-up goes further.
+    /// </remarks>
+    [Test]
+    public void AShortWindUpDrillsAShorterTunnel()
+    {
+        Fix64 far = DrilledDistance(byte.MaxValue);
+        Fix64 near = DrilledDistance(64);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(near, Is.GreaterThan(Fix64.One), "a light wind-up drilled nowhere at all");
+            Assert.That(far, Is.GreaterThan(near), "the wind-up bought no distance");
+        });
+    }
+
+    private static Fix64 DrilledDistance(byte power)
+    {
+        MoleMatch match = NewMatch();
+        Mole driller = MoleOf(match, 0, 0);
+        Fix64 startX = driller.Position.X;
+
+        match.SubmitPlan(Wield(0, 0, WeaponId.TunnelTorpedo, Vec2.UnitX, power, tick: 1));
+        match.SubmitPlan(Plan.Idle(1, 0));
+        match.ResolveRound();
+
+        return driller.Position.X - startX;
+    }
+
+    /// <summary>
     /// The torpedo goes off where it stopped, not where it started.
     /// </summary>
     /// <remarks>
@@ -663,7 +699,7 @@ public sealed class ArsenalTests
     [TestCase(WeaponId.SpecialDelivery, AimStyle.DirectionAndPower)]
     [TestCase(WeaponId.GnomeMercy, AimStyle.DirectionAndPower)]
     [TestCase(WeaponId.BigWhack, AimStyle.Direction)]
-    [TestCase(WeaponId.TunnelTorpedo, AimStyle.Direction)]
+    [TestCase(WeaponId.TunnelTorpedo, AimStyle.DirectionAndPower)]
     [TestCase(WeaponId.Fracking, AimStyle.Press)]
     [TestCase(WeaponId.BoomBeets, AimStyle.Press)]
     [TestCase(WeaponId.PowerClaws, AimStyle.Press)]

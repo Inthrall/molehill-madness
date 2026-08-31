@@ -451,6 +451,7 @@ namespace MoleSim.Match
                 }
 
                 MoveEverybody(actors, routes);
+                TakeTheFalls(result);
                 FinishDrills(drilling, result);
                 AdvanceShots(result);
                 CheckPlacements(result);
@@ -942,11 +943,11 @@ namespace MoleSim.Match
 
             // Set going rather than carried out. The cutting itself belongs to the motion solver,
             // which is the one thing the planning preview and the round both step moles through, so
-            // putting it there is what makes the ghost drill at all. It also spreads twelve metres
-            // over about four fifths of a second instead of finishing inside the ordering tick.
+            // putting it there is what makes the ghost drill at all. It also spreads the tunnel
+            // over most of a second instead of finishing inside the ordering tick.
             actor.Facing = aim;
             actor.DrillHeading = aim;
-            actor.DrillLeft = MatchSettings.TorpedoRange;
+            actor.DrillLeft = MatchSettings.TorpedoRangeFor(action.Power);
             actor.IsAirborne = false;
             actor.Velocity = Vec2.Zero;
         }
@@ -1130,9 +1131,17 @@ namespace MoleSim.Match
                     // There is nothing left for a carve to do. The landing spot is already a ledge
                     // with sixteen cells of headroom over it, so the crate arrives in open air.
                     crate.HasLanded = true;
+
+                    // A landing that changes no cell and hurts nobody is invisible to everything the
+                    // recording stores, so it has to say so or the replay can be cut off before the
+                    // box arrives.
+                    result.Recording?.Stirred(tick);
                 }
 
-                Claim(crate, result);
+                if (Claim(crate, result))
+                {
+                    result.Recording?.Stirred(tick);
+                }
             }
         }
 
@@ -1144,7 +1153,8 @@ namespace MoleSim.Match
         /// arriving at once tear it apart and nobody gets anything, which is deterministic
         /// and, as the design puts it, correct.
         /// </remarks>
-        private void Claim(Crate crate, RoundResult result)
+        /// <returns>Whether anybody reached it, so the tick can be noted as one worth watching.</returns>
+        private bool Claim(Crate crate, RoundResult result)
         {
             List<Mole> arrivals = new List<Mole>();
 
@@ -1163,7 +1173,7 @@ namespace MoleSim.Match
 
             if (arrivals.Count == 0)
             {
-                return;
+                return false;
             }
 
             crate.Gone = true;
@@ -1171,7 +1181,7 @@ namespace MoleSim.Match
             if (arrivals.Count >= 3)
             {
                 result.CrateClaims.Add(new CrateClaim(-1, -1, crate.Contents, shattered: true));
-                return;
+                return true;
             }
 
             CrateContents share = arrivals.Count == 2 ? crate.Contents.Halved() : crate.Contents;
@@ -1182,6 +1192,8 @@ namespace MoleSim.Match
                 result.CrateClaims.Add(
                     new CrateClaim(winner.Seat, winner.Index, share, shattered: false));
             }
+
+            return true;
         }
 
         private void Award(Mole winner, CrateContents contents)
@@ -1235,6 +1247,51 @@ namespace MoleSim.Match
                     shot.OwnerMole,
                     shot.Position,
                     new Vec2(sideways, -MatchSettings.ClusterSpread)));
+            }
+        }
+
+        /// <summary>
+        /// Charges for whatever hit the ground this tick.
+        /// </summary>
+        /// <remarks>
+        /// The one kind of damage nobody fires. A mole blown off a ledge, dropped through a roof it
+        /// dug or simply walked off the top of a cave lands at whatever speed gravity gave it, and
+        /// until this existed it landed for nothing: knockback was a free ride and the height of a
+        /// map that is sixty metres tall meant nothing at all.
+        ///
+        /// Here rather than in <see cref="MoleMotion"/> because the motion solver is shared with the
+        /// planning preview and knows nothing about a round result. It measures the landing and
+        /// leaves it on the mole; this is the half that turns a number into a hit somebody can see.
+        ///
+        /// Nobody did it, so the hit carries no attacker, exactly as a lava bounce does. It still
+        /// ends the mole's turn, because every route into damage goes through
+        /// <see cref="Mole.TakeDamage"/> and that is the design's rule about being hit.
+        /// </remarks>
+        private void TakeTheFalls(RoundResult result)
+        {
+            foreach (Mole mole in _moles)
+            {
+                if (mole.IsOffDuty || mole.LandedAt <= Fix64.Zero)
+                {
+                    continue;
+                }
+
+                int damage = Falls.DamageFor(mole.LandedAt);
+
+                if (damage <= 0)
+                {
+                    continue;
+                }
+
+                bool wentOffDuty = mole.TakeDamage(damage);
+
+                result.Hits.Add(new BlastHit(mole.Seat, mole.Index, damage, wentOffDuty));
+
+                if (wentOffDuty)
+                {
+                    RecordKnockout(
+                        result, mole.Seat, mole.Index, KnockoutCause.Fall, damage, Fix64.Zero);
+                }
             }
         }
 

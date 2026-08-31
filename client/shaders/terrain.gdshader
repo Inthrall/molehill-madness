@@ -72,6 +72,23 @@ uniform float sky_texel;
 
 uniform vec4 edge_colour : source_color;
 
+// The same treatment for the boundary in the layer behind: where the countryside stops and the
+// soil behind a tunnel starts.
+//
+// That boundary was a hard cut down a column of texels, and it showed. The foreground gets a
+// blurred field, a smoothstep and an outline, and next to it the backdrop had a one-cell staircase
+// with no line on it at all, so at the edges of the map and through any hole near the surface the
+// two layers disagreed about what kind of picture this is. It is also the one edge the eye has
+// nothing else to read: the foreground boundary has a whole mole standing on it.
+uniform vec4 horizon_colour : source_color;
+
+// How far the horizon is smoothed across, in cells. About the reach the foreground blur has.
+uniform float horizon_cells = 2.0;
+
+// Half-width of the line along it, in cells. Thinner than it is soft, so the line sits inside the
+// blend rather than fighting it.
+uniform float horizon_edge_cells = 0.9;
+
 // Cells the blur reaches. Larger rounds harder; too large and a thin wall dissolves.
 uniform float blur_cells = 1.5;
 
@@ -140,7 +157,46 @@ float split_row(float across)
     return ((packed.r * 255.0 * 256.0) + (packed.g * 255.0)) / 65535.0;
 }
 
-// Whatever is behind the ground here: countryside above the split, soil below it.
+// The split, averaged across neighbouring columns.
+//
+// The split texture holds one row number per column, point-sampled, so the boundary it describes
+// is a staircase with steps a whole cell high. Five columns is enough to read that as a curve
+// without flattening the hills it is a curve of: the map's own surface changes by a cell or two
+// between neighbouring columns, and so does the quantisation, so anything wider would start
+// straightening real ground.
+float horizon_at(float across)
+{
+    float total = 0.0;
+
+    for (int step = -2; step <= 2; step++)
+    {
+        total += split_row(across + (float(step) * field_texel.x));
+    }
+
+    return total / 5.0;
+}
+
+// Countryside, above the horizon.
+vec4 sky_at(vec2 uv, vec2 across, vec2 down)
+{
+    vec2 at = (uv * sky_repeat) - sky_shift;
+
+    return textureGrad(
+        sky,
+        vec2(at.x, clamp(at.y, sky_texel, 1.0 - sky_texel)),
+        across * sky_repeat,
+        down * sky_repeat);
+}
+
+// Soil, seen through a tunnel, shaded so a hole reads as a hole.
+vec4 deep_at(vec2 uv, vec2 across, vec2 down)
+{
+    return textureGrad(deep, (uv * deep_repeat) - deep_shift, across * deep_repeat, down * deep_repeat)
+        * vec4(vec3(deep_shade), 1.0);
+}
+
+// Whatever is behind the ground here: countryside above the horizon, soil below it, and a line
+// drawn along the join in the same hand as the foreground's.
 //
 // The derivatives are handed in rather than worked out here, and that is a correctness fix rather
 // than a saving. A mipmapped texture read inside an if is undefined in GLSL: the level comes from
@@ -149,21 +205,35 @@ float split_row(float across)
 // split, and the fragment function has since grown two more branches around them, so what level
 // any of this was read at was up to the driver. textureGrad says outright, and the derivatives
 // come from the one place every fragment passes through.
+//
+// Still only one side is read wherever the fragment is well clear of the join, which is nearly all
+// of them. The blend is a band a couple of cells thick and everything else takes a branch, exactly
+// as the foreground does for the same reason.
 vec4 backdrop(vec2 uv, vec2 across, vec2 down)
 {
-    if (uv.y < split_row(uv.x))
-    {
-        vec2 at = (uv * sky_repeat) - sky_shift;
+    // In cells, both of them, so the softness and the line are the same widths on screen as the
+    // foreground's whatever shape the map is.
+    float depth = (uv.y - horizon_at(uv.x)) / field_texel.y;
+    float below = smoothstep(-horizon_cells, horizon_cells, depth);
 
-        return textureGrad(
-            sky,
-            vec2(at.x, clamp(at.y, sky_texel, 1.0 - sky_texel)),
-            across * sky_repeat,
-            down * sky_repeat);
+    vec4 painted;
+
+    if (below >= 1.0)
+    {
+        painted = deep_at(uv, across, down);
+    }
+    else if (below <= 0.0)
+    {
+        painted = sky_at(uv, across, down);
+    }
+    else
+    {
+        painted = mix(sky_at(uv, across, down), deep_at(uv, across, down), below);
     }
 
-    return textureGrad(deep, (uv * deep_repeat) - deep_shift, across * deep_repeat, down * deep_repeat)
-        * vec4(vec3(deep_shade), 1.0);
+    float line = 1.0 - smoothstep(0.0, horizon_edge_cells, abs(depth));
+
+    return mix(painted, horizon_colour, line);
 }
 
 void fragment()

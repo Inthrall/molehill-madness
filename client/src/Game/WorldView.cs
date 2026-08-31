@@ -1484,8 +1484,95 @@ public partial class WorldView : Control
             DrawShot(shot);
         }
 
+        DrawLandings(recording);
         DrawBlasts(result);
         DrawDamageNumbers(recording, result);
+    }
+
+    /// <summary>
+    /// Dust out of the ground under a mole that landed hard enough to hurt itself.
+    /// </summary>
+    /// <remarks>
+    /// Falling damage was the only damage in the game with no picture of itself. Every other kind
+    /// arrives with an explosion, a snap, a gout of steam or a mallet, and a landing arrived with a
+    /// red number rising out of a mole that appeared to be standing still: the number was the whole
+    /// of the explanation, and a number that is its own only evidence reads as the game taking
+    /// pluck away for no reason.
+    ///
+    /// Only a hard landing throws any. A mole that steps off a kerb and one that falls off the roof
+    /// of a cave look identical in the recording apart from a speed, and the speed is exactly what
+    /// decides whether anything happened, so the same question the round asked is asked here.
+    ///
+    /// Read backwards from the current tick rather than kept in a list, since the recording already
+    /// knows and a list would be a second copy of it that has to be cleared at the right moment.
+    /// </remarks>
+    private void DrawLandings(RoundRecording recording)
+    {
+        for (int slot = 0; slot < recording.MoleCount; slot++)
+        {
+            for (int age = 0; age < DustTicks; age++)
+            {
+                int tick = _stage.Tick - age;
+
+                if (tick < 0)
+                {
+                    break;
+                }
+
+                int damage = Falls.DamageFor(recording.LandedAt(tick, slot));
+
+                if (damage <= 0)
+                {
+                    continue;
+                }
+
+                DrawDust(
+                    recording.PositionOf(tick, slot), damage, age / (float)DustTicks);
+                break;
+            }
+        }
+    }
+
+    /// <summary>How long a cloud hangs about, in ticks. About half a second.</summary>
+    private const int DustTicks = 15;
+
+    /// <summary>How many puffs go out each side. Three reads as a cloud; one reads as a bubble.</summary>
+    private const int DustPuffs = 3;
+
+    /// <summary>
+    /// One cloud: puffs thrown out sideways from the feet, spreading, rising and thinning.
+    /// </summary>
+    /// <remarks>
+    /// Sideways rather than upward, because that is what a landing does to loose soil and because
+    /// upward would put the cloud over the mole and hide the pose it is landing in. Sized by the
+    /// damage, so the picture says how bad it was rather than only that it happened.
+    /// </remarks>
+    private void DrawDust(Vec2 where, int damage, float through)
+    {
+        float radius = MoleRadius();
+        Vector2 feet = ToPixels(where) + new Vector2(0f, radius * 0.85f);
+
+        float force = Mathf.Clamp(damage / (float)MatchSettings.WorstFallDamage, 0.3f, 1f);
+        float spread = radius * (1f + (2.4f * through)) * (0.7f + force);
+
+        // Squared, so it is thick the instant it appears and gone rather than lingering half-lit,
+        // which is what dust does and what stops it being mistaken for a placed object.
+        float fade = (1f - through) * (1f - through);
+
+        for (int side = -1; side <= 1; side += 2)
+        {
+            for (int puff = 0; puff < DustPuffs; puff++)
+            {
+                float along = (puff + 1f) / DustPuffs;
+                Vector2 at = feet + new Vector2(
+                    side * spread * along, -radius * 0.55f * along * through);
+
+                DrawCircle(
+                    at,
+                    radius * (0.26f + (0.3f * along)) * (0.6f + force) * (0.65f + through),
+                    new Color(Palette.Dust, 0.8f * fade * (1f - (along * 0.3f))));
+            }
+        }
     }
 
     /// <summary>
@@ -1993,9 +2080,15 @@ public partial class WorldView : Control
             Glyphs.Committed(this, on, ring * 0.9f, seat);
         }
 
-        // Anything the turn leaves on the ground, marked where it will be left. The mole is thrown
-        // by a vent it plants and walks into a snare it lays, and until these were drawn the
-        // preview did both to a mole standing next to nothing at all.
+        // Anything the turn leaves on the ground, drawn where it will be left and as the thing it
+        // is. The mole is thrown by a vent it plants and walks into a snare it lays, and until these
+        // were drawn the preview did both to a mole standing next to nothing at all.
+        //
+        // A picture of the object at its real size rather than an icon beside the mole, which is
+        // what this was. A four metre girder and a sandbag were the same small mark, so the one
+        // question a player laying either of them has, namely where it is going to end up, was the
+        // one thing the marker could not answer. Faded, because it is not there yet: everything on
+        // the map that is drawn solid exists, and this is a plan.
         //
         // No blast ring. There used to be one around a planted charge and it was the largest mark on
         // the map for the smallest reason: nothing else in the arsenal advertises its radius before
@@ -2007,13 +2100,82 @@ public partial class WorldView : Control
                 continue;
             }
 
-            Vector2 left = ToPixels(planner.UsePosition(use)) + new Vector2(0, radius * 0.6f);
-
-            Glyphs.Weapon(this, use.Weapon, left, radius * 1.5f, new Color(seat, 0.9f));
+            DrawPlanned(planner, use, seat);
         }
 
         DrawAim(planner);
     }
+
+    /// <summary>
+    /// One thing this turn will leave behind, where the ghost is standing when it leaves it.
+    /// </summary>
+    /// <remarks>
+    /// Where the ghost is standing, which is not necessarily where the mole will be. The round
+    /// re-walks the route the plan carries and everybody else's shells land on it while it does, so
+    /// a mole that gets knocked off course lays its girder somewhere else. That is the same
+    /// uncertainty every other part of a plan already carries and it needs no special handling: the
+    /// mole moves and the beam moves with it.
+    /// </remarks>
+    private void DrawPlanned(SeatPlanner planner, PlanAction use, Color seat)
+    {
+        Vec2 where = planner.UsePosition(use);
+
+        if (use.Weapon == WeaponId.Girder)
+        {
+            DrawPlannedGirder(where, use.AimDirection());
+            return;
+        }
+
+        Texture2D art = Art.Object(Art.ObjectFor(use.Weapon) ?? "mound");
+        Vector2 at = ToPixels(where);
+        float wide = art.GetWidth() / Art.MolePixelsPerMetre * _scale;
+        float tall = art.GetHeight() / Art.MolePixelsPerMetre * _scale;
+
+        DrawTextureRect(
+            art, new Rect2(at.X - (wide / 2f), at.Y - tall, wide, tall), false, NotYetThere);
+
+        // Whose it is, the same pip a placed one wears, so a plan and the thing it becomes read as
+        // the same object rather than as two different marks.
+        DrawCircle(
+            at + new Vector2(0f, -tall - (wide * 0.16f)),
+            Mathf.Max(wide * 0.14f, 2f), new Color(seat, PlannedShowing));
+    }
+
+    /// <summary>The beam this turn will lay, at its real length and along its real aim.</summary>
+    private void DrawPlannedGirder(Vec2 at, Vec2 along)
+    {
+        if (along.LengthSquared() == Fix64.Zero)
+        {
+            return;
+        }
+
+        Texture2D art = Art.Object("girder");
+        float length = (float)MatchSettings.GirderLength.ToDecimal() * _scale;
+        float tall = length * art.GetHeight() / art.GetWidth();
+        float footing = (float)GirderThickness.ToDecimal() * _scale;
+
+        Vector2 heading = new Vector2(
+            (float)along.X.ToDecimal(), (float)along.Y.ToDecimal()).Normalized();
+
+        // Turned to lie along the beam, with the camera offset added in by hand because
+        // DrawSetTransform replaces the pass's transform rather than multiplying into it.
+        DrawSetTransform(ToPixels(at) + Offset(), heading.Angle(), Vector2.One);
+
+        DrawTextureRect(
+            art, new Rect2(0f, -footing / 2f, length, tall), false, NotYetThere);
+
+        DrawSetTransform(Offset(), 0, Vector2.One);
+    }
+
+    /// <summary>How solid something that has been planned but not yet built is drawn.</summary>
+    /// <remarks>
+    /// Named for what it means rather than for the colour it is, and deliberately not called Planned:
+    /// <see cref="Palette.Planned"/> is a different thing a few lines up, the dark wash over ground a
+    /// route is about to go through, and two Planneds in one file would be read as one.
+    /// </remarks>
+    private const float PlannedShowing = 0.7f;
+
+    private static readonly Color NotYetThere = new Color(1f, 1f, 1f, PlannedShowing);
 
     /// <summary>
     /// Where the shot goes, from where the mole will be standing when it fires rather than
