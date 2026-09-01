@@ -98,6 +98,9 @@ public partial class MatchScene : Node2D
     private int[] _gamepad = System.Array.Empty<int>();
     private readonly List<WorldView> _views = new List<WorldView>();
 
+    /// <summary>How the screen was carved up this frame, as the layout last worked it out.</summary>
+    private SplitLayout.Pane[] _panes = System.Array.Empty<SplitLayout.Pane>();
+
     /// <summary>How many platoons are playing, which the menu chose. Two, three or four.</summary>
     private int _players = MatchSetup.MostPlayers;
 
@@ -226,6 +229,7 @@ public partial class MatchScene : Node2D
         _shoulderHeldUp = new bool[_players];
         _shoulderHeldDown = new bool[_players];
         _hopHeld = new bool[_players];
+        _recentreHeld = new bool[_players];
         _jumpHeld = new bool[_players];
         _driven = new bool[_players];
         _damageTaken = new int[_players];
@@ -1004,7 +1008,7 @@ public partial class MatchScene : Node2D
         // Only while somebody is planning. During a replay there is nothing to press, and a row of
         // keys that do nothing is the sort of thing a player tries and then distrusts.
         SeatPlanner? holding = _beat == Beat.Planning ? Pointed() : null;
-        _guide?.Watch(holding, holding?.Seat ?? 0);
+        _guide?.Watch(holding, holding?.Seat ?? 0, WheelSides(), AnyPads());
 
         if (_touch is not null)
         {
@@ -1934,6 +1938,11 @@ public partial class MatchScene : Node2D
     {
         SplitLayout.Pane[] panes = Panes();
 
+        // Kept so the guide can hang each platoon's wheels in its own pane. Read after the layout
+        // rather than worked out a second time, because two answers to "how is the screen carved
+        // up" drift the moment one of them grows a condition the other has not got.
+        _panes = panes;
+
         while (_views.Count < panes.Length)
         {
             WorldView view = new WorldView(_stage);
@@ -1952,6 +1961,68 @@ public partial class MatchScene : Node2D
                 _views[index].Occupy(panes[index], index, delta);
             }
         }
+    }
+
+    /// <summary>
+    /// A pair of wheels for every platoon that has a pane of its own to hang them in.
+    /// </summary>
+    /// <remarks>
+    /// Only while the screen is split, because with one pane the strip's own wheel is already that
+    /// platoon's and a second copy of it in the corner of the same view says nothing new.
+    ///
+    /// Online seats are skipped even though they have panes during planning, because their plans
+    /// arrive from the relay: what they have armed is not known here, and drawing this device's
+    /// idea of somebody else's wheel would be inventing it.
+    /// </remarks>
+    private KeyGuide.Side[] WheelSides()
+    {
+        if (_beat != Beat.Planning || _panes.Length < 2)
+        {
+            return System.Array.Empty<KeyGuide.Side>();
+        }
+
+        List<KeyGuide.Side> sides = new List<KeyGuide.Side>();
+
+        foreach (SplitLayout.Pane pane in _panes)
+        {
+            if (pane.Seat < 0 || pane.Seat >= _planners.Length)
+            {
+                continue;
+            }
+
+            if (_devices[pane.Seat] == Device.Elsewhere || !_planners[pane.Seat].IsPlanning)
+            {
+                continue;
+            }
+
+            sides.Add(new KeyGuide.Side(
+                pane.Rect,
+                _planners[pane.Seat],
+                _devices[pane.Seat] == Device.Gamepad,
+                pane.Seat == _pointerSeat));
+        }
+
+        return sides.ToArray();
+    }
+
+    /// <summary>Whether any platoon on this screen is planning on a controller.</summary>
+    /// <remarks>
+    /// What decides whether the strip carries a second label per control. It is a fact about the
+    /// hardware in the room rather than about whose turn it is: the legend is read once, by
+    /// everybody, and a pad player looking at it while somebody else holds the pointer still needs
+    /// to find out what their own buttons do.
+    /// </remarks>
+    private bool AnyPads()
+    {
+        foreach (Device device in _devices)
+        {
+            if (device == Device.Gamepad)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -3084,7 +3155,20 @@ public partial class MatchScene : Node2D
         {
             if (!planner.Aiming)
             {
-                planner.BeginAim(planner.PlannedPosition);
+                // Which allowance this aim is going to spend, decided once as the stick leaves the
+                // dead zone and then left alone until it comes back. A pad has one aiming stick and
+                // the turn has two halves to point it at, so something has to say which, and on the
+                // keyboard that something is which of the two keys is down.
+                //
+                // Latched rather than read every frame, and that is the whole of why it is written
+                // this way. Releasing an aim is what books the shot, so a trigger squeezed halfway
+                // through a wind-up would have to end the aim it was already in to change slot,
+                // which is a shot fired by touching a trigger nobody meant as a trigger.
+                planner.BeginAim(
+                    planner.PlannedPosition,
+                    Input.GetJoyAxis(pad, JoyAxis.TriggerLeft) > TriggerPressed
+                        ? UseSlot.Movement
+                        : UseSlot.Attack);
             }
 
             // Direction only. How far the stick is pushed no longer says anything about power, so
@@ -3125,6 +3209,19 @@ public partial class MatchScene : Node2D
         }
 
         _hopHeld[seat] = hopping;
+
+        // Putting the camera back on your own mole, which the keyboard has had on C and a pad had
+        // nowhere at all. It is not a turn verb and costs nothing, but a player who has steered off
+        // the edge of their own pane has no other way back: the pad cannot drag the map, so without
+        // this the only fix was to walk until the mole came back into shot.
+        bool recentring = Input.IsJoyButtonPressed(pad, JoyButton.X);
+
+        if (recentring && !_recentreHeld[seat])
+        {
+            RecentreViews();
+        }
+
+        _recentreHeld[seat] = recentring;
         TurnWheel(seat, pad, planner);
     }
 
@@ -3157,11 +3254,24 @@ public partial class MatchScene : Node2D
     private bool[] _shoulderHeldDown = System.Array.Empty<bool>();
     private bool[] _hopHeld = System.Array.Empty<bool>();
 
+    /// <summary>Held state for the pad's recentre, which is a press rather than a hold.</summary>
+    private bool[] _recentreHeld = System.Array.Empty<bool>();
+
     /// <summary>Held state for up-as-jump, kept apart from the hop key's own.</summary>
     private bool[] _jumpHeld = System.Array.Empty<bool>();
 
     /// <summary>How far a gamepad axis must move before it counts as pushed.</summary>
     private const float PadDeadZone = 0.2f;
+
+    /// <summary>
+    /// How far a trigger must go down before it counts as held.
+    /// </summary>
+    /// <remarks>
+    /// Higher than the stick's dead zone on purpose. A trigger is what decides which of the two
+    /// allowances an aim is going to spend, and a resting finger that drifts a tenth of the way
+    /// down would spend the wrong one, which costs a turn rather than a few pixels of aim.
+    /// </remarks>
+    private const float TriggerPressed = 0.5f;
 
     // ---- The test driver -------------------------------------------------------------
 

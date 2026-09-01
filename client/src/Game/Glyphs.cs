@@ -51,23 +51,25 @@ public static class Glyphs
     /// something quite different: it is how the wheel fades its neighbours out and how a spent
     /// allowance greys its button.
     /// </remarks>
-    public static void Weapon(CanvasItem into, WeaponId weapon, Vector2 at, float size, Color ink)
+    public static void Weapon(
+        CanvasItem into, WeaponId weapon, Vector2 at, float size, Color ink, float widest = 0f)
     {
         Color showing = new Color(1f, 1f, 1f, ink.A);
 
         if (Art.ObjectFor(weapon) is string named)
         {
-            Fit(into, Art.Object(named), at, size, showing);
+            Fit(into, Art.Object(named), at, size, showing, widest);
             return;
         }
 
-        Fit(into, Art.Weapon(weapon), at, size, showing);
+        Fit(into, Art.Weapon(weapon), at, size, showing, widest);
     }
 
     /// <summary>An interface glyph, by the name the importer gave it.</summary>
-    public static void Icon(CanvasItem into, string name, Vector2 at, float size, Color ink)
+    public static void Icon(
+        CanvasItem into, string name, Vector2 at, float size, Color ink, float widest = 0f)
     {
-        Fit(into, Art.Glyph(name), at, size, ink);
+        Fit(into, Art.Glyph(name), at, size, ink, widest);
     }
 
     /// <summary>
@@ -145,12 +147,50 @@ public static class Glyphs
     /// </remarks>
     private static void Fit(CanvasItem into, Texture2D art, Vector2 middle, float size, Color ink)
     {
+        Fit(into, art, middle, size, ink, 0f);
+    }
+
+    /// <summary>
+    /// The same, but never wider than the room it was given.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="size"/> is the height, and the width is whatever the art's proportions ask
+    /// for. That is right for the fourteen roughly square weapons and wrong for the long ones: the
+    /// girder is nearly five times as wide as it is tall, so a row of controls laid out on the
+    /// height drew a beam straight across its neighbours and the strip read as one smeared picture
+    /// rather than as five things you can press.
+    ///
+    /// Cropped rather than shrunk, and that is the deliberate half. Scaling a girder down until it
+    /// fits leaves a correct picture of a beam about a fifth the size of every other icon, which
+    /// reads as a small weapon rather than as a long one. A crop keeps every icon at one size and
+    /// spends the shortfall on showing less of the widest few, which is the trade a row of tiles
+    /// makes everywhere else.
+    ///
+    /// The crop is centred, because the middle of an object is the part that identifies it: a
+    /// girder cropped to its left end is a grey square, and so is a sandbag.
+    /// </remarks>
+    private static void Fit(
+        CanvasItem into, Texture2D art, Vector2 middle, float size, Color ink, float widest)
+    {
         float wide = size * art.GetWidth() / art.GetHeight();
 
-        into.DrawTextureRect(
+        if (widest <= 0f || wide <= widest)
+        {
+            into.DrawTextureRect(
+                art,
+                new Rect2(middle.X - (wide / 2f), middle.Y - (size / 2f), wide, size),
+                false,
+                ink);
+
+            return;
+        }
+
+        float shown = art.GetWidth() * (widest / wide);
+
+        into.DrawTextureRectRegion(
             art,
-            new Rect2(middle.X - (wide / 2f), middle.Y - (size / 2f), wide, size),
-            false,
+            new Rect2(middle.X - (widest / 2f), middle.Y - (size / 2f), widest, size),
+            new Rect2((art.GetWidth() - shown) / 2f, 0f, shown, art.GetHeight()),
             ink);
     }
 
