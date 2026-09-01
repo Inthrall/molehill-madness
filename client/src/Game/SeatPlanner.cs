@@ -290,6 +290,11 @@ public sealed class SeatPlanner
 
     public bool RanOutOfPuff => Walk?.RanOutOfPuff == true;
 
+    /// <summary>
+    /// Whether the turn has already ended because the mole was hit, most often by its own shot.
+    /// </summary>
+    public bool TurnIsOver => Walk?.TurnIsOver == true;
+
     /// <summary>Whether there is any of the round left to walk in.</summary>
     public bool HasTimeLeft => Walk?.HasTimeLeft == true;
 
@@ -428,6 +433,11 @@ public sealed class SeatPlanner
 
         List<WeaponId> wheel = Available(slot);
 
+        if (wheel.Contains(Arsenal.Opens(slot)))
+        {
+            return Arsenal.Opens(slot);
+        }
+
         return wheel.Count > 0 ? wheel[0] : WeaponId.None;
     }
 
@@ -467,6 +477,11 @@ public sealed class SeatPlanner
 
     private WeaponId FirstAvailable()
     {
+        if (_match.CanUse(Seat, Arsenal.Opens(UseSlot.Attack)))
+        {
+            return Arsenal.Opens(UseSlot.Attack);
+        }
+
         foreach (WeaponId weapon in Arsenal.Wheel)
         {
             if (_match.CanUse(Seat, weapon))
@@ -504,10 +519,13 @@ public sealed class SeatPlanner
         // alone froze the moment the thumb came off the stick, which is precisely when a player
         // would take it off, and the preview showed a mole standing in the mouth of a tunnel it had
         // not finished cutting.
-        bool idle = direction.LengthSquared() == Fix64.Zero
-            && !Walk.IsFalling
-            && !Walk.IsDrilling
-            && !Walk.IsHazarded;
+        //
+        // The list of what counts belongs to the walk rather than being spelled out here. It was
+        // spelled out here, and it had drifted: a shell in the air and a mole standing on nothing
+        // are both things the ticks have to pass for, and neither was on this copy of the list, so
+        // both froze the moment the thumb came off the stick even though the walk itself knew
+        // better.
+        bool idle = direction.LengthSquared() == Fix64.Zero && !Walk.SomethingIsHappening;
 
         if (idle || !Walk.HasTimeLeft)
         {
@@ -547,6 +565,15 @@ public sealed class SeatPlanner
 
     /// <summary>What the aim in progress, or the attack if none, needs to be told.</summary>
     public AimStyle Style => StyleFor(_aiming);
+
+    /// <summary>
+    /// Which weapon the aim in progress belongs to, so a preview can be drawn of that one thing.
+    /// </summary>
+    /// <remarks>
+    /// Not the same as <see cref="Weapon"/>, which is the attack whatever wheel is being pointed
+    /// with. Both buttons aim, and the movement one is the half that has something worth showing.
+    /// </remarks>
+    public WeaponId Aimed => Selected(_aiming);
 
     /// <summary>Which slot the aim in progress belongs to.</summary>
     private UseSlot _aiming;
@@ -799,7 +826,11 @@ public sealed class SeatPlanner
                 break;
 
             default:
-                // Everything left throws something, and no weapon previews its flight.
+                // Everything left throws something, and now every one of them shows the throw.
+                // Firing used to do nothing at all until the round ran, so the one question a shot
+                // asks, which is where it lands, could not be answered while there was still a
+                // reset token to spend on the answer.
+                Walk?.Fire(use);
                 break;
         }
     }
@@ -1071,7 +1102,8 @@ public sealed class SeatPlanner
         // had: the round knew and the planning screen did not.
         Walk = Actor is null
             ? null
-            : SteeredWalk.From(Actor, _match.Terrain, _match.Placements, _match.Round);
+            : SteeredWalk.From(
+                Actor, _match.Terrain, _match.Placements, _match.Round, _match.Wind);
     }
 
     // ---- Committing ----------------------------------------------------------------
@@ -1194,6 +1226,24 @@ public static class Arsenal
     /// <summary>Which wheel a weapon belongs to.</summary>
     public static WeaponId[] For(UseSlot slot) =>
         slot == UseSlot.Movement ? Movements : Attacks;
+
+    /// <summary>
+    /// What a wheel shows before anybody has turned it.
+    /// </summary>
+    /// <remarks>
+    /// Not the first thing on the wheel, which is how this used to work and which made the Clod
+    /// Lobber the opening shot by accident: the wheel is in arsenal order and the clod is weapon
+    /// one. Asked for from play, and the argument is that the clod is the one weapon nobody needs
+    /// help finding. It is unlimited, it is what everything falls back to, and it will be on the
+    /// wheel in the last round of the last match. The Beetle Launcher is the better thing to hand
+    /// somebody first: it flies flat, it is the only weapon the wind pushes, and three of them is
+    /// exactly enough to find that out with.
+    ///
+    /// Only the opening. The moment a player turns the wheel their choice is remembered per wheel
+    /// for the rest of the match, and running out of beetles falls back to whatever is left.
+    /// </remarks>
+    public static WeaponId Opens(UseSlot slot) =>
+        slot == UseSlot.Movement ? WeaponId.TunnelTorpedo : WeaponId.BeetleLauncher;
 
     private static WeaponId[] Only(UseSlot slot)
     {

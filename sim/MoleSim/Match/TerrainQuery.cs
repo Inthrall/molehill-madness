@@ -57,9 +57,84 @@ namespace MoleSim.Match
         }
 
         /// <summary>
+        /// The material of the nearest solid cell a body overlaps, or air when it overlaps none.
+        /// </summary>
+        /// <remarks>
+        /// What is in the way, asked as a question about the body rather than about a point. Every
+        /// other way of asking it has to guess a direction and a distance, and a guess is wrong the
+        /// moment anything has been carved: a mole part way into a roof it has already opened has
+        /// air a radius above it and rock a little further on.
+        ///
+        /// Nearest rather than any, so a body touching turf and bedrock at once is answered with
+        /// the turf it is actually against. Cells are visited in a fixed order and ties keep the
+        /// first seen, so the answer is the same on every platform.
+        /// </remarks>
+        public static Material BlockingMaterial(TerrainGrid terrain, Vec2 position, Fix64 radius)
+        {
+            int minX = WorldScale.ToCell(position.X - radius);
+            int maxX = WorldScale.ToCell(position.X + radius);
+            int minY = WorldScale.ToCell(position.Y - radius);
+            int maxY = WorldScale.ToCell(position.Y + radius);
+            Fix64 radiusSquared = radius * radius;
+
+            Material nearest = Material.Air;
+            Fix64 nearestDistance = radiusSquared;
+
+            for (int cellY = minY; cellY <= maxY; cellY++)
+            {
+                Fix64 deltaY = WorldScale.ToCentreMetres(cellY) - position.Y;
+                Fix64 deltaYSquared = deltaY * deltaY;
+
+                if (deltaYSquared > radiusSquared)
+                {
+                    continue;
+                }
+
+                for (int cellX = minX; cellX <= maxX; cellX++)
+                {
+                    Material material = terrain[cellX, cellY];
+
+                    if (!MaterialTable.IsSolid(material))
+                    {
+                        continue;
+                    }
+
+                    Fix64 deltaX = WorldScale.ToCentreMetres(cellX) - position.X;
+                    Fix64 distance = (deltaX * deltaX) + deltaYSquared;
+
+                    if (distance < nearestDistance)
+                    {
+                        nearestDistance = distance;
+                        nearest = material;
+                    }
+                }
+            }
+
+            return nearest;
+        }
+
+        /// <summary>
         /// Whether a body is held up: standing on something, or braced between close walls.
         /// </summary>
-        public static bool IsSupported(TerrainGrid terrain, Vec2 position, Fix64 radius)
+        /// <param name="bracing">
+        /// Whether the body is still in a state to hold itself between two walls. Standing on
+        /// something needs nothing of the mole; wedging is something it does.
+        /// </param>
+        /// <remarks>
+        /// The bracing half is optional because it is the half that is an action rather than a fact
+        /// about the ground. Reported from play: moles were being left hanging in mid-air inside a
+        /// shaft after a blast threw them up it, a body length or three above anything solid, and
+        /// staying there for the rest of the match. Chimneying holds a mole up because the mole is
+        /// pushing against both walls, and a mole that has just been hit is not pushing against
+        /// anything: <see cref="Mole.AcceptsInput"/> is the question, and being hit is what turns it
+        /// off. Standing on a floor is unaffected, because a floor holds up anybody.
+        ///
+        /// Defaulted to true so that a caller with no mole in hand, which is every test and every
+        /// terrain question asked about a place rather than about somebody, gets the plain
+        /// geometric answer it always got.
+        /// </remarks>
+        public static bool IsSupported(
+            TerrainGrid terrain, Vec2 position, Fix64 radius, bool bracing = true)
         {
             if (IsBlocked(terrain, position, radius))
             {
@@ -68,7 +143,12 @@ namespace MoleSim.Match
 
             Vec2 justBelow = new Vec2(position.X, position.Y + ProbeDepth);
 
-            return IsBlocked(terrain, justBelow, radius) || IsWedged(terrain, position, radius);
+            if (IsBlocked(terrain, justBelow, radius))
+            {
+                return true;
+            }
+
+            return bracing && IsWedged(terrain, position, radius);
         }
 
         /// <summary>

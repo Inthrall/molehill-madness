@@ -52,7 +52,8 @@ namespace MoleSim.Match
 
             // Standing on nothing is falling, however it came about.
             if (!TerrainQuery.IsBlocked(terrain, mole.Position, MatchSettings.Radius)
-                && !TerrainQuery.IsSupported(terrain, mole.Position, MatchSettings.Radius))
+                && !TerrainQuery.IsSupported(
+                        terrain, mole.Position, MatchSettings.Radius, mole.AcceptsInput))
             {
                 if (!TerrainQuery.TrySnapDown(
                         terrain, mole.Position, MatchSettings.Radius, MatchSettings.GroundSnap, out Vec2 snapped))
@@ -269,7 +270,8 @@ namespace MoleSim.Match
                 return;
             }
 
-            if (TerrainQuery.IsSupported(terrain, mole.Position, MatchSettings.Radius))
+            if (TerrainQuery.IsSupported(
+                    terrain, mole.Position, MatchSettings.Radius, mole.AcceptsInput))
             {
                 return;
             }
@@ -379,7 +381,8 @@ namespace MoleSim.Match
             // apex and then fell back down its own hole, which measured as a jump-dig that achieved
             // nothing. Asked only once the rise is spent, so it cannot cut a jump short.
             if (velocity.Y >= Fix64.Zero
-                && TerrainQuery.IsSupported(terrain, mole.Position, MatchSettings.Radius))
+                && TerrainQuery.IsSupported(
+                        terrain, mole.Position, MatchSettings.Radius, mole.AcceptsInput))
             {
                 // Arriving on top of something, and this is the arrival that matters most: support
                 // reaches further than a body does, so a mole dropping onto open ground is caught
@@ -449,7 +452,7 @@ namespace MoleSim.Match
                     continue;
                 }
 
-                velocity = Collide(mole, terrain, velocity);
+                velocity = Collide(mole, terrain, velocity, target);
 
                 if (!mole.IsAirborne)
                 {
@@ -559,18 +562,20 @@ namespace MoleSim.Match
                 return false;
             }
 
-            // Against the surface rather than under the middle. A body is blocked as soon as
-            // anything solid comes within its radius, so at the moment of contact its centre cell
-            // is still open air, and asking what is there answers "air", which is not diggable.
-            // Measured before this was fixed: jumping into a ceiling while holding up rose nothing
-            // at all, because the dig was declined on every contact.
+            // Whatever is actually in the way, rather than what is at the middle of the body. A
+            // body is blocked as soon as anything solid comes within its radius, so at the moment
+            // of contact its centre cell is still open air, and asking what is there answers "air",
+            // which is not diggable. Measured before that was fixed: jumping into a ceiling while
+            // holding up rose nothing at all, because the dig was declined on every contact.
             //
-            // The escape direction points out of the solid, so a radius back along it is the thing
-            // actually being hit. Same reasoning as the leading-edge sample in TryAdvance, arrived
-            // at from the normal instead of from the heading, because a tumbling mole's heading and
-            // the surface it lands against are not related.
-            Material ahead = TerrainQuery.MaterialAt(
-                terrain, target - (escape * MatchSettings.Radius));
+            // The first fix sampled a body radius back along the escape, which is the right idea
+            // with the wrong instrument: it measures by distance, and the distance is wrong the
+            // moment anything has been carved. A mole part way into a roof it has already opened a
+            // pocket in has air a radius above it and rock a little beyond that, so the sample
+            // answered "air" and abandoned a dig that was half done. Asking for the nearest solid
+            // cell is the question that was always meant, and it cannot miss: the body is blocked,
+            // so there is one.
+            Material ahead = TerrainQuery.BlockingMaterial(terrain, target, MatchSettings.Radius);
 
             if (!MaterialTable.IsDiggable(ahead))
             {
@@ -617,9 +622,31 @@ namespace MoleSim.Match
         /// Handles arriving at something solid: settle onto it if slow, bounce off it if
         /// not. Returns the velocity to carry on with.
         /// </summary>
-        private static Vec2 Collide(Mole mole, TerrainGrid terrain, Vec2 velocity)
+        /// <param name="against">
+        /// The blocked spot the body could not move into, which is the thing being hit.
+        /// </param>
+        /// <remarks>
+        /// The escape direction is measured at what was hit rather than at where the mole is, and
+        /// that distinction is the whole of this function working at all. A body counts as blocked
+        /// as soon as anything solid comes within its radius, so the position it has actually
+        /// reached is by construction clear of everything: asking there finds no solid cells, and an
+        /// escape with nothing to escape from answers "up", which is its documented default for
+        /// something buried.
+        ///
+        /// So every collision in the game was being told it had landed on flat ground, and three
+        /// separate complaints came out of that one line. A mole blasted up into a roof measured a
+        /// negative closing speed, which is below the settle speed, so it stopped dead and hung from
+        /// the ceiling. A mole thrown sideways into a wall measured zero and stuck to that. And a
+        /// bounce shoves the body a cell along the escape, so every bounce underneath an overhang
+        /// pushed the mole further up into it until it was inside the dirt, where the grounded
+        /// solver holds it up for ever on the grounds that a tunnel holds a mole up perfectly well.
+        ///
+        /// <see cref="TryDigIntoIt"/> a few lines up already measured it at the contact, for exactly
+        /// this reason, which is how the two came to disagree.
+        /// </remarks>
+        private static Vec2 Collide(Mole mole, TerrainGrid terrain, Vec2 velocity, Vec2 against)
         {
-            Vec2 escape = TerrainQuery.EscapeDirection(terrain, mole.Position, MatchSettings.Radius);
+            Vec2 escape = TerrainQuery.EscapeDirection(terrain, against, MatchSettings.Radius);
 
             // How fast it is closing on the surface, rather than how fast it is going. These used
             // to be the same test and the difference did not matter until a mole could steer in the
@@ -638,7 +665,20 @@ namespace MoleSim.Match
             // past. The impact is the first contact, and this is it.
             mole.LandedAt = closing;
 
-            if (closing <= MatchSettings.SettleSpeed)
+            // Whether the thing hit could hold a mole up at all. A floor can; a wall or a roof
+            // cannot, and anything steeper than this is a wall. The same test
+            // <see cref="TryDigIntoIt"/> uses to tell a ceiling from a floor, so the two cannot
+            // drift apart.
+            //
+            // Without it, coming to rest was decided by speed alone, so anything slow enough
+            // stopped dead against whatever it happened to be touching: a mole that drifted into a
+            // cliff face hung off it, and one that brushed a roof hung from that. Both were
+            // reported from play as moles landing in the ceiling. A face too steep to stand on now
+            // deflects the mole and it carries on down, which is the sliding the same report asked
+            // for and comes out of the reflection below for nothing.
+            bool floor = escape.Y <= -MatchSettings.FloorContact;
+
+            if (floor && closing <= MatchSettings.SettleSpeed)
             {
                 mole.IsAirborne = false;
 

@@ -757,17 +757,37 @@ public partial class WorldView : Control
         // Centred as a group: dial, bar, then the puff mark that says what the bar is counting.
         float wide = dial + (pad * 2f) + barWidth + (pad * 1.4f) + (barHeight * 1.7f);
         float from = (Size.X - wide) / 2f;
-        float centre = Size.Y - _stage.GuideDepth - pad - (dial / 2f);
+        // The bottom of the screen is the right edge for a keyboard, where nothing is over it, and
+        // the wrong one for a phone, where both thumbs are and the controls are drawn on top: the
+        // fire button sits at exactly this height. Reported from play as the gauges being under the
+        // stick. The top is the one edge a touchscreen leaves alone.
+        float centre = Flags.WantsTouch()
+            ? pad + (dial / 2f)
+            : Size.Y - _stage.GuideDepth - pad - (dial / 2f);
         float left = from + dial + (pad * 2f);
 
         Clock(new Vector2(from + (dial / 2f), centre), dial / 2f, 1f - (float)planner.TimeSpent);
 
-        Bar(left, centre - (barHeight / 2f), barWidth, barHeight, (float)planner.PuffSpent,
-            planner.RanOutOfPuff ? Palette.Damage : new Color(0.435f, 0.647f, 0.325f));
+        // Red when the turn cannot go any further, and there are two ways it cannot. Out of puff is
+        // the old one. Being hit is the other, and it arrived with the previewed shot: taking any
+        // damage ends a mole's turn, so a clod that goes off at your own feet stops the turn dead,
+        // and these gauges are the only thing on screen that can say so while there is still a
+        // reset token to spend on it.
+        bool stopped = planner.RanOutOfPuff || planner.TurnIsOver;
 
-        Glyphs.Puff(
-            this, new Vector2(left + barWidth + (pad * 1.4f), centre),
-            barHeight * 1.7f, Palette.OnPanel);
+        Bar(left, centre - (barHeight / 2f), barWidth, barHeight, (float)planner.PuffSpent,
+            stopped ? Palette.Damage : new Color(0.435f, 0.647f, 0.325f));
+
+        // On its own dark disc, the same one the dial wears. These are drawn onto the map rather
+        // than onto a panel, and a pale glyph on nothing is legible over dirt and gone over sky.
+        // That never showed while the group lived along the bottom of the pane, where there is
+        // always ground behind it; moving it to the top of a phone screen put it on the horizon and
+        // the mark said what the bar was counting only for whoever was looking at the ground.
+        Vector2 puff = new Vector2(left + barWidth + (pad * 1.4f) + (barHeight * 0.5f), centre);
+        float mark = barHeight * 1.7f;
+
+        DrawCircle(puff, mark * 0.72f, new Color(0f, 0f, 0f, 0.32f));
+        Glyphs.Puff(this, puff, mark, Palette.OnPanel);
     }
 
     /// <summary>
@@ -795,7 +815,7 @@ public partial class WorldView : Control
                 new Color(0.306f, 0.510f, 0.651f), Mathf.Max(radius * 0.22f, 3f));
         }
 
-        Glyphs.Time(this, at, radius * 1.15f, Palette.OnPanel);
+        Glyphs.Clock(this, at, radius * 1.15f, Palette.OnPanel);
     }
 
     private static float Padding(float paneHeight) => Mathf.Max(paneHeight * 0.025f, 5f);
@@ -814,6 +834,18 @@ public partial class WorldView : Control
     /// </remarks>
     public static float InstrumentDepth(float paneHeight) =>
         (Padding(paneHeight) * 4f) + (BarHeight(paneHeight) * 2f);
+
+    /// <summary>
+    /// How far down a pane the gauges reach when a touchscreen has put them along the top.
+    /// </summary>
+    /// <remarks>
+    /// Measured rather than guessed, off the same two numbers the group is laid out from, so the
+    /// shared clock and the shared tally move down by exactly as much as the gauges take and no
+    /// more. On a phone that matters more than it does anywhere else: there is one screen, and
+    /// everything that wants the top of it wants the same two centimetres.
+    /// </remarks>
+    public static float TopInstrumentDepth(float paneHeight) =>
+        (Padding(paneHeight) * 2f) + (BarHeight(paneHeight) * 2.2f);
 
     /// <summary>Whose instruments this pane shows.</summary>
     /// <summary>
@@ -1354,19 +1386,30 @@ public partial class WorldView : Control
                 ? (float)planner.AimAt.X.ToDecimal() < 0f
                 : (float)mole.Facing.X.ToDecimal() < 0f;
 
+            // Everything the pose is made of comes from whichever of the two is being drawn. The
+            // position already did; the rest did not, and read off the real mole, which during
+            // planning has not moved, has not been snared and has not got its claws out yet. So a
+            // ghost walked off a cliff stood calmly in the air, and using the Power Claws changed
+            // nothing on screen at all, which was reported as the claws not working.
+            SteeredWalk? walk = acting ? planner.Walk : null;
+
             string pose = Moles.Pose(
                 aiming,
-                mole.IsSnared,
-                mole.IsAirborne,
+                walk?.IsSnared ?? mole.IsSnared,
+                walk?.IsFalling ?? mole.IsAirborne,
                 Moles.Underground(where, _stage.Ground),
-                mole.DiggingIsCheap,
+                walk?.DiggingIsCheap ?? mole.DiggingIsCheap,
                 Moles.Walking(mole.Velocity));
 
             int frame = aiming
                 ? Moles.AimFrame(planner.AimAt)
                 : Moles.Frame(pose, Beat(), left);
 
-            DrawMole(at, mole.Seat, mole.Pluck, acting, Owns(mole.Seat), pose, frame, left);
+            // The ghost's pluck rather than the mole's, for the same reason as the pose: a turn that
+            // walks into a trap or lands on its own clod has already cost this mole something, and
+            // the mole on the planning screen is the one that did it.
+            DrawMole(
+                at, mole.Seat, walk?.Pluck ?? mole.Pluck, acting, Owns(mole.Seat), pose, frame, left);
 
             // One bubble per platoon, not one per mole. A platoon has up to four of them and the
             // first version put the same picture over every one, which read as four moles all
@@ -2103,7 +2146,64 @@ public partial class WorldView : Control
             DrawPlanned(planner, use, seat);
         }
 
+        DrawGhostShots(planner, seat);
         DrawAim(planner);
+    }
+
+    /// <summary>
+    /// The turn's own shells, on their way and where they land.
+    /// </summary>
+    /// <remarks>
+    /// Firing while planning used to do nothing anybody could see. The action went into the plan and
+    /// the shell flew at resolution, so the one question a shot asks, which is where it goes, was
+    /// answered after the last moment anything could be done about it. The preview now flies it over
+    /// the ghost's own copy of the map, and this draws what that copy did.
+    ///
+    /// The ring is drawn where the shell actually landed and at the radius it actually reached, and
+    /// that is a different thing from the blast ring this file used to draw around a planted charge
+    /// and stopped drawing. That one advertised a radius before anything had happened, and was the
+    /// largest mark on the map for the smallest reason. This one is a result: a hole is going to be
+    /// there, at that size, and whether the mole is standing in it is the whole of the question.
+    ///
+    /// The crater itself is deliberately not drawn. It exists, in the ghost's terrain, and the ghost
+    /// walks and falls and pays for digging against it; putting it on screen would mean rendering
+    /// the scratch map instead of the real one, and a map that showed damage nobody else can see yet
+    /// would be a worse lie than an unshown hole.
+    /// </remarks>
+    private void DrawGhostShots(SeatPlanner planner, Color seat)
+    {
+        SteeredWalk? walk = planner.Walk;
+
+        if (walk is null)
+        {
+            return;
+        }
+
+        foreach (Detonation went in walk.Blasts)
+        {
+            float reach = (float)went.Radius.ToDecimal() * _scale;
+            Vector2 at = ToPixels(went.At);
+
+            DrawArc(at, reach, 0f, Mathf.Tau, 32, new Color(seat, PlannedShowing), Mathf.Max(reach * 0.06f, 2f));
+            DrawCircle(at, reach, new Color(seat, 0.12f));
+        }
+
+        foreach (Projectile shot in walk.Shots)
+        {
+            if (shot.HasDetonated)
+            {
+                continue;
+            }
+
+            Texture2D art = Art.Object(ShotArt(shot.Weapon));
+            float wide = art.GetWidth() / Art.MolePixelsPerMetre * _scale;
+            float tall = art.GetHeight() / Art.MolePixelsPerMetre * _scale;
+            Vector2 at = ToPixels(shot.Position);
+
+            DrawTextureRect(
+                art, new Rect2(at.X - (wide / 2f), at.Y - (tall / 2f), wide, tall), false,
+                NotYetThere);
+        }
     }
 
     /// <summary>
@@ -2189,6 +2289,17 @@ public partial class WorldView : Control
         if (heading.LengthSquared() == Fix64.Zero)
         {
             return;
+        }
+
+        // The plank, while it is still being pointed. Every other weapon is aimed at something and
+        // the arrow is the whole answer; the girder is aimed at a piece of ground four metres away
+        // that the arrow is three times too short to reach, so the one question laying one asks was
+        // unanswerable until it had been laid. It is the same drawing the booked one gets, at the
+        // same length and the same angle, which is the point: what the arrow is pointing at is a
+        // beam, so draw the beam.
+        if (planner.Aiming && planner.Aimed == WeaponId.Girder)
+        {
+            DrawPlannedGirder(planner.PlannedPosition, heading);
         }
 
         ChargeArrow(

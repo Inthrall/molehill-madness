@@ -819,4 +819,109 @@ public sealed class MoleMotionTests
             Falls.DamageFor(MatchSettings.TerminalSpeed),
             Is.EqualTo(MatchSettings.WorstFallDamage));
     }
+
+    // ---- What a mole may come to rest on --------------------------------------------
+
+    /// <summary>
+    /// Whether the mole is standing on nothing at all, which it never may be.
+    /// </summary>
+    /// <remarks>
+    /// The invariant both tests below are really about. Being off the ground is fine and being in
+    /// dirt is fine; what is not fine is the pair "not falling" and "nothing underneath", because
+    /// that is a mole hanging in mid-air, and it is what a player sees as a mole stuck in the
+    /// ceiling. Asked every tick rather than at the end, since the grounded solver drops such a
+    /// mole on the next tick and the fault would otherwise never be visible to a test even though
+    /// it is plainly visible on screen.
+    /// </remarks>
+    private static bool StandingOnNothing(Mole mole, TerrainGrid grid) =>
+        !mole.IsAirborne
+        && !TerrainQuery.IsBlocked(grid, mole.Position, MatchSettings.Radius)
+        && !TerrainQuery.IsSupported(grid, mole.Position, MatchSettings.Radius, mole.AcceptsInput)
+        && !TerrainQuery.TrySnapDown(
+                grid, mole.Position, MatchSettings.Radius, MatchSettings.GroundSnap, out Vec2 _);
+
+    /// <summary>
+    /// A mole blasted into a roof comes back down rather than hanging from it.
+    /// </summary>
+    /// <remarks>
+    /// Reported from play: moles landing in the ceiling after an explosion. A collision asked for
+    /// the escape direction at the mole's own position, which is by construction clear of
+    /// everything, so it always answered "up" and every impact was read as a landing on flat
+    /// ground. Going up into a roof therefore measured a negative closing speed, which is under the
+    /// settle speed, so the mole came to rest against the roof and hung there.
+    ///
+    /// Blasted rather than jumped on purpose. A jump into a ceiling is meant to dig into it and
+    /// <see cref="AJumpWithNoHeadroomStillCarriesIntoTheCeiling"/> holds on to that; being hit ends
+    /// a mole's input, so there is nothing left to dig with and gravity is the only thing acting.
+    /// </remarks>
+    [Test]
+    public void AMoleBlastedIntoARoofDoesNotHangFromIt()
+    {
+        TerrainGrid grid = FlatGround();
+
+        // A roof well clear of the mole's head, in the one material nothing can dig through.
+        grid.FillRectangle(0, SurfaceCell - 60, WidthCells, 20, Material.Bedrock);
+
+        Mole mole = StandingOnSurface(grid, 100);
+
+        mole.TakeDamage(1);
+        mole.AddImpulse(-Vec2.UnitY * Fix64.FromInt(20));
+
+        bool hung = false;
+
+        for (int tick = 0; tick < MatchSettings.TicksPerRound; tick++)
+        {
+            MoleMotion.Step(mole, grid, route: null);
+            hung |= StandingOnNothing(mole, grid);
+        }
+
+        Assert.That(hung, Is.False, "the mole came to rest against the roof");
+    }
+
+    /// <summary>
+    /// And nothing comes to rest against a face too steep to stand on.
+    /// </summary>
+    /// <remarks>
+    /// The other half of the same report, which asked for moles to fall, or to slide on steep
+    /// surfaces. Settling used to be decided by closing speed alone, and measured against an escape
+    /// that always pointed up the closing speed on a wall is nearly nothing however fast the mole
+    /// is going, so a mole that drifted into a cliff stopped against it in mid-air.
+    ///
+    /// The sliding costs nothing extra: a contact that cannot be stood on reflects instead of
+    /// settling, and a reflection off a near-vertical face keeps almost all of the fall.
+    /// </remarks>
+    [Test]
+    public void AMoleDoesNotStopAgainstACliffFace()
+    {
+        TerrainGrid grid = new TerrainGrid(WidthCells, HeightCells);
+        grid.FillRectangle(0, HeightCells - 8, WidthCells, 8, Material.Bedrock);
+
+        // A wall down the right of the map, open air to the left of it, and the floor a long
+        // way below.
+        grid.FillRectangle(400, 0, WidthCells - 400, HeightCells - 8, Material.Bedrock);
+
+        Vec2 start = new Vec2(
+            WorldScale.ToCentreMetres(392), WorldScale.ToCentreMetres(SurfaceCell));
+        Mole mole = new Mole(seat: 0, index: 0, start);
+        mole.BeginRound();
+
+        // Pushed at the wall, which is what air control or a shove leaves behind.
+        mole.AddImpulse(new Vec2(Fix64.FromInt(3), Fix64.Zero));
+
+        bool hung = false;
+
+        for (int tick = 0; tick < MatchSettings.TicksPerRound; tick++)
+        {
+            MoleMotion.Step(mole, grid, route: null);
+            hung |= StandingOnNothing(mole, grid);
+        }
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(hung, Is.False, "the mole came to rest against the cliff face");
+            Assert.That(
+                mole.Position.Y, Is.GreaterThan(start.Y + Fix64.FromInt(10)),
+                "it never made it down the cliff");
+        });
+    }
 }

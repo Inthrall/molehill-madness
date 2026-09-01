@@ -79,6 +79,30 @@ namespace MoleSim.Tests;
 /// or is thrown hard enough to be charged for it. The one that moved is the long match, where the
 /// lava trampolines moles into the air from round eight onwards and they come back down. That is a
 /// fair description of when the rule bites in play as well.
+///
+/// Updated a ninth time when collisions started measuring the surface they hit. A body counts as
+/// blocked as soon as anything solid is within its radius, so the position it reaches is always
+/// clear of everything, and the escape direction was being asked for there: with nothing to escape
+/// from it answered "up", every time. So every impact in the game was told it had landed on flat
+/// ground. Three things came out of that and all three were reported from play. A mole blasted into
+/// a roof measured a negative closing speed, which is under the settle speed, so it stopped dead
+/// and hung from the ceiling. A mole thrown into a wall measured zero and stuck to that. And a
+/// bounce shoves the body a cell along the escape, so bounces under an overhang walked the mole up
+/// into it until it was inside the dirt, where the grounded solver holds it up for ever.
+///
+/// Four rules moved together, because separating them would have left the game in a worse state
+/// than either end: the escape is measured at the contact; a body only comes to rest on something
+/// it could stand on, so a face too steep to stand on deflects it and it carries on down; bracing
+/// in a chimney asks whether the mole is in any state to be pushing against the walls, since being
+/// hit is exactly when it is not; and a dig into a surface asks for the nearest solid cell rather
+/// than sampling a body radius along the escape, which reads as air the moment a pocket has been
+/// carved. That last one was masked: the ceiling-jump tests were passing on the strength of the
+/// escape bug settling the mole into the roof and handing it to the walking solver.
+///
+/// Measured over sixty scripted matches, ten thousand mole-rounds: moles left standing on nothing
+/// at all went from 24 to none, and moles ending a round embedded in dirt fell by 38 per cent.
+/// Moles braced in a chimney went up, from 424 to 603, and that is the jump-and-dig-upward
+/// manoeuvre working rather than a regression: it is what the fourth change restored.
 /// </remarks>
 [TestFixture]
 public sealed class CorpusTests
@@ -207,19 +231,19 @@ public sealed class CorpusTests
     [Test]
     public void TwoPlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 2, seed: 1UL, rounds: 12), Is.EqualTo(0x4359327A4B678C94UL));
+        Assert.That(Play(playerCount: 2, seed: 1UL, rounds: 12), Is.EqualTo(0x64E62AFED77DDEA8UL));
     }
 
     [Test]
     public void ThreePlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 3, seed: 20260826UL, rounds: 14), Is.EqualTo(0x7DC2AEBB26E2BEA1UL));
+        Assert.That(Play(playerCount: 3, seed: 20260826UL, rounds: 14), Is.EqualTo(0x9FB17EAD50F92EE7UL));
     }
 
     [Test]
     public void FourPlayerMatchIsStable()
     {
-        Assert.That(Play(playerCount: 4, seed: 4242UL, rounds: 16), Is.EqualTo(0x60C07CB85FDC23EFUL));
+        Assert.That(Play(playerCount: 4, seed: 4242UL, rounds: 16), Is.EqualTo(0xBA1355E2581EFA9CUL));
     }
 
     [Test]
@@ -227,7 +251,7 @@ public sealed class CorpusTests
     {
         // Past Boiling Point, so the rise, the closing sides and the three-strike rule are
         // all in the hash rather than only the early game.
-        Assert.That(Play(playerCount: 4, seed: 777UL, rounds: 26), Is.EqualTo(0x3902AEB14E384F93UL));
+        Assert.That(Play(playerCount: 4, seed: 777UL, rounds: 26), Is.EqualTo(0x602B5ABD29AE9F2DUL));
     }
 
     [Test]
@@ -235,7 +259,7 @@ public sealed class CorpusTests
     {
         Assert.That(
             Play(playerCount: 2, seed: 31337UL, rounds: 24, widthCells: 600, heightCells: 320),
-            Is.EqualTo(0xA1D5B522777DB4F1UL));
+            Is.EqualTo(0xF2274A673890C795UL));
     }
 
     [Test]

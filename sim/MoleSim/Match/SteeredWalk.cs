@@ -55,11 +55,44 @@ namespace MoleSim.Match
 
         private readonly int _round;
 
-        private SteeredWalk(Mole ghost, TerrainGrid scratch, int round)
+        /// <summary>
+        /// The ghost's own shells, in the air over its own copy of the world.
+        /// </summary>
+        /// <remarks>
+        /// Asked for from play: firing while planning did nothing at all until the round ran, so
+        /// the one thing a player wants to know about a shot, which is where it goes, was the one
+        /// thing they could not find out until it was too late to change it. The whole flight is
+        /// run here, on the scratch terrain, and it craters that terrain and hurts this mole exactly
+        /// as it will hurt it in the round. Blowing yourself up ends your turn, and now it ends it
+        /// on the planning screen too, where there is still a reset token to spend on it.
+        /// </remarks>
+        private readonly List<Projectile> _shots = new List<Projectile>();
+
+        /// <summary>Where those shells went off, for the planning screen to mark.</summary>
+        private readonly List<Detonation> _blasts = new List<Detonation>();
+
+        /// <summary>
+        /// Everybody a ghost shell can hit, which is the ghost and nobody else.
+        /// </summary>
+        /// <remarks>
+        /// The preview is the round with nobody else in it, and that rule is worth more here than
+        /// anywhere. Every other mole on the map moves during the round, so a shell that stopped
+        /// against one standing where it happens to be standing now would draw a blast at a place
+        /// the round has no reason to put one, which is worse than drawing nothing. What the ghost
+        /// does to itself is the half that is honest, and it is also the half that ends the turn.
+        /// </remarks>
+        private readonly Mole[] _targets;
+
+        /// <summary>Which way the wind is blowing, since one weapon in the arsenal rides it.</summary>
+        private readonly Fix64 _wind;
+
+        private SteeredWalk(Mole ghost, TerrainGrid scratch, int round, Fix64 wind)
         {
             _ghost = ghost;
             _scratch = scratch;
             _round = round;
+            _wind = wind;
+            _targets = new[] { ghost };
             _startingStamina = ghost.Stamina;
             _start = ghost.Position;
             _path = new List<Vec2>(MatchSettings.TicksPerRound + 1) { ghost.Position };
@@ -78,9 +111,13 @@ namespace MoleSim.Match
         /// Which round this turn is, since whether a placement is live depends on it. A trap arms a
         /// round after it is laid, so getting this wrong would either hide a live trap or invent one.
         /// </param>
+        /// <param name="wind">
+        /// What the wind is doing, so a previewed Beetle Launcher is pushed by it exactly as the
+        /// real one will be. Omit for a still day, which is what most tests want.
+        /// </param>
         public static SteeredWalk From(
             Mole mole, TerrainGrid terrain,
-            IReadOnlyList<Placement>? placements = null, int round = 0)
+            IReadOnlyList<Placement>? placements = null, int round = 0, Fix64 wind = default)
         {
             // A stand-in carrying the real mole's state, so the walk accounts for a stamina
             // budget already shortened by the stalemate nudge, and for a snare or cheap digging.
@@ -94,7 +131,7 @@ namespace MoleSim.Match
                 IsSnared = mole.IsSnared,
             };
 
-            SteeredWalk walk = new SteeredWalk(ghost, terrain.Clone(), round);
+            SteeredWalk walk = new SteeredWalk(ghost, terrain.Clone(), round, wind);
 
             if (placements is not null)
             {
@@ -170,6 +207,18 @@ namespace MoleSim.Match
         public bool IsSnared => _ghost.IsSnared;
 
         /// <summary>
+        /// Whether the ghost has its claws out, so the planning screen can draw them.
+        /// </summary>
+        /// <remarks>
+        /// The Power Claws are the one weapon whose entire effect is a number on a gauge, and the
+        /// mole has a pose for wearing them precisely so that using them is visible. The pose was
+        /// being read off the real mole, which does not get its claws until the round resolves, so
+        /// on the planning screen the claws still changed nothing anybody could see: the gauge
+        /// slowed down and the mole stood there unchanged.
+        /// </remarks>
+        public bool DiggingIsCheap => _ghost.DiggingIsCheap;
+
+        /// <summary>
         /// Whether something live is acting on the ghost where it stands.
         /// </summary>
         /// <remarks>
@@ -196,6 +245,35 @@ namespace MoleSim.Match
             }
         }
 
+        /// <summary>
+        /// Whether there is anything under the ghost, so that letting go of the stick leaves it
+        /// where it is rather than dropping it.
+        /// </summary>
+        /// <remarks>
+        /// The same three questions <see cref="MoleMotion"/> asks at the top of a grounded step, in
+        /// the same order, because the answer has to be the one the step would give. Standing in
+        /// dirt counts: a tunnel holds a mole up perfectly well. So does ground within the snap
+        /// distance, and that third question is the one that earns its place: without it a mole
+        /// loitering a few centimetres above a slope would be stepped on every tick nobody was
+        /// pushing, quietly eating the turn clock while the player thought.
+        /// </remarks>
+        private bool IsStandingOnSomething
+        {
+            get
+            {
+                if (TerrainQuery.IsBlocked(_scratch, _ghost.Position, MatchSettings.Radius)
+                    || TerrainQuery.IsSupported(
+                            _scratch, _ghost.Position, MatchSettings.Radius, _ghost.AcceptsInput))
+                {
+                    return true;
+                }
+
+                return TerrainQuery.TrySnapDown(
+                    _scratch, _ghost.Position, MatchSettings.Radius, MatchSettings.GroundSnap,
+                    out Vec2 _);
+            }
+        }
+
         /// <summary>Whether the mole has gone anywhere worth committing to.</summary>
         public bool HasMoved => Vec2.Distance(_start, _ghost.Position) > MatchSettings.Radius;
 
@@ -218,40 +296,55 @@ namespace MoleSim.Match
 
             bool pushing = direction.LengthSquared() != Fix64.Zero;
 
-            // A drill in progress runs whether or not anybody is pushing, and cannot be steered. It
-            // is not something the mole is choosing tick by tick, so like falling the ticks go by
-            // regardless: without this the preview stopped dead between pushes and the tunnel
-            // appeared in instalments as the player fidgeted with the stick.
+            // Standing still costs nothing, unless something is going on that a tick has to pass
+            // for. What counts as going on is one list, in one place, because two call sites read
+            // it: this, and the client deciding whether to spend a frame's worth of ticks at all.
+            if (!pushing && !SomethingIsHappening)
+            {
+                return;
+            }
+
+            // A drill cannot be steered. It is not something the mole is choosing tick by tick, so
+            // it gets the tick and none of the direction: without this the preview stopped dead
+            // between pushes and the tunnel appeared in instalments as the player fidgeted.
             if (_ghost.IsDrilling)
             {
                 Step(null);
                 return;
             }
 
-            // Standing on something live is not standing still. A vent throws whoever is on it every
-            // tick it can, so the ticks have to pass for the throw to happen at all.
-            if (!pushing && IsHazarded)
-            {
-                Step(null);
-                return;
-            }
-
-            if (_ghost.IsAirborne)
-            {
-                // The push goes through while off the ground, so the preview steers a jump and digs
-                // into what it hits exactly as the round will. Handed nothing when nobody is
-                // pushing, which is still a fall.
-                Step(pushing ? new[] { _ghost.Position + (direction.Normalised() * PushReach) } : null);
-                return;
-            }
-
-            if (!pushing)
-            {
-                return;
-            }
-
-            Step(new[] { _ghost.Position + (direction.Normalised() * PushReach) });
+            // The push goes through whether the mole is on the ground or off it, so the preview
+            // steers a jump and digs into what it hits exactly as the round will. Handed nothing
+            // when nobody is pushing, which is still a fall, still a shell in the air, and still a
+            // vent going off underfoot.
+            Step(pushing ? new[] { _ghost.Position + (direction.Normalised() * PushReach) } : null);
         }
+
+        /// <summary>
+        /// Whether something is happening to this turn that a tick has to pass for, whether or not
+        /// anybody is pushing.
+        /// </summary>
+        /// <remarks>
+        /// Falling, drilling, standing on something live, a shell in the air, and standing on
+        /// nothing at all. One list rather than a condition at each call site, because there are two
+        /// of them and they have to agree: the client decides whether to spend a frame's worth of
+        /// ticks, and <see cref="Advance"/> decides whether a tick with nothing held does anything.
+        /// A case added to one and not the other is a preview that freezes on exactly the case that
+        /// was added, which is how a drill that surfaced came to leave the ghost hanging in the sky.
+        ///
+        /// The last of them is the one the airborne flag cannot answer. That flag is raised inside
+        /// the step, and a drill that surfaces ends with it still down: the torpedo deliberately
+        /// leaves the mole where it stopped and lets the next grounded step decide whether there is
+        /// a floor under it. With nobody pushing there was no next step. The round steps every mole
+        /// every tick and dropped it, which is the worst shape a preview bug takes: the plan
+        /// disagreed with the round, and only the round was right.
+        /// </remarks>
+        public bool SomethingIsHappening =>
+            _ghost.IsAirborne
+            || _ghost.IsDrilling
+            || HasAShotInTheAir
+            || IsHazarded
+            || !IsStandingOnSomething;
 
         /// <summary>
         /// Hops the ghost, exactly as resolution will hop the mole.
@@ -310,6 +403,223 @@ namespace MoleSim.Match
             _ghost.IsAirborne = false;
             _ghost.Velocity = Vec2.Zero;
             return true;
+        }
+
+        /// <summary>
+        /// Fires the ghost's weapon into the ghost's own world, exactly as resolution will.
+        /// </summary>
+        /// <remarks>
+        /// The shell is launched here and not resolved here. It flies a tick at a time along with
+        /// the walk, because the plan's own clock is what decides where the mole is standing when
+        /// its own shell arrives: a mole that fires at its feet and runs is somewhere else by the
+        /// time the thing goes off, and a mole that fires and stands still is not. Resolving the
+        /// whole flight inside the firing tick would answer that question with wherever the mole
+        /// was when the button went down, which is the one answer that is never right.
+        ///
+        /// Only the kinds that go somewhere. A swing cannot reach the mole swinging it, and the
+        /// tools have their own previews a few lines up.
+        ///
+        /// Returns whether anything was launched, so a caller can tell a shot from a no-op.
+        /// </remarks>
+        public bool Fire(PlanAction use)
+        {
+            WeaponSpec spec = WeaponTable.Of(use.Weapon);
+            Vec2 aim = use.AimDirection();
+
+            // A mole in the air fires relative to its tumble, which is the rule the round uses and
+            // the reason a preview has to ask rather than assume the aim is the heading.
+            if (_ghost.IsAirborne)
+            {
+                aim = aim.RotatedBy(_ghost.Facing);
+            }
+
+            switch (spec.Kind)
+            {
+                case WeaponKind.Thrown:
+                    return Launch(use, spec, aim);
+
+                case WeaponKind.FromTheSky:
+                    return CallItIn(use, spec, aim);
+
+                case WeaponKind.Planted:
+                    // Dropped where it stands, with its fuse already burning.
+                    _shots.Add(new Projectile(
+                        use.Weapon, _ghost.Seat, _ghost.Index, _ghost.Position, Vec2.Zero));
+                    return true;
+
+                case WeaponKind.Seismic:
+                    Frack(spec);
+                    return true;
+
+                default:
+                    return false;
+            }
+        }
+
+        private bool Launch(PlanAction use, WeaponSpec spec, Vec2 aim)
+        {
+            if (aim.LengthSquared() == Fix64.Zero)
+            {
+                return false;
+            }
+
+            // Clear of the body, so a shell cannot go off inside the mole that fired it on the way
+            // out. The same offset the round uses, because a shot that starts somewhere else lands
+            // somewhere else.
+            Vec2 muzzle = _ghost.Position
+                + (aim * (MatchSettings.Radius + Projectile.Radius + WorldScale.CellSize));
+
+            _shots.Add(new Projectile(
+                use.Weapon, _ghost.Seat, _ghost.Index, muzzle,
+                aim * (spec.LaunchSpeed * use.PowerFraction())));
+
+            return true;
+        }
+
+        private bool CallItIn(PlanAction use, WeaponSpec spec, Vec2 aim)
+        {
+            if (aim.LengthSquared() == Fix64.Zero)
+            {
+                return false;
+            }
+
+            Vec2 target = _ghost.Position
+                + (aim * (MatchSettings.SkyTargetRange * use.PowerFraction()));
+
+            int count = spec.ClusterCount > 0 ? spec.ClusterCount : 1;
+
+            for (int index = 0; index < count; index++)
+            {
+                Fix64 offset = MatchSettings.SkySpread
+                    * Fix64.FromInt(index - ((count - 1) / 2));
+
+                _shots.Add(new Projectile(
+                    use.Weapon, _ghost.Seat, _ghost.Index,
+                    new Vec2(target.X + offset, target.Y - MatchSettings.SkyDropHeight),
+                    Vec2.Zero));
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// A shock through the soil at the ghost's own feet, which happens the moment it is asked
+        /// for rather than flying anywhere.
+        /// </summary>
+        /// <remarks>
+        /// Worth previewing precisely because it is the one weapon that reaches through dirt. A mole
+        /// standing on its own bore takes the whole of it, and finding that out while the round runs
+        /// is finding it out too late. The gusher throws whatever is over the bore straight up, and
+        /// over this bore there is only ever the mole that drilled it.
+        /// </remarks>
+        private void Frack(WeaponSpec spec)
+        {
+            Vec2 bore = _ghost.Position;
+
+            Blast.Detonate(
+                _scratch, _targets, bore, spec, crater: false,
+                bySeat: _ghost.Seat, byMoleIndex: _ghost.Index);
+
+            TerrainQuery.CollapseCavities(_scratch, bore, spec.BlastRadius);
+
+            _ghost.Velocity = Vec2.Zero;
+            _ghost.AddImpulse(-Vec2.UnitY * MatchSettings.GusherSpeed);
+
+            _blasts.Add(new Detonation(bore, spec.BlastRadius));
+        }
+
+        /// <summary>Whether any of the ghost's shells is still in the air.</summary>
+        /// <remarks>
+        /// Like a drill and like a vent, a shell in flight is something happening to the turn rather
+        /// than something the player is choosing tick by tick, so the ticks have to go by for it to
+        /// land at all. Without this, letting go of the stick froze a clod in mid-air.
+        /// </remarks>
+        public bool HasAShotInTheAir
+        {
+            get
+            {
+                foreach (Projectile shot in _shots)
+                {
+                    if (!shot.HasDetonated)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+        }
+
+        /// <summary>The ghost's shells, so the planning screen can draw them on their way.</summary>
+        public IReadOnlyList<Projectile> Shots => _shots;
+
+        /// <summary>Where they went off, so it can mark what the turn is about to do.</summary>
+        public IReadOnlyList<Detonation> Blasts => _blasts;
+
+        /// <summary>
+        /// Whether the turn is over because the mole was hit, by its own shot or by anything else.
+        /// </summary>
+        /// <remarks>
+        /// The design's one rule about damage is that taking any of it ends a mole's turn, and until
+        /// the preview fired anything there was nothing in it that could end a turn early except a
+        /// trap. Now the commonest way to lose a turn, which is standing too close to your own clod,
+        /// is visible while there is still a reset token to spend on it.
+        /// </remarks>
+        public bool TurnIsOver => !_ghost.AcceptsInput;
+
+        /// <summary>
+        /// Advances the ghost's shells by one tick, and applies whatever goes off.
+        /// </summary>
+        /// <remarks>
+        /// Iterated by index because a cluster charge adds to the list as it splits, which is the
+        /// same reason the round iterates its own shots by index.
+        /// </remarks>
+        private void PumpShots()
+        {
+            for (int index = 0; index < _shots.Count; index++)
+            {
+                Projectile shot = _shots[index];
+
+                if (shot.HasDetonated)
+                {
+                    continue;
+                }
+
+                if (!ProjectileMotion.Step(shot, _scratch, _targets, _wind))
+                {
+                    continue;
+                }
+
+                WeaponSpec spec = WeaponTable.Of(shot.Weapon);
+
+                Blast.Detonate(
+                    _scratch, _targets, shot.Position, spec,
+                    bySeat: shot.OwnerSeat, byMoleIndex: shot.OwnerMole);
+
+                _blasts.Add(new Detonation(shot.Position, spec.BlastRadius));
+                SplitCluster(shot, spec);
+            }
+        }
+
+        /// <summary>Splits a cluster charge as it goes off, the way the round splits it.</summary>
+        private void SplitCluster(Projectile shot, WeaponSpec spec)
+        {
+            // Only the ones thrown from a mole split on the way down. Anything called in from the
+            // sky arrived as a group already.
+            if (spec.ClusterCount <= 0 || spec.Kind != WeaponKind.Thrown)
+            {
+                return;
+            }
+
+            for (int index = 0; index < spec.ClusterCount; index++)
+            {
+                Fix64 sideways = MatchSettings.ClusterSpread
+                    * Fix64.FromInt(index - ((spec.ClusterCount - 1) / 2));
+
+                _shots.Add(new Projectile(
+                    WeaponTable.AcornShard, shot.OwnerSeat, shot.OwnerMole, shot.Position,
+                    new Vec2(sideways, -MatchSettings.ClusterSpread)));
+            }
         }
 
         /// <summary>
@@ -393,6 +703,10 @@ namespace MoleSim.Match
 
             MoleMotion.Step(_ghost, _scratch, route);
             TakeTheFall();
+
+            // After the move, which is the order the round uses: everybody moves, and then the
+            // shells advance onto wherever they have got to.
+            PumpShots();
             CheckPlacements();
             _path.Add(_ghost.Position);
 

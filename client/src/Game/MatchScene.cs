@@ -3356,13 +3356,25 @@ public partial class MatchScene : Node2D
         // owns the bottom of the screen while it is up.
         _stage.GuideDepth = guide;
 
+        // What the panes have already taken along the top, so the shared clock and tally can sit
+        // clear of it. Two different measurements because the gauges are in two different places:
+        // along the bottom of a pane for a keyboard, and along the top for a thumb.
+        float topTaken = 6f;
+
+        if (splitting)
+        {
+            topTaken = WorldView.InstrumentDepth(panes[0].Rect.Size.Y) + 6f;
+        }
+        else if (Flags.WantsTouch())
+        {
+            topTaken = WorldView.TopInstrumentDepth(panes[0].Rect.Size.Y) + 6f;
+        }
+
         return new MatchHud.State
         {
             // Cleared past the top row of panes' own instruments, which the shared strip used to
             // sit on top of whenever a vertical seam ran down the middle of the screen.
-            TopClearance = splitting
-                ? WorldView.InstrumentDepth(panes[0].Rect.Size.Y) + 6f
-                : 6f,
+            TopClearance = topTaken,
             ClockLeft = _beat == Beat.Planning ? Mathf.Max(_clock, 0f) : -1f,
             ClockLength = PlanningSeconds,
             Standing = StandingPerSeat(),

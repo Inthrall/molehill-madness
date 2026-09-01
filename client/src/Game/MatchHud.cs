@@ -291,9 +291,14 @@ public partial class MatchHud : Control
         }
 
         float radius = Mathf.Clamp(Mathf.Min(viewport.X, viewport.Y) * 0.05f, 20f, 46f);
+        // Below whatever the pane has put along the top, which on a keyboard is nothing and leaves
+        // this exactly where it was, and on a phone is the turn gauges. Two round dials one over
+        // the other would be unreadable whatever they were counting, which is also why they no
+        // longer wear the same glyph: the hourglass is the table's planning clock and the clock
+        // face is one mole's eight seconds of walking.
         Vector2 at = _state.Split
             ? viewport / 2f
-            : new Vector2(viewport.X / 2f, radius + 14f);
+            : new Vector2(viewport.X / 2f, _state.TopClearance + radius + 8f);
 
         float left = Mathf.Clamp(_state.ClockLeft / _state.ClockLength, 0f, 1f);
         bool pressing = _state.ClockLeft <= 5f;
@@ -310,5 +315,3 @@ public partial class MatchHud : Control
             pressing ? Palette.Damage : new Color(Palette.OnPanel, 0.75f));
     }
 }
-
-    /// <summary>Who took the flowerbed, as their colour filling the centre.</summary>}

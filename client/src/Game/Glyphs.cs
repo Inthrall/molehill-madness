@@ -230,6 +230,33 @@ public static class Glyphs
             at + new Vector2(unit * 0.75f, unit * 0.85f), ink, line);
     }
 
+    /// <summary>
+    /// A clock face. How much of the turn's eight seconds of walking is left.
+    /// </summary>
+    /// <remarks>
+    /// A second time glyph, because there are two clocks on screen and they count different things.
+    /// The hourglass belongs to the table: it is the planning clock, shared, and it runs down while
+    /// everybody thinks. This one belongs to one mole and one turn, and it is spent by walking
+    /// rather than by the wall. Reported from play as two identical instruments disagreeing with
+    /// each other, which is exactly what they looked like.
+    ///
+    /// Hands rather than a dial, because the ring around it is already the dial and a second one
+    /// inside it would read as a fault. Set at ten past two, which is where every drawn clock in
+    /// the world is set, so that it reads as a clock at any size.
+    /// </remarks>
+    public static void Clock(CanvasItem into, Vector2 at, float size, Color ink)
+    {
+        float unit = size / 2f;
+        float line = size * Stroke;
+
+        into.DrawArc(at, unit * 0.82f, 0f, Mathf.Tau, 24, ink, line);
+
+        // The long hand to ten past, the short hand to two, both from the middle.
+        into.DrawLine(at, at + new Vector2(unit * 0.52f, -unit * 0.3f), ink, line);
+        into.DrawLine(at, at + new Vector2(unit * 0.2f, -unit * 0.55f), ink, line);
+        into.DrawCircle(at, line * 0.9f, ink);
+    }
+
     /// <summary>A puff of breath. Stamina, which is the same thing as digging money.</summary>
     public static void Puff(CanvasItem into, Vector2 at, float size, Color ink)
     {

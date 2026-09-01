@@ -349,6 +349,51 @@ public sealed class SteeredWalkTests
         Assert.That(walk.Position.Y, Is.EqualTo(startY), "the drill was steered off its line");
     }
 
+    /// <summary>
+    /// A drill that surfaces leaves the ghost in the air, and the air is where gravity lives.
+    /// </summary>
+    /// <remarks>
+    /// Reported from play: drill up out of the ground and the mole hangs there. The drill
+    /// deliberately leaves the mole where it stopped and lets the next tick's grounded solver decide
+    /// whether there is a floor under it, and the preview never asked. Standing still costs no time
+    /// and so skips the step entirely, and the step is the only thing that ever sets a mole falling.
+    ///
+    /// Nothing was wrong at resolution, which is the worst shape this class of bug takes: the round
+    /// steps every mole every tick and dropped it, while the plan the player watched did not.
+    /// </remarks>
+    [Test]
+    public void AGhostThatDrillsIntoTheSkyFallsBackDown()
+    {
+        MoleMatch match = NewMatch();
+        SteeredWalk walk = SteeredWalk.From(FirstActor(match), match.Terrain);
+        Fix64 surface = walk.Position.Y;
+
+        walk.Drill(-Vec2.UnitY, byte.MaxValue);
+
+        // Nothing held, which is what a thumb off the stick hands over. The drill runs anyway, and
+        // the height is read the tick it stops rather than a fixed number of ticks later: with the
+        // fall working the mole is most of the way back down again by then, and a test that sampled
+        // late measured the ground twice and called it a hover.
+        for (int tick = 0; tick < MatchSettings.TicksPerRound && walk.IsDrilling; tick++)
+        {
+            walk.Advance(Vec2.Zero);
+        }
+
+        Fix64 apex = walk.Position.Y;
+
+        Push(walk, Vec2.Zero, MatchSettings.TicksPerSecond * 2);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                apex, Is.LessThan(surface - Fix64.FromInt(8)),
+                "the drill did not reach the sky, so this proves nothing");
+            Assert.That(
+                walk.Position.Y, Is.GreaterThan(apex),
+                "the ghost hung in the air where the round would have dropped it");
+        });
+    }
+
     // ---- The other movement tools ---------------------------------------------------
 
     /// <summary>
@@ -424,6 +469,108 @@ public sealed class SteeredWalkTests
         Assert.That(
             walk.Position.Y, Is.LessThanOrEqualTo(floor),
             "the mole sank through a bag that should have been under its feet");
+    }
+
+    // ---- The turn's own shot --------------------------------------------------------
+
+    /// <summary>
+    /// A shell fired while planning flies over the ghost's own world and goes off in it.
+    /// </summary>
+    /// <remarks>
+    /// The complaint, exactly: firing in ghost mode did nothing. The action went into the plan and
+    /// the shell flew at resolution, so the one question a shot asks, which is where it lands, was
+    /// answered after the last moment anything could be done about it.
+    ///
+    /// Pushed with nothing held, because that is what a thumb off the stick hands over and a shell
+    /// in the air is not something the player is choosing tick by tick. Before this, letting go left
+    /// a clod hanging in mid-air.
+    /// </remarks>
+    [Test]
+    public void AGhostShellFliesAndGoesOff()
+    {
+        MoleMatch match = NewMatch();
+        SteeredWalk walk = SteeredWalk.From(FirstActor(match), match.Terrain);
+
+        bool fired = walk.Fire(PlanAction.Fire(
+            0, new Vec2(Fix64.One, -Fix64.One), byte.MaxValue, WeaponId.ClodLobber));
+
+        Assert.That(fired, Is.True, "nothing left the muzzle");
+        Assert.That(walk.HasAShotInTheAir, Is.True, "the shell was not in the air");
+
+        Vec2 muzzle = walk.Shots[0].Position;
+
+        Push(walk, Vec2.Zero, MatchSettings.TicksPerSecond * 5);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(walk.Blasts, Is.Not.Empty, "the shell never went off");
+            Assert.That(
+                Vec2.Distance(walk.Blasts[0].At, muzzle),
+                Is.GreaterThan(MatchSettings.Radius * Fix64.FromInt(4)),
+                "it went off where it was thrown from, so it never travelled");
+        });
+    }
+
+    /// <summary>
+    /// And blowing yourself up ends the turn on the planning screen, where it can still be undone.
+    /// </summary>
+    /// <remarks>
+    /// The other half of what was asked for. Taking any damage ends a mole's turn, which is the
+    /// design's one rule about damage, and the commonest way to lose a turn is standing too close to
+    /// your own shot. Until the preview fired anything there was nothing in it that could end a turn
+    /// early except walking onto a trap, so the most expensive mistake in the game was also the one
+    /// the planning screen said nothing about.
+    ///
+    /// Fracking because it is unarguable: a seismic shock reaches through dirt and goes off at the
+    /// mole's own feet, so there is no aim to get wrong and no flight to wait for.
+    /// </remarks>
+    [Test]
+    public void BlowingYourselfUpEndsTheTurnWhileItIsStillBeingPlanned()
+    {
+        MoleMatch match = NewMatch();
+        SteeredWalk walk = SteeredWalk.From(FirstActor(match), match.Terrain);
+        int pluck = walk.Pluck;
+
+        Assert.That(walk.TurnIsOver, Is.False, "the turn was over before it started");
+
+        walk.Fire(PlanAction.Fire(0, Vec2.UnitX, byte.MaxValue, WeaponId.Fracking));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(walk.Pluck, Is.LessThan(pluck), "standing on your own bore cost nothing");
+            Assert.That(walk.TurnIsOver, Is.True, "being hit did not end the turn");
+            Assert.That(walk.Blasts, Is.Not.Empty, "nothing was marked for the screen to draw");
+        });
+    }
+
+    /// <summary>
+    /// A shell that goes off leaves its hole in the world the ghost is walking in.
+    /// </summary>
+    /// <remarks>
+    /// The preview walks a clone of the terrain precisely so that what a turn does to the map is
+    /// part of what the turn costs. A sandbag dropped this turn is there to stand on; a crater blown
+    /// this turn is there to fall into, and the gauges are honest about the digging either way.
+    /// </remarks>
+    [Test]
+    public void AGhostShellLeavesItsCraterInThePreviewsOwnWorld()
+    {
+        MoleMatch match = NewMatch();
+        SteeredWalk walk = SteeredWalk.From(FirstActor(match), match.Terrain);
+
+        // Straight down at the ground a little ahead, which is a hole to walk into rather than a
+        // hole to stand in.
+        walk.Fire(PlanAction.Fire(
+            0, new Vec2(Fix64.One, Fix64.One), byte.MaxValue, WeaponId.ClodLobber));
+
+        Push(walk, Vec2.Zero, MatchSettings.TicksPerSecond * 5);
+
+        Assert.That(walk.Blasts, Is.Not.Empty, "the shell never went off, so this proves nothing");
+
+        Vec2 hole = walk.Blasts[0].At;
+
+        Assert.That(
+            TerrainQuery.IsBlocked(match.Terrain, hole, MatchSettings.Radius), Is.True,
+            "the real map was cratered, and only the ghost's copy should have been");
     }
 
     // ---- Hazards in the preview -----------------------------------------------------
