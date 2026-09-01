@@ -2,21 +2,31 @@ using Godot;
 using Molehill.Online;
 
 /// <summary>
-/// The lobby: where the match is being played, how many platoons, and a button to start.
+/// The lobby: play, who with, how many platoons, and how fast the clock runs.
 /// </summary>
 /// <remarks>
-/// The design's couch model is that whoever opens the lobby picks the player count up front, two,
-/// three or four, with four the default and a hard ceiling rather than a first step. That is still
-/// the spine of this screen; online adds one row above it.
+/// One question per row, read down the screen, and every row after the first only appears when the
+/// row above it has left something to ask. Play stays in its corner, away from all of them, because
+/// it is the button pressed at the end of every visit here and a thumb reaching for the same place
+/// every time is worth more than putting it at the head of the sentence.
 ///
-/// The row is not "offline versus online", which is a word about plumbing. It is all of us round one
-/// screen, us in different places with me opening the lobby, or me joining somebody else's, and
-/// those are three genuinely different games rather than a setting. A joiner does not pick a player
-/// count or a pace, because the host already did and the code is the only thing they contribute.
+/// The top row is not "offline versus online", which is a word about plumbing. It is whether the
+/// other three are people you know or people you do not, and that is the one distinction here that
+/// changes the kind of match rather than the arrangements for it. It used to be four panels, with
+/// the couch, hosting and joining side by side as though they were three different games; they are
+/// one game with the other players in three different places, so they are three modes under one
+/// venue now. Meeting strangers keeps a panel of its own because it is the only one that needs an
+/// account, the only one an age band can refuse, and the only one where the count is not a choice.
 ///
-/// Wordless like the rest of it. The count is shown as that many platoon-coloured moles rather than
-/// as a numeral, because the design spends its one numeral on damage, and a row of moles says "this
-/// many of you" more directly than a digit would anyway.
+/// A joiner is asked nothing below the mode, because the host already answered all of it and the
+/// code is the only thing a joiner contributes.
+///
+/// Nearly wordless, like the rest of it. The count is shown as that many platoon-coloured moles
+/// rather than as a numeral, because the design spends its one numeral on damage, and a row of moles
+/// says "this many of you" more directly than a digit would. The words that survive are the ones
+/// buying something a picture cannot: which venue, which mode, which pace. The two corner buttons
+/// lost theirs, since a cog and a heart are settled enough and a wrong guess there costs a press
+/// rather than a match.
 /// </remarks>
 public partial class MenuScene : Control
 {
@@ -35,10 +45,30 @@ public partial class MenuScene : Control
     private MatchPace _pace = MatchPace.Live;
 
     private readonly Rect2[] _choices = new Rect2[MatchSetup.MostPlayers - MatchSetup.FewestPlayers + 1];
-    private readonly Rect2[] _tables = new Rect2[4];
+
+    /// <summary>The two venues on the top row: people you know, and people you do not.</summary>
+    private readonly Rect2[] _venues = new Rect2[2];
+
+    /// <summary>
+    /// The three ways to play with people you know, on the row under the venue.
+    /// </summary>
+    /// <remarks>
+    /// Local is one of these rather than a venue of its own, which is the shape the menu was asked
+    /// for and is also the honest grouping: all three are a match with people you already know, and
+    /// what they differ in is only where those people are sitting. Meeting strangers is the one that
+    /// is genuinely a different kind of match, and it is the one that keeps a panel of its own.
+    /// </remarks>
+    private readonly Rect2[] _modes = new Rect2[3];
+
     private readonly Rect2[] _paces = new Rect2[2];
     private Rect2 _resume;
     private bool _canResume;
+
+    /// <summary>
+    /// Which of the three friendly modes was last picked, so coming back to Friends lands where it
+    /// was left rather than resetting to the couch every time the venue is touched.
+    /// </summary>
+    private MatchSetup.Table _friends = MatchSetup.Table.Couch;
 
     private Vector2 _play;
     private float _button;
@@ -247,12 +277,30 @@ public partial class MenuScene : Control
             return;
         }
 
-        for (int index = 0; index < _tables.Length; index++)
+        // The venue first, then the mode under it. Pressing Friends puts the player back on
+        // whichever of the three they were last on rather than on the couch, so touching the venue
+        // to see what is under it does not quietly change the match they had set up.
+        if (_venues[0].HasPoint(at))
         {
-            if (_tables[index].HasPoint(at))
+            Sit(_friends);
+            return;
+        }
+
+        if (_venues[1].HasPoint(at))
+        {
+            Sit(MatchSetup.Table.Strangers);
+            return;
+        }
+
+        if (AmongFriends)
+        {
+            for (int index = 0; index < _modes.Length; index++)
             {
-                Sit((MatchSetup.Table)index);
-                return;
+                if (_modes[index].HasPoint(at))
+                {
+                    Sit((MatchSetup.Table)index);
+                    return;
+                }
             }
         }
 
@@ -283,8 +331,12 @@ public partial class MenuScene : Control
     }
 
     /// <summary>Whether this table lets the player choose how many are playing.</summary>
-    /// <remarks>A joiner does not: the host already decided, and the lobby says so.</remarks>
-    private bool Picks() => _where != MatchSetup.Table.Joining;
+    /// <remarks>
+    /// A joiner does not: the host already decided, and the lobby says so. Nor does anybody meeting
+    /// strangers, where it is always four; see <see cref="Seats"/> for why.
+    /// </remarks>
+    private bool Picks() =>
+        _where is MatchSetup.Table.Couch or MatchSetup.Table.Hosting;
 
     /// <summary>Whether this table also lets them choose the clock.</summary>
     /// <remarks>
@@ -313,9 +365,9 @@ public partial class MenuScene : Control
         MatchSetup.Table next = _where;
 
         // At most one lap, so a build where nothing is allowed cannot spin here for ever.
-        for (int tried = 0; tried < _tables.Length; tried++)
+        for (int tried = 0; tried < Tables; tried++)
         {
-            next = (MatchSetup.Table)Mathf.PosMod((int)next + step, _tables.Length);
+            next = (MatchSetup.Table)Mathf.PosMod((int)next + step, Tables);
 
             if (Allows(next))
             {
@@ -325,6 +377,17 @@ public partial class MenuScene : Control
 
         return _where;
     }
+
+    /// <summary>
+    /// How many tables there are, which is not how many panels are on the top row.
+    /// </summary>
+    /// <remarks>
+    /// Up and down still walk all four in the order the enum declares them, which is the order they
+    /// appear in reading down the screen: local, host, join, online. The grouping into a venue and a
+    /// mode is a thing the eye does, and binding the keys to it would mean a keyboard player needing
+    /// two different keys to reach two options that look like a list.
+    /// </remarks>
+    private const int Tables = 4;
 
     private void Choose(int players)
     {
@@ -343,23 +406,45 @@ public partial class MenuScene : Control
         }
 
         _where = table;
+
+        if (table != MatchSetup.Table.Strangers)
+        {
+            _friends = table;
+        }
+
         QueueRedraw();
     }
 
+    /// <summary>Whether the venue on the top row is the friendly one.</summary>
+    private bool AmongFriends => _where != MatchSetup.Table.Strangers;
+
+    /// <summary>
+    /// How many seats the match actually asks for.
+    /// </summary>
+    /// <remarks>
+    /// Four whenever this device is meeting strangers, and the count row is not offered there at
+    /// all: a pool that has to fill before anybody plays is worse the more sizes it is split into,
+    /// and four is the design's default and its ceiling. The remembered count is left alone rather
+    /// than overwritten, so a player who set the couch to three and then went looking for a game
+    /// still finds three waiting when they come back.
+    /// </remarks>
+    private int Seats() =>
+        _where == MatchSetup.Table.Strangers ? MatchSetup.MostPlayers : _players;
+
     private void Start()
     {
-        MatchSetup.PlayerCount = _players;
+        MatchSetup.PlayerCount = Seats();
         MatchSetup.Where = _where;
         MatchSetup.Pace = _pace;
 
         switch (_where)
         {
             case MatchSetup.Table.Hosting:
-                Online.Host(_players, _pace, Flags.Window() ?? 0);
+                Online.Host(Seats(), _pace, Flags.Window() ?? 0);
                 break;
 
             case MatchSetup.Table.Strangers:
-                Online.Matchmake(_players, _pace);
+                Online.Matchmake(Seats(), _pace);
                 break;
 
             case MatchSetup.Table.Joining when Flags.Join() is string prefilled:
@@ -420,7 +505,7 @@ public partial class MenuScene : Control
         _button = Mathf.Clamp(Mathf.Min(viewport.X, viewport.Y) * 0.075f, 30f, 64f);
 
         DrawTitle(viewport);
-        DrawTables(viewport);
+        DrawVenues(viewport);
         DrawSecondRow(viewport);
         DrawPlay(viewport);
         DrawAside(viewport);
@@ -445,7 +530,7 @@ public partial class MenuScene : Control
         Vector2 sheet = art.GetSize();
 
         float top = viewport.Y * 0.05f;
-        float floor = TablesTop(viewport) - (_button * 0.5f);
+        float floor = VenuesTop(viewport) - (_button * 0.5f);
         float band = Mathf.Max(floor - top, 1f);
 
         float wide = Mathf.Min(viewport.X * 0.55f, band * sheet.X / sheet.Y);
@@ -497,28 +582,44 @@ public partial class MenuScene : Control
     /// off it, and the moment any of that was written out as its own fraction of the screen the
     /// rows started landing on top of each other whenever one of them changed height.
     /// </remarks>
-    private float TablesTop(Vector2 viewport) => viewport.Y * 0.44f;
+    /// <summary>Where the venue row sits, and how tall it is.</summary>
+    /// <remarks>
+    /// Everything under it is placed off these two, so the whole stack moves together. The modes,
+    /// the count and the paces each measure from the row above rather than from the top of the
+    /// screen, which is what lets rows come and go without leaving a gap the height of a row that
+    /// is not being drawn.
+    /// </remarks>
+    private float VenuesTop(Vector2 viewport) => viewport.Y * 0.44f;
 
-    private float TablesHeight() => _button * 1.4f;
+    private float VenuesHeight() => _button * 1.4f;
 
-    /// <summary>Here together, hosting, or joining.</summary>
-    private void DrawTables(Vector2 viewport)
+    /// <summary>
+    /// Who with: people you know, or people you do not.
+    /// </summary>
+    /// <remarks>
+    /// Two venues where there were four tables. Hosting, joining and the couch are all a match with
+    /// people you already know and differ only in where those people are sitting, so they moved
+    /// under one panel and the row that used to hold four now holds the one distinction that
+    /// actually changes the kind of match: whether the other three are friends or strangers.
+    /// </remarks>
+    private void DrawVenues(Vector2 viewport)
     {
-        float height = TablesHeight();
-        float width = _button * 2.1f;
+        float height = VenuesHeight();
+        float width = _button * 2.4f;
         float gap = _button * 0.42f;
-        float left = (viewport.X - ((width * _tables.Length) + (gap * (_tables.Length - 1)))) / 2f;
-        float top = TablesTop(viewport);
+        float left = (viewport.X - ((width * _venues.Length) + gap)) / 2f;
+        float top = VenuesTop(viewport);
 
-        for (int index = 0; index < _tables.Length; index++)
+        for (int index = 0; index < _venues.Length; index++)
         {
-            bool chosen = (int)_where == index;
-            bool allowed = Allows((MatchSetup.Table)index);
+            bool friendly = index == 0;
+            bool chosen = friendly == AmongFriends;
+            bool allowed = friendly || Allows(MatchSetup.Table.Strangers);
 
-            _tables[index] = new Rect2(left, top, width, height);
-            Panel(_tables[index], chosen);
+            _venues[index] = new Rect2(left, top, width, height);
+            Panel(_venues[index], chosen);
 
-            Vector2 middle = _tables[index].Position + (_tables[index].Size / 2f);
+            Vector2 middle = _venues[index].Position + (_venues[index].Size / 2f);
 
             // Dimmed rather than missing, the same way the dynamite button is when it is spent. An
             // option that vanishes reads as a layout that moved; one that is visibly there and
@@ -527,13 +628,57 @@ public partial class MenuScene : Control
                 ? (chosen ? Palette.OnPanel : new Color(Palette.OnPanel, 0.4f))
                 : new Color(Palette.OnPanel, 0.16f);
 
-            // The picture sits a little high in the panel now, to leave room for its name
-            // underneath. Four icons in a row asking where a match is played is four guesses
-            // otherwise: a couch, an aerial, two strangers and a grid of tiles are each a reasonable
-            // picture of their option and not one of them is unambiguous.
+            // The picture sits a little high in the panel, to leave room for its name underneath.
+            // Neither of these two is unambiguous on its own: a pair of moles and two distant hills
+            // are each a reasonable picture of their option and a word each settles it.
             Vector2 icon = middle - new Vector2(0f, height * 0.14f);
 
-            switch ((MatchSetup.Table)index)
+            if (friendly)
+            {
+                Glyphs.Friends(this, icon, height * 0.58f, ink);
+            }
+            else
+            {
+                Glyphs.Strangers(this, icon, height * 0.64f, ink);
+            }
+
+            Words.Under(
+                this, friendly ? "Friends" : "Online",
+                new Vector2(middle.X, _venues[index].Position.Y + (height * 0.62f)),
+                height * 0.2f, ink);
+
+            left += width + gap;
+        }
+    }
+
+    /// <summary>
+    /// Where the people you know are sitting: here, at your lobby, or at theirs.
+    /// </summary>
+    /// <remarks>
+    /// Only under Friends, because it is the only venue with a choice to make. Meeting strangers is
+    /// one thing, and the row that would ask about it would have one option in it.
+    /// </remarks>
+    private void DrawModes(Vector2 viewport)
+    {
+        float height = ModesHeight();
+        float width = _button * 2.1f;
+        float gap = _button * 0.42f;
+        float left = (viewport.X - ((width * _modes.Length) + (gap * (_modes.Length - 1)))) / 2f;
+        float top = ModesTop(viewport);
+
+        for (int index = 0; index < _modes.Length; index++)
+        {
+            MatchSetup.Table mode = (MatchSetup.Table)index;
+            bool chosen = _where == mode;
+
+            _modes[index] = new Rect2(left, top, width, height);
+            Panel(_modes[index], chosen);
+
+            Vector2 middle = _modes[index].Position + (_modes[index].Size / 2f);
+            Color ink = chosen ? Palette.OnPanel : new Color(Palette.OnPanel, 0.4f);
+            Vector2 icon = middle - new Vector2(0f, height * 0.14f);
+
+            switch (mode)
             {
                 case MatchSetup.Table.Couch:
                     Glyphs.Couch(this, icon, height * 0.6f, ink);
@@ -543,24 +688,24 @@ public partial class MenuScene : Control
                     Glyphs.Broadcast(this, icon, height * 0.6f, ink);
                     break;
 
-                case MatchSetup.Table.Strangers:
-                    Glyphs.Strangers(this, icon, height * 0.64f, ink);
-                    break;
-
                 default:
                     Glyphs.Tiles(this, icon, height * 0.7f, ink);
                     break;
             }
 
             Words.Under(
-                this, TableName((MatchSetup.Table)index),
-                new Vector2(middle.X, _tables[index].Position.Y + (height * 0.62f)),
+                this, TableName(mode),
+                new Vector2(middle.X, _modes[index].Position.Y + (height * 0.62f)),
                 height * 0.2f, ink);
 
             left += width + gap;
         }
-
     }
+
+    private float ModesTop(Vector2 viewport) =>
+        VenuesTop(viewport) + VenuesHeight() + (_button * 0.3f);
+
+    private float ModesHeight() => _button * 1.4f;
 
     /// <summary>
     /// Settings and credits, in the corner opposite the one that starts a match.
@@ -584,52 +729,68 @@ public partial class MenuScene : Control
         _settings = new Rect2(gear - (Vector2.One * button), Vector2.One * button * 2f);
         _credits = new Rect2(thanks - (Vector2.One * button), Vector2.One * button * 2f);
 
-        Aside(gear, button, "settings", "Settings");
-        Aside(thanks, button, "heart", "Credits");
+        Aside(gear, button, "settings");
+        Aside(thanks, button, "heart");
     }
 
-    private void Aside(Vector2 at, float button, string icon, string label)
+    /// <summary>
+    /// One of the two corner buttons: a picture in a circle, and no word under it.
+    /// </summary>
+    /// <remarks>
+    /// These had their names under them and have lost them. A cog and a heart are the two most
+    /// settled icons in software, they are the only two buttons in that corner, and neither opens
+    /// anything that cannot be closed again, so a wrong guess costs a press. Everywhere else on this
+    /// screen a word is buying something: the venues and the modes are choices a player makes once
+    /// and then plays a match under, and being wrong about one of those costs a match.
+    /// </remarks>
+    private void Aside(Vector2 at, float button, string icon)
     {
         DrawCircle(at, button, Palette.Panel);
         DrawArc(at, button, 0f, Mathf.Tau, 32, new Color(Palette.OnPanel, 0.5f), 2f);
-        Glyphs.Icon(this, icon, at - new Vector2(0f, button * 0.16f), button * 0.9f, Palette.OnPanel);
-
-        Words.Under(
-            this, label, new Vector2(at.X, at.Y + (button * 0.16f)),
-            button * 0.42f, Palette.OnPanel);
+        Glyphs.Icon(this, icon, at, button * 0.95f, Palette.OnPanel);
     }
 
     private Rect2 _settings;
     private Rect2 _credits;
 
     /// <summary>
-    /// What each venue is called, in as few words as it can be said in.
+    /// What each way of playing with friends is called, in as few words as it can be said in.
     /// </summary>
     /// <remarks>
-    /// One word each where one will do. "Here" rather than "same device", because the player is
-    /// holding it; "Host" and "Join" because those are the words every game in the genre uses for
-    /// these two, and borrowing them costs nothing and saves explaining; "Find game" for matchmaking,
-    /// which is the one that genuinely needs two.
+    /// One word each, and now every one of them is one word. "Local" rather than "Here", because
+    /// under a heading that already says Friends the question is how they are connected rather than
+    /// where the player is standing, and Local is the word that answers it. "Host" and "Join" are
+    /// the words every game in the genre uses for these two, and borrowing them costs nothing and
+    /// saves explaining. Matchmaking was "Find game", which was the only label that needed two, and
+    /// it is a venue now rather than a mode: it is called Online up on the row above.
     /// </remarks>
     private static string TableName(MatchSetup.Table table) => table switch
     {
-        MatchSetup.Table.Couch => "Here",
+        MatchSetup.Table.Couch => "Local",
         MatchSetup.Table.Hosting => "Host",
-        MatchSetup.Table.Strangers => "Find game",
         _ => "Join",
     };
 
     /// <summary>
-    /// Either how many are playing, or how fast a hosted match runs. A joiner gets neither.
+    /// Whichever of the three lower rows this venue actually has a question in.
     /// </summary>
+    /// <remarks>
+    /// Every one of them is conditional, and between them they are the whole of the setup. Friends
+    /// asks how the three of them are connected; local play and hosting ask how many are playing;
+    /// hosting and strangers ask how fast the clock runs. A joiner is asked nothing at all, because
+    /// the host already answered all of it and the code is the only thing a joiner contributes.
+    /// </remarks>
     private void DrawSecondRow(Vector2 viewport)
     {
-        if (_where == MatchSetup.Table.Joining)
+        if (AmongFriends)
         {
-            return;
+            DrawModes(viewport);
         }
 
-        DrawChoices(viewport);
+        if (Picks())
+        {
+            DrawChoices(viewport);
+        }
 
         if (Paces())
         {
@@ -678,7 +839,9 @@ public partial class MenuScene : Control
     /// of a number is for.
     /// </remarks>
     private float ChoicesTop(Vector2 viewport) =>
-        TablesTop(viewport) + TablesHeight() + (_button * 0.35f);
+        AmongFriends
+            ? ModesTop(viewport) + ModesHeight() + (_button * 0.3f)
+            : VenuesTop(viewport) + VenuesHeight() + (_button * 0.35f);
 
     private float ChoicesHeight() => _button * 2.05f;
 
@@ -730,14 +893,30 @@ public partial class MenuScene : Control
         }
     }
 
-    /// <summary>An hourglass for a match played now, a moon for one played over days.</summary>
+    /// <summary>
+    /// An hourglass for a match played now, a moon for one played whenever people get to it.
+    /// </summary>
+    /// <remarks>
+    /// "Anytime" rather than the "Daily" this used to say, and rather than the asynchronous the word
+    /// actually means. Daily was wrong twice over: the window is a day at the outside rather than a
+    /// day exactly, and it read as a commitment to turn up every day, which is precisely the thing
+    /// this pace exists to avoid. Asynchronous is right and is not a word to put in front of a
+    /// seven-year-old. Anytime is what the code has called it since the pace was named, and it is
+    /// the friendlier word as well as the accurate one.
+    /// </remarks>
     private void DrawPaces(Vector2 viewport)
     {
         float height = _button * 1.15f;
         float width = _button * 1.5f;
         float gap = _button * 0.4f;
         float left = (viewport.X - ((width * 2) + gap)) / 2f;
-        float top = ChoicesTop(viewport) + ChoicesHeight() + (_button * 0.3f);
+
+        // Under the count where there is one, and under whatever is above it where there is not.
+        // Meeting strangers has no count row, so the paces would otherwise be drawn against a gap
+        // the height of a row that is not there.
+        float top = Picks()
+            ? ChoicesTop(viewport) + ChoicesHeight() + (_button * 0.3f)
+            : ModesTop(viewport) + (AmongFriends ? ModesHeight() + (_button * 0.3f) : 0f);
 
         for (int index = 0; index < _paces.Length; index++)
         {
@@ -751,7 +930,7 @@ public partial class MenuScene : Control
 
             Words.Under(
                 this,
-                (MatchPace)index == MatchPace.Live ? "Now" : "Daily",
+                (MatchPace)index == MatchPace.Live ? "Real-time" : "Anytime",
                 new Vector2(middle.X, _paces[index].Position.Y + (height * 0.6f)),
                 height * 0.22f, ink);
 
@@ -780,18 +959,19 @@ public partial class MenuScene : Control
     /// the table row it landed squarely on the badge and hid two of the four moles.
     /// </remarks>
     /// <summary>
-    /// Play, in the bottom left corner.
+    /// Play, in the bottom right corner.
     /// </summary>
     /// <remarks>
-    /// It used to sit centred at four fifths of the way down, directly under the stack of choices,
-    /// which worked at the shape of the project's own window and nowhere else: everything on this
-    /// screen is placed as a fraction of the canvas height, and an expanding stretch gives a wide
-    /// window a short canvas, so the whole column compresses into itself and the button ends up in
-    /// the row above it.
+    /// A corner rather than a fraction of the height. Everything else on this screen is placed as a
+    /// fraction of the canvas, and an expanding stretch gives a wide window a short canvas, so a
+    /// column placed that way compresses into itself and a button at the foot of it ends up in the
+    /// row above. A corner is measured from two edges instead and cannot do that.
     ///
-    /// A corner cannot do that. It is measured from two edges rather than from the middle, so it
-    /// stays a fixed distance from both whatever shape the window is, and it is out of the way of a
-    /// column that can be as tall as it likes.
+    /// It stays here rather than joining the head of the row of choices, which is where it briefly
+    /// went. Reading order is not the only thing a menu owes a player: this is the button pressed at
+    /// the end of every visit to this screen and the only one most people ever press, and a thumb
+    /// that always reaches for the same corner is worth more than a sentence that reads left to
+    /// right. It also keeps the choices to a row of choices, with nothing in it that acts.
     /// </remarks>
     private void DrawPlay(Vector2 viewport)
     {
@@ -811,7 +991,7 @@ public partial class MenuScene : Control
 
         // Carrying on beside starting again, in the same corner, because they are the same kind of
         // thing and a player looking for one is looking for the other. Inboard of it, since play is
-        // now against the right edge and there is no room outboard.
+        // against the right edge and there is no room outboard.
         Vector2 back = new Vector2(_play.X - (_button * 2.5f), middle);
 
         _resume = new Rect2(back - new Vector2(_button, _button), Vector2.One * _button * 2f);
@@ -819,7 +999,7 @@ public partial class MenuScene : Control
         DrawCircle(back, _button, Palette.Panel);
         DrawArc(back, _button, 0, Mathf.Tau, 40, new Color(Palette.OnPanel, 0.55f), 3f);
 
-        // The match you are in is an online one by definition, so the same glyph the hosting table
+        // The match you are in is an online one by definition, so the same glyph the hosting mode
         // uses says which button this is without needing a word for "continue".
         Glyphs.Broadcast(this, back, _button * 0.95f, Palette.OnPanel);
     }

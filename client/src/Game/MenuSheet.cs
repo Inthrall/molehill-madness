@@ -106,7 +106,7 @@ public partial class MenuSheet : Control
         // Sized to the page rather than to one height for both. The settings are a heading and a
         // single row, and in a sheet built to hold the credits they sat in the top fifth of an
         // otherwise empty rectangle, which reads as a screen still loading.
-        float wanted = _page == Page.Settings ? unit * 5.2f : unit * 7.4f;
+        float wanted = _page == Page.Settings ? unit * 5.2f : unit * 8.8f;
         float tall = Mathf.Min(viewport.Y * 0.72f, wanted);
         Rect2 sheet = new Rect2((viewport.X - wide) / 2f, (viewport.Y - tall) / 2f, wide, tall);
 
@@ -180,6 +180,8 @@ public partial class MenuSheet : Control
         // so costs a line each.
         string[] lines =
         {
+            "Made by",
+            "Inthrall",
             "Sound effects",
             "Kenney  (CC0)",
             "rubberduck  (CC0)",
@@ -187,7 +189,7 @@ public partial class MenuSheet : Control
             "Titan One by Rodrigo Fuenzalida  (OFL)",
         };
 
-        bool[] heading = { true, false, false, true, false };
+        bool[] heading = { true, false, true, false, false, true, false };
 
         float line = unit * 0.62f;
         float at = top;

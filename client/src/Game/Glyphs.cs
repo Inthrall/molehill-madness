@@ -638,6 +638,27 @@ public static class Glyphs
     }
 
     /// <summary>
+    /// Two moles shoulder to shoulder. Playing with people you already know.
+    /// </summary>
+    /// <remarks>
+    /// It has to be told apart from the two glyphs it shares a screen with, and both of those are
+    /// also pictures of more than one mole. The couch is a box with a row of moles evenly spaced in
+    /// it, which reads as seats; the strangers are two hills a long way apart with an arc between
+    /// them, which reads as distance. This is two moles and nothing else, close enough to touch and
+    /// with no furniture and no ground: the point of it is who they are rather than where.
+    ///
+    /// Bigger than the moles on the couch, because there are two rather than three and the box is
+    /// gone, so there is room. A glyph is only as good as the weakest one in its row.
+    /// </remarks>
+    public static void Friends(CanvasItem into, Vector2 at, float size, Color ink)
+    {
+        float unit = size / 2f;
+
+        Mole(into, at + new Vector2(-unit * 0.6f, 0f), unit * 1.45f, ink);
+        Mole(into, at + new Vector2(unit * 0.6f, 0f), unit * 1.45f, ink);
+    }
+
+    /// <summary>
     /// A molehill sending something out. Opening a lobby for other people to find.
     /// </summary>
     public static void Broadcast(CanvasItem into, Vector2 at, float size, Color ink)
