@@ -990,23 +990,31 @@ public sealed class SeatPlanner
 
     // ---- Resetting -----------------------------------------------------------------
 
-    /// <summary>Advances the hold-to-reset gesture, and spends a token when it completes.</summary>
-    public void HoldReset(double delta)
+    /// <summary>
+    /// Advances the hold-to-reset gesture, and spends a token when it completes.
+    /// </summary>
+    /// <returns>
+    /// Whether this call was the one that spent, so a caller polling a key can tell a finished hold
+    /// from one still running rather than inferring it from the gauge going back to nothing.
+    /// </returns>
+    public bool HoldReset(double delta)
     {
         if (!IsPlanning)
         {
-            return;
+            return false;
         }
 
         ResetHeld += delta / HoldSeconds;
 
         if (ResetHeld < 1)
         {
-            return;
+            return false;
         }
 
         ResetHeld = 0;
         SpendReset();
+
+        return true;
     }
 
     public void ReleaseReset()
@@ -1014,23 +1022,31 @@ public sealed class SeatPlanner
         ResetHeld = 0;
     }
 
-    /// <summary>Advances the hold-to-end-turn gesture, and commits when it completes.</summary>
-    public void HoldCommit(double delta)
+    /// <summary>
+    /// Advances the hold-to-end-turn gesture, and commits when it completes.
+    /// </summary>
+    /// <returns>
+    /// Whether this call was the one that committed, so a caller polling a key can tell a hold that
+    /// finished from one still running and stop feeding the next seat with the same press.
+    /// </returns>
+    public bool HoldCommit(double delta)
     {
         if (!IsPlanning)
         {
-            return;
+            return false;
         }
 
         CommitHeld += delta / HoldSeconds;
 
         if (CommitHeld < 1)
         {
-            return;
+            return false;
         }
 
         CommitHeld = 0;
         Commit();
+
+        return true;
     }
 
     public void ReleaseCommit()

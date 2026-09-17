@@ -229,6 +229,7 @@ public partial class MatchScene : Node2D
         _shoulderHeldUp = new bool[_players];
         _shoulderHeldDown = new bool[_players];
         _hopHeld = new bool[_players];
+        _padResetLatched = new bool[_players];
         _recentreHeld = new bool[_players];
         _jumpHeld = new bool[_players];
         _driven = new bool[_players];
@@ -986,7 +987,13 @@ public partial class MatchScene : Node2D
                 break;
 
             case Beat.Finished:
-                _finishedFor += delta;
+                // The scoreboard leaves on its own after a while, and a menu open over it should
+                // not be spending that while.
+                if (_pause?.Showing != true)
+                {
+                    _finishedFor += delta;
+                }
+
                 DriveIfAsked(delta);
                 break;
 
@@ -1459,6 +1466,15 @@ public partial class MatchScene : Node2D
 
     private void RunReplay(double delta)
     {
+        // Held where it is, for the reason the planning clock is: a pause that lets the round play
+        // on behind the menu is not a pause. Everything the replay drives hangs off _playback, so
+        // stopping here stops the moles, the terrain catching up and the sounds together, rather
+        // than freezing some of them and leaving the rest running.
+        if (_pause?.Showing == true)
+        {
+            return;
+        }
+
         _playback += delta * Pace();
         _stage.Tick = CurrentTick();
         _stage.Seconds = Fix64.Ratio((int)(_playback * 1000), 1000);
@@ -2849,22 +2865,30 @@ public partial class MatchScene : Node2D
             return;
         }
 
-        if (Input.IsKeyPressed(Key.R) || FingerOn(TouchTarget.Reset))
+        if (!(Input.IsKeyPressed(Key.R) || FingerOn(TouchTarget.Reset)))
         {
-            bool wasResetting = planner.ResetHeld > 0;
-            planner.HoldReset(delta);
-
-            // The hold completed if it was in progress and has gone back to nothing.
-            if (wasResetting && planner.ResetHeld <= 0)
-            {
-                TornUp();
-            }
-        }
-        else
-        {
+            _resetLatched = false;
             planner.ReleaseReset();
+
+            return;
+        }
+
+        // One press spends one token. Held past the gesture the hold starts again from nothing, and
+        // a turn's spares go in a couple of seconds, which is the opposite of what holding is for.
+        if (_resetLatched)
+        {
+            return;
+        }
+
+        if (planner.HoldReset(delta))
+        {
+            _resetLatched = true;
+            TornUp();
         }
     }
+
+    /// <summary>Set when a hold spends a reset, and cleared only when the key comes up.</summary>
+    private bool _resetLatched;
 
     /// <summary>
     /// Ending the turn: held rather than tapped, and polled rather than fed from key events.
@@ -2884,15 +2908,33 @@ public partial class MatchScene : Node2D
             return;
         }
 
-        if (Input.IsKeyPressed(Key.Enter) || Input.IsKeyPressed(Key.KpEnter))
+        bool down = Input.IsKeyPressed(Key.Enter) || Input.IsKeyPressed(Key.KpEnter);
+
+        if (!down)
         {
-            planner.HoldCommit(delta);
-        }
-        else
-        {
+            _commitLatched = false;
             planner.ReleaseCommit();
+
+            return;
+        }
+
+        // One press ends one turn. Committing hands the pointer to the next seat, and the key is
+        // still down, so without this the same press runs the hold again against somebody who has
+        // not looked at their turn yet and ends theirs half a second later. The latch is on the key
+        // rather than on the planner because the planner is what changed.
+        if (_commitLatched)
+        {
+            return;
+        }
+
+        if (planner.HoldCommit(delta))
+        {
+            _commitLatched = true;
         }
     }
+
+    /// <summary>Set when a hold commits, and cleared only when the key comes up.</summary>
+    private bool _commitLatched;
 
     /// <summary>
     /// Winds up whoever is aiming. Every seat, not just the pointer's.
@@ -3185,12 +3227,20 @@ public partial class MatchScene : Node2D
             planner.ReleaseAim();
         }
 
+        // Latched per seat, for the same reason the pointer's is latched once: held past the
+        // gesture the hold starts again and spends the turn's spares one after another. A pad
+        // belongs to a seat, so the latch does too.
         if (Input.IsJoyButtonPressed(pad, JoyButton.B))
         {
-            planner.HoldReset(delta);
+            if (!_padResetLatched[seat] && planner.HoldReset(delta))
+            {
+                _padResetLatched[seat] = true;
+                TornUp();
+            }
         }
         else
         {
+            _padResetLatched[seat] = false;
             planner.ReleaseReset();
         }
 
@@ -3253,6 +3303,9 @@ public partial class MatchScene : Node2D
     private bool[] _shoulderHeldUp = System.Array.Empty<bool>();
     private bool[] _shoulderHeldDown = System.Array.Empty<bool>();
     private bool[] _hopHeld = System.Array.Empty<bool>();
+
+    /// <summary>Set per seat when a pad's hold spends a reset, and cleared when the button comes up.</summary>
+    private bool[] _padResetLatched = System.Array.Empty<bool>();
 
     /// <summary>Held state for the pad's recentre, which is a press rather than a hold.</summary>
     private bool[] _recentreHeld = System.Array.Empty<bool>();
