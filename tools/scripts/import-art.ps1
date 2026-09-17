@@ -1447,10 +1447,11 @@ $sheets = @(
     # neighbouring drawing on the top row, and a window narrow enough to clear that neighbour
     # slices the ring's outer arcs off and plays them as a frame of their own.
     #
-    # Every drawing is centred in its own cell, which is the blast origin, so build-sheet.ps1
-    # lifts each one on that centre and lays the seven out on one grid of 346. That also puts them
-    # in playing order, which the sheet does not: the bottom row's ring carries more fire than the
-    # top row's last frame and belongs before it, not after.
+    # regrid-explosion.ps1 lifts each drawing on its own measured centre, masks it to the cell it
+    # came from and lays the seven out on one grid, in playing order, which the sheet is not in.
+    # Centred on the drawing rather than on its cell because the two are not the same: the middles
+    # drift from y 174 to y 195 down the top row, and carrying that drift through makes the blast
+    # wander while it plays.
     @{ From = 'explosion regrid.png'; Key = 'green'; Pack = 'strip'; Into = 'effect'; Name = 'blast'
        Grid = @(4, 2); Frames = 7; Scale = 0.45; Open = 3 }
 

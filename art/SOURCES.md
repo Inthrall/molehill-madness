@@ -21,7 +21,7 @@ Record the tool and the month whenever a sheet lands or is replaced. A sheet tha
 
 | Sheet | Built from | Why |
 | --- | --- | --- |
-| `explosion regrid.png` | `explosion.png` | The original is two rows on different pitches, five cells of 291 over three of 485, and its widest drawing does not fit a top-row cell. Nothing can cut all seven frames off it. `build-sheet.ps1` lifts each drawing on its own cell centre, which is the blast origin, and lays them out on one grid of 346 in playing order. |
+| `explosion regrid.png` | `explosion.png` | The original is two rows on different pitches, five cells of 291 over three of 485, and its widest drawing does not fit a top-row cell. Nothing can cut all seven frames off it. `regrid-explosion.ps1` lifts each drawing on its own measured centre, masks it to the cell it came from, and lays the seven out on one grid in playing order. Run that script to rebuild it. |
 
 A regrid is a derived file and carries no new artwork, so it inherits whatever the original's row above says about its tool. The original stays in this folder as the record of what actually arrived, and is what any future regrid starts from.
 

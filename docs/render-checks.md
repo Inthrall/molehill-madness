@@ -26,6 +26,12 @@ godot --path client --headless --import
 
 Add `-Only 'mole *'` to work on one family of sheets without waiting for the rest. Run the importer with `-Report` first if the source art itself is new. It prints the panorama's horizon fraction and how much of the watermark is left in each patched rectangle, and both of those are numbers the client has hard-coded against the art it was written for.
 
+**The second step is the one that gets skipped, and art that already imported once fails quietly rather than loudly.** A missing texture announces itself with an error line and a grey square. Art that merely *changed* does not: `--path` runs whatever is in `.godot/imported/`, so the game draws the last version that was imported, for as long as it takes somebody to notice. Changing a strip and rerunning the game shows the old strip, with nothing on the console to say so.
+
+That turns nasty when the frame count changes with the artwork, because `Art.cs` is read from source and the texture is not. A strip cut from seven frames into a cached eight-frame texture puts half of one frame beside half of the next, which looks like the animation has been torn in two and swapped rather than like a stale file.
+
+Checking a timestamp will not tell you. Godot leaves a cached texture alone when the content has not changed, so `import-art.ps1` bumps every source's timestamp and every import then looks stale whether it is or not. What answers the question is the `source_md5` in the `.md5` file beside the cached texture, against the source's own hash.
+
 ## Render at 16:9, always
 
 The project is 1280x720 with `stretch/mode="canvas_items"` and `stretch/aspect="expand"`. Expand means the canvas grows in whichever dimension the window has spare, so a 900x600 window (3:2) does not letterbox: it gives the game a 1280x853 canvas. `--write-movie` then captures 1280x720 of it, cropping about 66 pixels off the top and the same off the bottom.
