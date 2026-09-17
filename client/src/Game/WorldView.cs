@@ -2337,9 +2337,19 @@ public partial class WorldView : Control
         // so the arrow is the shape the artist drew at whatever length the camera asks for.
         float tall = length * frame.Y / frame.X;
 
+        // A held aim and a booked one are different things and have to look it. They are the same
+        // drawing at the same length in the same place, so tint was carrying the whole difference,
+        // and Aiming and Damage are both red-orange with the same red in them, against soil and
+        // fire. Letting go read as an arrow that had failed to clear rather than as the shot being
+        // booked. So the live one keeps the ring and full strength and the record gets neither.
+        float strength = aiming ? 1f : BookedStrength;
+
         // The muzzle ring, so an arrow in the middle of a scrum plainly belongs to a mole. Drawn
         // before the transform below, since it is in world pixels and the arrow is drawn in its own.
-        DrawArc(from, radius, 0, Mathf.Tau, 20, ink, radius * 0.16f);
+        if (aiming)
+        {
+            DrawArc(from, radius, 0, Mathf.Tau, 20, ink, radius * 0.16f);
+        }
 
         // Laid out along positive x from the origin and then turned, which is how a canvas item is
         // asked to draw a texture at an angle: there is no rotated overload of the rect draws.
@@ -2354,7 +2364,7 @@ public partial class WorldView : Control
         // The empty track first, then however much of it is charged. The track is what makes the
         // fill legible: without it there is nothing for the fill to be a fraction of.
         arrow.Draw(this, new Rect2(0f, -tall / 2f, length, tall), Art.Arrow.Track, false,
-            new Color(ink, TrackAlpha));
+            new Color(ink, TrackAlpha * strength));
 
         if (charge > 0f)
         {
@@ -2366,7 +2376,7 @@ public partial class WorldView : Control
                 arrow.Art,
                 new Rect2(0f, -tall / 2f, length * charge, tall),
                 new Rect2(frame.X * Art.Arrow.Fill, 0f, frame.X * charge, frame.Y),
-                aiming ? Colors.White : Palette.Damage);
+                aiming ? Colors.White : new Color(Palette.Damage, strength));
         }
 
         // Back to the transform the rest of the pane is drawn under, which is the camera offset
@@ -2383,6 +2393,16 @@ public partial class WorldView : Control
     /// rather than a track, which leaves the fill a fraction of nothing.
     /// </remarks>
     private const float TrackAlpha = 0.4f;
+
+    /// <summary>
+    /// How solid a booked aim is against a held one.
+    /// </summary>
+    /// <remarks>
+    /// Faded rather than removed. What was booked is the only record of the shot until the round
+    /// runs, and it is what the one reset token is spent against, so a player who cannot see it
+    /// cannot decide whether to spend. It only has to stop reading as live.
+    /// </remarks>
+    private const float BookedStrength = 0.5f;
 
     /// <summary>
     /// How long the aim arrow is, in metres, whatever the charge. Long enough that a tenth of it
