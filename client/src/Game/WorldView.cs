@@ -1382,9 +1382,17 @@ public partial class WorldView : Control
             SeatPlanner planner = _stage.Planners[mole.Seat];
             Vec2 where = acting ? planner.PlannedPosition : mole.Position;
             bool aiming = acting && planner.Aiming;
+            // Off the ghost while a turn is being steered, because the ghost is the mole on the
+            // screen. The real one has not moved, so its facing is wherever it finished last round,
+            // and a player walking left watched their mole travel backwards.
+            Vec2 heading = acting && planner.Walk is not null ? planner.Walk.Facing : mole.Facing;
+
+            // An aim is measured against the mole rather than against the world. AimAt is a world
+            // position and no part of the map has a negative x, so compared with zero it was never
+            // less, and a mole aiming anywhere at all turned to face right.
             bool left = aiming
-                ? (float)planner.AimAt.X.ToDecimal() < 0f
-                : (float)mole.Facing.X.ToDecimal() < 0f;
+                ? (float)(planner.AimAt.X - where.X).ToDecimal() < 0f
+                : (float)heading.X.ToDecimal() < 0f;
 
             // Everything the pose is made of comes from whichever of the two is being drawn. The
             // position already did; the rest did not, and read off the real mole, which during
@@ -1500,7 +1508,7 @@ public partial class WorldView : Control
             // The recording keeps positions, velocities and pluck, so the poses it can tell apart
             // are the ones those three imply. Snared and clawed are not among them, which is why a
             // replay shows a mole digging where the live view would show it digging with claws.
-            bool left = Moles.FacingLeft(velocity, wasLeft: false);
+            bool left = FacedLeftInReplay(recording, _stage.Tick, slot);
             bool airborne = Mathf.Abs((float)velocity.Y.ToDecimal()) > 1f;
 
             string pose = Moles.Pose(
@@ -1669,6 +1677,30 @@ public partial class WorldView : Control
     /// says how far it reached. That is information a player can act on: the difference between a
     /// Clod Lobber and a Moly Hand Grenade is most of a metre of blast.
     /// </remarks>
+    /// <summary>
+    /// Which way a mole faces in a replay, taken from the last tick it was actually going anywhere.
+    /// </summary>
+    /// <remarks>
+    /// A recording keeps velocities, and a mole standing still has none worth the name, so asked
+    /// about the current tick alone every mole turned to face right the moment it stopped. Looked
+    /// up rather than carried from the frame before, because a replay can be restarted or watched
+    /// again and a remembered facing would arrive with it.
+    /// </remarks>
+    private static bool FacedLeftInReplay(RoundRecording recording, int tick, int slot)
+    {
+        for (int at = Mathf.Min(tick, recording.Ticks - 1); at >= 0; at--)
+        {
+            Vec2 velocity = recording.VelocityOf(at, slot);
+
+            if (Moles.Walking(velocity))
+            {
+                return (float)velocity.X.ToDecimal() < 0f;
+            }
+        }
+
+        return false;
+    }
+
     private void DrawBlasts(RoundResult result)
     {
         int upTo = Mathf.Min(_stage.BlastTick.Length, result.Blasts.Count);
