@@ -58,7 +58,16 @@ namespace MoleSim.Match
         private readonly int[] _changesUpTo;
         private readonly int[] _detonationsUpTo;
 
-        internal RoundRecording(int round, int moleCount, int ticks)
+        /// <param name="ticks">The round's own length, and how long the recording starts out.</param>
+        /// <param name="spare">
+        /// Room past the end of the round for the settling that follows it, which is as long as it
+        /// needs to be rather than a fixed number. The space is allocated up front because a round
+        /// is recorded a tick at a time and growing the arrays halfway through is the sort of thing
+        /// that would go unnoticed until it was slow. <see cref="Ticks"/> counts what was actually
+        /// captured, not what was set aside, so a round where nobody was left in the air is exactly
+        /// as long as it always was and replays the same.
+        /// </param>
+        internal RoundRecording(int round, int moleCount, int ticks, int spare = 0)
         {
             Journal = new List<TerrainChange>();
 
@@ -66,23 +75,28 @@ namespace MoleSim.Match
             MoleCount = moleCount;
             Ticks = ticks;
 
-            _positions = new Vec2[moleCount * ticks];
-            _velocities = new Vec2[moleCount * ticks];
-            _pluck = new int[moleCount * ticks];
-            _landed = new Fix64[moleCount * ticks];
-            _offDuty = new bool[moleCount * ticks];
-            _shots = new List<Shot>[ticks];
-            _hitsUpTo = new int[ticks];
-            _knockoutsUpTo = new int[ticks];
-            _changesUpTo = new int[ticks];
-            _detonationsUpTo = new int[ticks];
+            _capacity = ticks + spare;
+
+            _positions = new Vec2[moleCount * _capacity];
+            _velocities = new Vec2[moleCount * _capacity];
+            _pluck = new int[moleCount * _capacity];
+            _landed = new Fix64[moleCount * _capacity];
+            _offDuty = new bool[moleCount * _capacity];
+            _shots = new List<Shot>[_capacity];
+            _hitsUpTo = new int[_capacity];
+            _knockoutsUpTo = new int[_capacity];
+            _changesUpTo = new int[_capacity];
+            _detonationsUpTo = new int[_capacity];
         }
+
+        private readonly int _capacity;
 
         public int Round { get; }
 
         public int MoleCount { get; }
 
-        public int Ticks { get; }
+        /// <summary>How many ticks were actually captured, which is the round plus any settling.</summary>
+        public int Ticks { get; private set; }
 
         /// <summary>How long the whole thing takes to watch, in seconds.</summary>
         public Fix64 Duration => Fix64.FromInt(Ticks) * MatchSettings.TickDuration;
@@ -292,6 +306,20 @@ namespace MoleSim.Match
             int tick, IReadOnlyList<Mole> moles, IReadOnlyList<Projectile> shots,
             int hits, int knockouts, int detonations)
         {
+            // Past the space set aside, which means the settle ran to its cap. Dropping the tick
+            // keeps a recording that plays rather than one that throws, and the round is ending on
+            // this tick regardless.
+            if (tick >= _capacity)
+            {
+                return;
+            }
+
+            // Grown before anything is written, because Index clamps against it.
+            if (tick >= Ticks)
+            {
+                Ticks = tick + 1;
+            }
+
             for (int slot = 0; slot < moles.Count; slot++)
             {
                 int at = Index(tick, slot);

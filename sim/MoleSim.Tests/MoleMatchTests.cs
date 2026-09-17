@@ -30,6 +30,143 @@ public sealed class MoleMatchTests
     private static Mole MoleOf(MoleMatch match, int seat, int index) =>
         match.Moles.Single(mole => mole.Seat == seat && mole.Index == index);
 
+    /// <summary>
+    /// Throws one mole straight up on a chosen tick, and does nothing else.
+    /// </summary>
+    /// <remarks>
+    /// The tick watcher is the only seam that reaches inside a round while it is running, which is
+    /// what this needs. A round is eight seconds and nothing the physics can do keeps a mole up for
+    /// that long, so the only way to have one still in the air at the end of a round is to launch
+    /// it near the end of one.
+    /// </remarks>
+    private sealed class LateLauncher : MoleMatch.ITickWatcher
+    {
+        private readonly Mole _mole;
+        private readonly int _at;
+
+        public LateLauncher(Mole mole, int at)
+        {
+            _mole = mole;
+            _at = at;
+        }
+
+        public bool Launched { get; private set; }
+
+        public void Ticked(int round, int tick, MoleMatch match)
+        {
+            if (tick != _at)
+            {
+                return;
+            }
+
+            // Up is negative, and twenty rather than the speed cap so the mole does not reach the
+            // sky's ceiling and make this a test about bouncing off it.
+            _mole.AddImpulse(new Vec2(Fix64.Zero, -Fix64.FromInt(20)));
+            Launched = true;
+        }
+    }
+
+    [Test]
+    public void AMoleFlungAtTheEndOfARoundComesDownBeforeTheNextOneStarts()
+    {
+        MoleMatch match = NewMatch();
+        Mole flung = MoleOf(match, 0, 0);
+
+        LateLauncher launcher = new LateLauncher(flung, MatchSettings.TicksPerRound - 2);
+        match.ResolveRound(watching: launcher);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(launcher.Launched, Is.True, "the watcher never reached its tick");
+            Assert.That(flung.IsAirborne, Is.False, "left hanging in the air between rounds");
+            Assert.That(
+                TerrainQuery.IsBlocked(match.Terrain, flung.Position, MatchSettings.Radius),
+                Is.False,
+                "came to rest inside the ground");
+        });
+    }
+
+    /// <summary>
+    /// The settling is watched as well as simulated, so it has to fit in the recording. The arrays
+    /// are cut to the round's own length, and every tick past it used to run off the end of them.
+    /// </summary>
+    [Test]
+    public void ARecordedRoundCarriesTheSettlingAsWell()
+    {
+        MoleMatch match = NewMatch();
+        Mole flung = MoleOf(match, 0, 0);
+
+        LateLauncher launcher = new LateLauncher(flung, MatchSettings.TicksPerRound - 2);
+        RoundResult result = match.ResolveRound(record: true, watching: launcher);
+        RoundRecording recording = result.Recording!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                recording.Ticks, Is.GreaterThan(MatchSettings.TicksPerRound),
+                "the settling was simulated but not recorded, so a replay stops mid-flight");
+            Assert.That(
+                recording.Ticks,
+                Is.LessThanOrEqualTo(MatchSettings.TicksPerRound + MatchSettings.MaxSettleTicks));
+
+            // The mole is at rest on the recording's own last tick, not just in the live match.
+            Assert.That(
+                recording.VelocityOf(recording.Ticks - 1, match.Moles.ToList().IndexOf(flung)),
+                Is.EqualTo(Vec2.Zero));
+        });
+    }
+
+    [Test]
+    public void ARoundWithNobodyLeftInTheAirIsExactlyAsLongAsItAlwaysWas()
+    {
+        MoleMatch match = NewMatch();
+        RoundResult result = match.ResolveRound(record: true);
+
+        Assert.That(result.Recording!.Ticks, Is.EqualTo(MatchSettings.TicksPerRound));
+    }
+
+    [Test]
+    public void SettlingStopsAtItsCapRatherThanRunningForever()
+    {
+        MoleMatch match = NewMatch();
+        Mole flung = MoleOf(match, 0, 0);
+
+        // Parked well above the ground with no way down inside the cap would hang the round if the
+        // settle loop trusted the moles to land. It is bounded instead, so this returns.
+        StuckLauncher launcher = new StuckLauncher(flung, MatchSettings.TicksPerRound - 2);
+        match.ResolveRound(watching: launcher);
+
+        Assert.That(launcher.Launched, Is.True);
+    }
+
+    /// <summary>Holds a mole airborne for longer than the settle cap allows.</summary>
+    private sealed class StuckLauncher : MoleMatch.ITickWatcher
+    {
+        private readonly Mole _mole;
+        private readonly int _from;
+
+        public StuckLauncher(Mole mole, int from)
+        {
+            _mole = mole;
+            _from = from;
+        }
+
+        public bool Launched { get; private set; }
+
+        public void Ticked(int round, int tick, MoleMatch match)
+        {
+            if (tick < _from)
+            {
+                return;
+            }
+
+            // Re-flung every tick, so it never comes down and the cap is the only thing that ends
+            // the round.
+            _mole.AddImpulse(new Vec2(Fix64.Zero, -Fix64.FromInt(20)));
+            Launched = true;
+        }
+    }
+
     [Test]
     public void AMatchStartsWithAFullPlatoonEach()
     {

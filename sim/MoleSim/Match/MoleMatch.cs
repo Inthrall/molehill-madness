@@ -403,7 +403,7 @@ namespace MoleSim.Match
             if (record)
             {
                 result.Recording = new RoundRecording(
-                    Round, _moles.Length, MatchSettings.TicksPerRound);
+                    Round, _moles.Length, MatchSettings.TicksPerRound, MatchSettings.MaxSettleTicks);
 
                 Terrain.StartJournal(result.Recording.Journal);
             }
@@ -466,9 +466,86 @@ namespace MoleSim.Match
                 watching?.Ticked(Round, tick, this);
             }
 
+            SettleEverybody(routes, drilling, result, watching);
+
             Terrain.StopJournal();
             Aftermath(actors, result);
             return result;
+        }
+
+        /// <summary>
+        /// Runs on past the end of the round until everybody has come to rest.
+        /// </summary>
+        /// <remarks>
+        /// A round is a fixed number of ticks, so a mole launched near the end of one hung in the
+        /// air until the next round ran. That does not read as a pause, it reads as the game having
+        /// stopped working. Its momentum finishes here instead.
+        ///
+        /// Nobody is an actor, so nobody has a route. The plans were spent inside the round and
+        /// this is what is left over rather than more turn, which is the whole distinction: a mole
+        /// can still be hurt here, by the landing, by lava, by something it comes down on or by a
+        /// shell still in the air, but it cannot be steered.
+        ///
+        /// It waits on moles alone. A shell in flight keeps flying and is not waited for, because a
+        /// lobbed shot can be up a long time and holding the next round open for one is a pause
+        /// with nothing in it.
+        /// </remarks>
+        private void SettleEverybody(
+            Vec2[]?[] routes, bool[] drilling, RoundResult result, ITickWatcher? watching)
+        {
+            // Every entry null, so MoveEverybody matches nobody and hands out no routes. The
+            // round's own array is passed straight through because it is never read once that
+            // match fails.
+            Mole?[] nobody = new Mole?[_moles.Length];
+
+            for (int settling = 0; settling < MatchSettings.MaxSettleTicks; settling++)
+            {
+                if (!StillMoving())
+                {
+                    return;
+                }
+
+                for (int slot = 0; slot < _moles.Length; slot++)
+                {
+                    drilling[slot] = _moles[slot].IsDrilling;
+                }
+
+                MoveEverybody(nobody, routes);
+                TakeTheFalls(result);
+                FinishDrills(drilling, result);
+                AdvanceShots(result);
+                CheckPlacements(result);
+                CheckLava(result);
+
+                int tick = MatchSettings.TicksPerRound + settling;
+
+                result.Recording?.Capture(
+                    tick, _moles, _shots, result.Hits.Count, result.Knockouts.Count,
+                    result.Detonations);
+
+                watching?.Ticked(Round, tick, this);
+            }
+        }
+
+        /// <summary>
+        /// Whether anybody still in the match is off the ground or under its own power.
+        /// </summary>
+        /// <remarks>
+        /// Drilling counts as well as falling. A torpedo under way is not momentum, but leaving one
+        /// halfway through its burrow at the end of a round strands a mole inside the ground in
+        /// exactly the way this exists to prevent.
+        /// </remarks>
+        private bool StillMoving()
+        {
+            foreach (Mole mole in _moles)
+            {
+                if (!mole.IsOffDuty && (mole.IsAirborne || mole.IsDrilling))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>

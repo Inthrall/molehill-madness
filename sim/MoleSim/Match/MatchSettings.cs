@@ -29,6 +29,19 @@ namespace MoleSim.Match
         /// <summary>One tick, in seconds.</summary>
         public static Fix64 TickDuration => Fix64.Ratio(1, TicksPerSecond);
 
+        /// <summary>
+        /// The longest a round will run past its own length waiting for everybody to come to rest.
+        /// </summary>
+        /// <remarks>
+        /// A safety stop rather than a budget, and it is set well above anything the physics can
+        /// actually produce: a blast cannot fling a mole faster than <see cref="TerminalSpeed"/>,
+        /// so the worst case is one thrown straight up at 45 taking 45/18 seconds to stop climbing
+        /// and as long again to come back down, which is five seconds. Anything still moving after
+        /// six is not momentum finishing, it is something wrong, and a round that never ends is a
+        /// worse answer than a mole that stops in the air.
+        /// </remarks>
+        public const int MaxSettleTicks = TicksPerSecond * 6;
+
         // ---- The mole ---------------------------------------------------------------
 
         /// <summary>Health, in the game's own vocabulary. Nobody dies.</summary>
