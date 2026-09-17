@@ -1261,6 +1261,8 @@ $keyKinds = @{
 # keeping. Three removes a cell border and a ground line and keeps a claw. It is off for the
 # decor, where a blade of grass is thinner than a claw, and for the ground, which is solid.
 #
+# Frames may stop short of the grid, for a sheet with blank or unusable cells at the end.
+#
 # The scales are not derived from anything. They were set by importing at one scale, looking at
 # the sizes, and settling them so a mole is about the same size whichever sheet its pose came
 # from, because the artist drew the poses at whatever size suited the sheet.
@@ -1438,8 +1440,19 @@ $sheets = @(
 
     # ---- Effects ----------------------------------------------------------------------
 
-    @{ From = 'explosion.png'; Key = 'green'; Pack = 'strip'; Into = 'effect'; Name = 'blast'
-       Grid = @(5, 2); Frames = 8; Scale = 0.45; Open = 3 }
+    # Imported from the regridded copy, because 'explosion.png' as it arrived is two rows on
+    # different pitches: five cells of 291 across the top and three of 485 across the bottom, each
+    # with its own faint borders. Nothing can cut all seven drawings off that. The bottom row's
+    # broken ring measures 343 across, so a window wide enough to hold it whole reaches into the
+    # neighbouring drawing on the top row, and a window narrow enough to clear that neighbour
+    # slices the ring's outer arcs off and plays them as a frame of their own.
+    #
+    # Every drawing is centred in its own cell, which is the blast origin, so build-sheet.ps1
+    # lifts each one on that centre and lays the seven out on one grid of 346. That also puts them
+    # in playing order, which the sheet does not: the bottom row's ring carries more fire than the
+    # top row's last frame and belongs before it, not after.
+    @{ From = 'explosion regrid.png'; Key = 'green'; Pack = 'strip'; Into = 'effect'; Name = 'blast'
+       Grid = @(4, 2); Frames = 7; Scale = 0.45; Open = 3 }
 
     # Magenta around the ring and green through the middle, so both keys come off this one.
     @{ From = 'energy effect.png'; Key = 'both'; Pack = 'strip'; Into = 'effect'; Name = 'ring'

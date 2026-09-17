@@ -157,7 +157,7 @@ public static class Art
     public static readonly IReadOnlyDictionary<string, int> EffectFrames =
         new Dictionary<string, int>
         {
-            { "blast", 8 },
+            { "blast", 7 },
             { "ring", 8 },
             { "geyser", 5 },
             { "drill", 6 },

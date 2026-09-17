@@ -1731,7 +1731,7 @@ public partial class WorldView : Control
     /// <summary>The longest a blast is on screen, which the biggest thing in the arsenal gets.</summary>
     private const int BlastTicks = 22;
 
-    /// <summary>And the shortest, for a clod. Any less and the eight frames cannot all be seen.</summary>
+    /// <summary>And the shortest, for a clod. Any less and the strip's frames cannot all be seen.</summary>
     private const int ShortestBlastTicks = 11;
 
     /// <summary>
