@@ -725,8 +725,15 @@ public sealed class MoleMatchTests
         match.SubmitPlan(Plan.Idle(1, 0));
         match.ResolveRound();
 
-        Assert.That(walker.Stamina.ToDecimal(), Is.EqualTo(40m).Within(2m),
-            "a full round of surface walking costs sixty of the hundred");
+        // What a full round of open ground costs, off the settings rather than written down again,
+        // so retuning the walk retunes this with it.
+        decimal charged = MatchSettings.WalkSpeed.ToDecimal() * MatchSettings.RoundSeconds
+            * MaterialTable.CostPerMetre(Material.Turf).ToDecimal();
+
+        Assert.That(
+            walker.Stamina.ToDecimal(),
+            Is.EqualTo(MatchSettings.StartingStamina - charged).Within(2m),
+            "a full round of surface walking costs the whole walk at turf's price");
 
         match.SubmitPlan(Plan.Idle(0, 1));
         match.SubmitPlan(Plan.Idle(1, 1));

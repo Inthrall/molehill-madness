@@ -63,7 +63,18 @@ namespace MoleSim.Match
         /// One speed, everywhere, in every material. Dirt is not slower, it is dearer,
         /// and that single rule is what the stamina economy exists to express.
         /// </summary>
-        public static Fix64 WalkSpeed => Fix64.FromInt(5);
+        /// <remarks>
+        /// Four rather than five, which is a deliberate step toward the weight a turn has in the
+        /// games this one is answering. Five is eighteen kilometres an hour and read as a scurry.
+        ///
+        /// It costs reach, and that is the thing to watch rather than the speed itself. A turn on
+        /// open ground is bounded by the round and not by the legs: eight seconds at five covered
+        /// forty metres of a sixty metre map, where a hundred stamina at one and a half a metre
+        /// would have allowed sixty-seven. At four it is thirty-two. Digging is bounded the other
+        /// way round, by what it costs, so a slower walk does not make a tunnel dearer, only longer
+        /// to cut, which spends round rather than puff.
+        /// </remarks>
+        public static Fix64 WalkSpeed => Fix64.FromInt(4);
 
         /// <summary>
         /// How high a lip the mole steps over rather than digging through. Without this a
@@ -88,11 +99,15 @@ namespace MoleSim.Match
         /// <remarks>
         /// A jump used to be a ballistic arc nobody could influence once it started, which made the
         /// hop a commitment rather than a move: you could not clear a gap you had misjudged by a
-        /// foot, and you could not aim a jump at anything. Twelve gets a mole to walking pace
-        /// sideways in about half a second of air, so a hop can be steered without a jump turning
-        /// into flight.
+        /// foot, and you could not aim a jump at anything.
+        ///
+        /// Seven, against a walk of four, gets a mole to walking pace sideways in a little over half
+        /// a second of air. Twelve did it in four tenths, which let a hop be re-aimed most of the
+        /// way through and made the arc feel like a suggestion. The game this one is answering has
+        /// no air control at all, so the direction of travel is toward less of it: enough to save a
+        /// gap misjudged by a foot, not enough to turn a jump into flight.
         /// </remarks>
-        public static Fix64 AirControl => Fix64.FromInt(12);
+        public static Fix64 AirControl => Fix64.FromInt(7);
 
         /// <summary>
         /// How much of the escape direction has to point upward for a contact to count as a floor.

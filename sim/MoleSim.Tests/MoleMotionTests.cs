@@ -55,24 +55,29 @@ public sealed class MoleMotionTests
     }
 
     [Test]
-    public void AFullSurfaceRunCoversFortyMetresForSixtyStamina()
+    public void AFullSurfaceRunCoversTheRoundsWalkAndIsChargedTurfForIt()
     {
-        // The design's headline number, checked end to end through the real solver:
-        // eight seconds at five metres a second is forty metres, and turf costs 1.5 a
-        // metre, so a full run home spends sixty of the hundred.
+        // The design's headline numbers, checked end to end through the real solver. Worked out
+        // from the settings rather than written down again: a round of open ground is the walk
+        // speed times the round, and turf is charged by the metre of it. At four a second over
+        // eight seconds that is thirty-two metres for forty-eight of the hundred, and the point of
+        // deriving it is that retuning the walk retunes the test with it instead of breaking it.
         TerrainGrid grid = FlatGround();
         Mole mole = StandingOnSurface(grid, 100);
         Fix64 startX = mole.Position.X;
 
         RunRound(mole, grid, new[] { new Vec2(startX + Fix64.FromInt(200), mole.Position.Y) });
 
+        decimal reach = MatchSettings.WalkSpeed.ToDecimal() * MatchSettings.RoundSeconds;
+        decimal charged = reach * MaterialTable.CostPerMetre(Material.Turf).ToDecimal();
+
         Fix64 travelled = mole.Position.X - startX;
         Fix64 spent = Fix64.FromInt(MatchSettings.StartingStamina) - mole.Stamina;
 
         Assert.Multiple(() =>
         {
-            Assert.That(travelled.ToDecimal(), Is.EqualTo(40m).Within(0.5m), "distance covered");
-            Assert.That(spent.ToDecimal(), Is.EqualTo(60m).Within(1m), "stamina spent");
+            Assert.That(travelled.ToDecimal(), Is.EqualTo(reach).Within(0.5m), "distance covered");
+            Assert.That(spent.ToDecimal(), Is.EqualTo(charged).Within(1m), "stamina spent");
             Assert.That(mole.IsAirborne, Is.False, "should still be walking, not falling");
         });
     }
@@ -410,10 +415,29 @@ public sealed class MoleMotionTests
         Fix64 rose = startY - mole.Position.Y;
         int cells = Fix64.ToInt(rose * Fix64.FromInt(WorldScale.CellsPerMetre));
 
+        // Kept going until it stops, rather than asked whether it had stopped at the whistle. A
+        // mole climbing its own shaft is airborne the whole way up by design, and whether it has
+        // run out of puff by tick two hundred and forty is a fact about the walking speed, not
+        // about digging: at five it did, at four it is still going. The question this test is
+        // asking is whether it ends up standing in its shaft or back at the bottom of it.
+        int settling = 0;
+
+        while (mole.IsAirborne && settling < MatchSettings.MaxSettleTicks)
+        {
+            mole.WaypointIndex = 0;
+            MoleMotion.Step(mole, grid, new[] { new Vec2(mole.Position.X, mole.Position.Y - Fix64.FromInt(2)) });
+            settling++;
+        }
+
+        Fix64 rested = startY - mole.Position.Y;
+
         Assert.Multiple(() =>
         {
             Assert.That(cells, Is.GreaterThan(40), "a round of holding up should get somewhere");
-            Assert.That(mole.IsAirborne, Is.False, "it should be in its shaft, not falling down it");
+            Assert.That(mole.IsAirborne, Is.False, "it never came to rest at all");
+            Assert.That(
+                Fix64.ToInt(rested * Fix64.FromInt(WorldScale.CellsPerMetre)), Is.GreaterThan(40),
+                "it should be in its shaft, not back at the bottom of it");
         });
     }
 
