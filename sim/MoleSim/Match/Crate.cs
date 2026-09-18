@@ -18,7 +18,7 @@ namespace MoleSim.Match
         Dynamite = 3,
     }
 
-    /// <summary>The contents of one crate, decided when it is telegraphed.</summary>
+    /// <summary>The contents of one crate, decided when it is dropped in.</summary>
     public readonly struct CrateContents
     {
         internal CrateContents(CrateKind kind, WeaponId weapon, int amount)
@@ -61,10 +61,6 @@ namespace MoleSim.Match
         public Vec2 Position { get; }
 
         public CrateContents Contents { get; }
-
-        /// <summary>False until it has actually come down, part way through the round.</summary>
-        public bool HasLanded { get; set; }
-
         /// <summary>Set once somebody has had it, or once it has been torn apart.</summary>
         public bool Gone { get; set; }
 

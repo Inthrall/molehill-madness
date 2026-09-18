@@ -414,11 +414,15 @@ public sealed class SteeredWalkTests
 
         clawed.Claw();
 
-        Push(plain, Vec2.UnitY, 40);
-        Push(clawed, Vec2.UnitY, 40);
+        // Deep enough to be into packed soil, which is where the claws are worth anything. They cap
+        // a metre at the price of loose soil rather than waiving it, so a shallow dig through turf
+        // and loose soil is already under the cap and costs the same either way.
+        Push(plain, Vec2.UnitY, 120);
+        Push(clawed, Vec2.UnitY, 120);
 
         Assert.That(
-            clawed.StaminaSpent, Is.LessThan(plain.StaminaSpent / Fix64.FromInt(2)),
+            clawed.StaminaSpent,
+            Is.LessThan(plain.StaminaSpent * Fix64.Ratio(4, 5)),
             "the claws changed nothing the player could see");
     }
 

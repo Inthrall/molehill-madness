@@ -26,8 +26,14 @@ namespace MoleSim.Match
         /// <remarks>
         /// The arming and expiry rules are the balance and they live here: a trap sits as a
         /// suspicious mound for a round before it can catch anybody, so opponents get to decide
-        /// whether to respect it or test it; a snare is live at once and gone after this round, so it
-        /// costs its victim exactly one turn; a vent is live at once and stays for good.
+        /// whether to respect it or test it; a snare arms on the same delay and is gone at the end
+        /// of the round it arms in, so it costs its victim exactly one turn; a vent is live at once
+        /// and stays for good.
+        ///
+        /// The snare used to be live the moment it was laid, which made it a weapon that could only
+        /// ever catch the mole that laid it: it is planted underfoot, so its owner was standing in
+        /// it before anybody else could possibly arrive. A round's delay is what every other thing
+        /// laid on the ground gets, and it is what gives the layer time to walk away.
         /// </remarks>
         public static Placement? Make(WeaponId weapon, int ownerSeat, Vec2 at, int round, int tick)
         {
@@ -39,7 +45,9 @@ namespace MoleSim.Match
                         round + MatchSettings.TrapArmDelay, int.MaxValue);
 
                 case WeaponId.RootSnare:
-                    return new Placement(weapon, ownerSeat, at, round, tick, round, round);
+                    return new Placement(
+                        weapon, ownerSeat, at, round, tick,
+                        round + MatchSettings.TrapArmDelay, round + MatchSettings.TrapArmDelay);
 
                 case WeaponId.GeyserCap:
                     return new Placement(weapon, ownerSeat, at, round, tick, round, int.MaxValue);

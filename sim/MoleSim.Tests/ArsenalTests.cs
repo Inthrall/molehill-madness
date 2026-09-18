@@ -33,6 +33,47 @@ public sealed class ArsenalTests
     private static Plan Wield(int seat, int index, WeaponId weapon, Vec2 aim, byte power = 255, int tick = 3) =>
         new Plan(seat, index, weapon, Array.Empty<RoutePoint>(), new[] { PlanAction.Fire(tick, aim, power) });
 
+    /// <summary>
+    /// A planted charge sits inside the mole that planted it, so if arriving at a mole set a
+    /// projectile off, a fuse could never burn at all: it went off on the tick it was laid, with
+    /// its owner standing on it. Every fused weapon in the arsenal says it does not go off on
+    /// contact, and only the ground was asking.
+    /// </summary>
+    [Test]
+    public void APlantedChargeBurnsItsFuseRatherThanGoingOffUnderfoot()
+    {
+        MoleMatch match = NewMatch();
+
+        match.SubmitPlan(new Plan(
+            0, 0, WeaponId.ClodLobber, Array.Empty<RoutePoint>(),
+            new[] { PlanAction.Fire(0, Vec2.UnitX, 0, WeaponId.BoomBeets) }));
+        match.SubmitPlan(Plan.Idle(1, 0));
+
+        RoundResult result = match.ResolveRound(record: true);
+        RoundRecording recording = result.Recording!;
+
+        int wentOff = -1;
+
+        for (int tick = 0; tick < recording.Ticks; tick++)
+        {
+            if (recording.DetonationsUpTo(tick) > 0)
+            {
+                wentOff = tick;
+                break;
+            }
+        }
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Blasts, Has.Count.EqualTo(1), "it should go off exactly once");
+            Assert.That(wentOff, Is.GreaterThan(0), "it went off on the tick it was planted");
+            Assert.That(
+                wentOff,
+                Is.EqualTo(WeaponTable.Of(WeaponId.BoomBeets).FuseTicks).Within(2),
+                "it should go off when its fuse runs out and not before");
+        });
+    }
+
     // ---- Every weapon is wired up ---------------------------------------------------
 
     [Test]
@@ -475,21 +516,29 @@ public sealed class ArsenalTests
     {
         MoleMatch match = NewMatch();
         Mole snarer = MoleOf(match, 0, 0);
-        Mole victim = MoleOf(match, 1, 0);
 
-        victim.Position = snarer.Position + new Vec2(Fix64.One, Fix64.Zero);
-
-        // Placed and live at once, so it bites this round.
+        // Laid in the first round and armed for the second, the same delay a snap trap gets, so the
+        // run that walks into it is the one after. Which means the mole that walks into it is the
+        // one whose turn the second round is: a platoon rotates, and a plan naming a mole that has
+        // already had a go is refused.
         match.SubmitPlan(Wield(0, 0, WeaponId.RootSnare, Vec2.UnitY, 1));
+        match.SubmitPlan(Plan.Idle(1, 0));
+        match.ResolveRound();
+
+        Mole victim = MoleOf(match, 1, 1);
+        victim.Position = snarer.Position + new Vec2(Fix64.One, Fix64.Zero);
+        Vec2 startedAt = victim.Position;
+
+        match.SubmitPlan(Plan.Idle(0, 1));
         match.SubmitPlan(new Plan(
-            1, 0, WeaponId.None,
+            1, 1, WeaponId.None,
             new[] { new RoutePoint(WorldScale.ToCell(victim.Position.X) + 700, SurfaceCell - 7) },
             Array.Empty<PlanAction>()));
 
         match.ResolveRound();
 
         // Half speed for a whole round is roughly twenty metres rather than forty.
-        Fix64 travelled = victim.Position.X - (snarer.Position.X + Fix64.One);
+        Fix64 travelled = victim.Position.X - startedAt.X;
 
         Assert.That(travelled, Is.LessThan(Fix64.FromInt(30)),
             "a snared mole should not manage a full run");
@@ -593,7 +642,7 @@ public sealed class ArsenalTests
     }
 
     [Test]
-    public void ARootSnareIsGoneAfterTheRoundItWasPlaced()
+    public void ARootSnareIsGoneAfterTheRoundItArmsIn()
     {
         MoleMatch match = NewMatch();
 
@@ -601,8 +650,17 @@ public sealed class ArsenalTests
         match.SubmitPlan(Plan.Idle(1, 0));
         match.ResolveRound();
 
+        // The round it arms in. Still about, because this is the one round it gets to catch
+        // anybody, which is the whole of what a snare is worth.
         match.SubmitPlan(Plan.Idle(0, 1));
         match.SubmitPlan(Plan.Idle(1, 1));
+        match.ResolveRound();
+
+        Assert.That(match.Placements.Any(p => p.Weapon == WeaponId.RootSnare), Is.True,
+            "it should still be live for the round it arms in");
+
+        match.SubmitPlan(Plan.Idle(0, 2));
+        match.SubmitPlan(Plan.Idle(1, 2));
         match.ResolveRound();
 
         Assert.That(match.Placements.Any(p => p.Weapon == WeaponId.RootSnare), Is.False,

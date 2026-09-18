@@ -57,18 +57,26 @@ public sealed class CratesAndPacingTests
         });
     }
 
+    /// <summary>
+    /// Crates come down between rounds rather than during one, so by the time anybody plans they
+    /// are boxes on the ground and not promises of boxes.
+    /// </summary>
     [Test]
-    public void TheNextCratesAreAnnouncedInTheAftermath()
+    public void TheArrivalsComeDownInTheAftermath()
     {
         MoleMatch match = NewMatch(playerCount: 4);
         RoundResult result = IdleRound(match);
 
         Assert.Multiple(() =>
         {
-            Assert.That(result.NextCrates, Has.Count.EqualTo(2));
+            Assert.That(result.Arrivals, Has.Count.EqualTo(2));
             Assert.That(match.Crates, Has.Count.EqualTo(2));
-            Assert.That(match.Crates.All(crate => !crate.HasLanded), Is.True,
-                "telegraphed, not landed");
+
+            // The aftermath's list and the match's crates are the same arrivals, which is what lets
+            // the client animate them coming in without being told twice.
+            Assert.That(
+                match.Crates.Select(crate => crate.Position),
+                Is.EquivalentTo(result.Arrivals.Select(drop => drop.Position)));
         });
     }
 
@@ -79,7 +87,7 @@ public sealed class CratesAndPacingTests
         MoleMatch match = NewMatch(playerCount: 4);
         RoundResult result = IdleRound(match);
 
-        Vec2 crate = result.NextCrates[0].Position;
+        Vec2 crate = result.Arrivals[0].Position;
 
         Fix64 nearest = Fix64.MaxValue;
         Fix64 furthest = Fix64.Zero;
@@ -109,7 +117,7 @@ public sealed class CratesAndPacingTests
 
         Fix64 mapWidth = WorldScale.ToMetres(WidthCells);
 
-        foreach (CrateTelegraph telegraph in result.NextCrates)
+        foreach (CrateDrop telegraph in result.Arrivals)
         {
             Assert.That(telegraph.Position.X, Is.GreaterThan(mapWidth / Fix64.FromInt(5)));
             Assert.That(telegraph.Position.X, Is.LessThan(mapWidth - (mapWidth / Fix64.FromInt(5))));
@@ -122,7 +130,7 @@ public sealed class CratesAndPacingTests
         MoleMatch match = NewMatch(playerCount: 4);
         RoundResult result = IdleRound(match);
 
-        Fix64 gap = Vec2.Distance(result.NextCrates[0].Position, result.NextCrates[1].Position);
+        Fix64 gap = Vec2.Distance(result.Arrivals[0].Position, result.Arrivals[1].Position);
 
         Assert.That(gap, Is.GreaterThan(Fix64.FromInt(15)));
     }
@@ -147,7 +155,7 @@ public sealed class CratesAndPacingTests
     {
         MoleMatch match = NewMatch();
         RoundResult telegraphed = IdleRound(match);
-        Vec2 where = telegraphed.NextCrates[0].Position;
+        Vec2 where = telegraphed.Arrivals[0].Position;
         int cellX = WorldScale.ToCell(where.X);
 
         int floorBefore = FloorUnder(match.Terrain, cellX, WorldScale.ToCell(where.Y));
@@ -203,7 +211,7 @@ public sealed class CratesAndPacingTests
         MoleMatch match = NewMatch();
         RoundResult result = IdleRound(match);
 
-        Vec2 crate = result.NextCrates[0].Position;
+        Vec2 crate = result.Arrivals[0].Position;
         int cellX = WorldScale.ToCell(crate.X);
         int floor = WorldScale.ToCell(crate.Y);
 
@@ -234,7 +242,7 @@ public sealed class CratesAndPacingTests
     {
         MoleMatch match = NewMatch();
         RoundResult telegraphed = IdleRound(match);
-        Vec2 where = telegraphed.NextCrates[0].Position;
+        Vec2 where = telegraphed.Arrivals[0].Position;
 
         // Put a mole right on the spot and let the round run.
         Mole taker = MoleOf(match, 0, 1);
@@ -255,7 +263,7 @@ public sealed class CratesAndPacingTests
     {
         MoleMatch match = NewMatch();
         RoundResult telegraphed = IdleRound(match);
-        Vec2 where = telegraphed.NextCrates[0].Position;
+        Vec2 where = telegraphed.Arrivals[0].Position;
 
         MoleOf(match, 0, 1).Position = where;
         MoleOf(match, 1, 1).Position = where;
@@ -274,7 +282,7 @@ public sealed class CratesAndPacingTests
     {
         MoleMatch match = NewMatch(playerCount: 3);
         RoundResult telegraphed = IdleRound(match);
-        Vec2 where = telegraphed.NextCrates[0].Position;
+        Vec2 where = telegraphed.Arrivals[0].Position;
 
         for (int seat = 0; seat < 3; seat++)
         {
@@ -313,7 +321,7 @@ public sealed class CratesAndPacingTests
 
         // Force the contents rather than fishing for a grub from the generator.
         RoundResult telegraphed = IdleRound(match);
-        taker.Position = telegraphed.NextCrates[0].Position;
+        taker.Position = telegraphed.Arrivals[0].Position;
 
         IdleRound(match, moleIndex: 1);
 
@@ -326,7 +334,7 @@ public sealed class CratesAndPacingTests
     {
         MoleMatch match = NewMatch();
         RoundResult telegraphed = IdleRound(match);
-        MoleOf(match, 0, 1).Position = telegraphed.NextCrates[0].Position;
+        MoleOf(match, 0, 1).Position = telegraphed.Arrivals[0].Position;
 
         IdleRound(match, moleIndex: 1);
 

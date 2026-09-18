@@ -455,7 +455,7 @@ namespace MoleSim.Match
                 FinishDrills(drilling, result);
                 AdvanceShots(result);
                 CheckPlacements(result);
-                LandAndClaimCrates(tick, result);
+                ClaimCrates(tick, result);
                 CheckLava(result);
 
                 result.Recording?.Capture(
@@ -631,7 +631,6 @@ namespace MoleSim.Match
                     hash = Fold(hash, (ulong)crate.Position.Y.Raw);
                     hash = Fold(hash, (ulong)(int)crate.Contents.Weapon);
                     hash = Fold(hash, (ulong)crate.Contents.Amount);
-                    hash = Fold(hash, crate.HasLanded ? 1UL : 0UL);
                     hash = Fold(hash, crate.Gone ? 1UL : 0UL);
                 }
 
@@ -1173,46 +1172,28 @@ namespace MoleSim.Match
         }
 
         /// <summary>
-        /// Drops the telegraphed crates in mid-round, and hands them out.
+        /// Works out who reaches a crate this tick.
         /// </summary>
         /// <remarks>
-        /// They arrive halfway through the round rather than at the start, so the scramble
-        /// happens with everybody already committed to a plan drawn before they knew who
-        /// else was going for it.
+        /// A crate is already down by the time a round runs. They arrive between rounds, dropped in
+        /// front of everybody before anyone plans, so a round has nothing to do but hand them out.
+        /// They used to be announced a round ahead and land halfway through the next one, which put
+        /// a parachute on the ground through a whole planning phase and read as a crate already
+        /// sitting there rather than one on its way.
+        ///
+        /// Nothing is carved when one arrives, and nothing needs to be: the spot is a ledge with
+        /// sixteen cells of headroom over it, so a crate comes down into open air. An earlier
+        /// version punched a hole on the way in, which was right while a crate buried itself a
+        /// metre down and actively wrong once it rested on a ledge, because the hole was wider than
+        /// the floor under it and the crate blew away its own perch.
         /// </remarks>
-        private void LandAndClaimCrates(int tick, RoundResult result)
+        private void ClaimCrates(int tick, RoundResult result)
         {
             foreach (Crate crate in _crates)
             {
                 if (crate.Gone)
                 {
                     continue;
-                }
-
-                if (!crate.HasLanded)
-                {
-                    if (tick < CrateLandingTick)
-                    {
-                        continue;
-                    }
-
-                    // Nothing is carved. A crate used to punch a small hole on the way in, so
-                    // the last stretch had to be dug rather than strolled up to, and that was
-                    // right while a crate buried itself a metre down. It is actively wrong now
-                    // that one rests on a ledge: the hole is fourteen cells in the radius, centred
-                    // on the crate, whose floor is only six cells under it, so a landing crate
-                    // removed eight cells of the ground it was sitting on and fourteen either
-                    // side. It blew away its own ledge, dropped whoever was waiting there out of
-                    // reach, and left the crate hanging over a fresh crater.
-                    //
-                    // There is nothing left for a carve to do. The landing spot is already a ledge
-                    // with sixteen cells of headroom over it, so the crate arrives in open air.
-                    crate.HasLanded = true;
-
-                    // A landing that changes no cell and hurts nobody is invisible to everything the
-                    // recording stores, so it has to say so or the replay can be cut off before the
-                    // box arrives.
-                    result.Recording?.Stirred(tick);
                 }
 
                 if (Claim(crate, result))
@@ -1296,8 +1277,6 @@ namespace MoleSim.Match
         }
 
         /// <summary>Halfway through the round, at four seconds.</summary>
-        private const int CrateLandingTick = MatchSettings.TicksPerRound / 2;
-
         /// <summary>
         /// Splits a cluster charge into its pieces as it goes off, thrown outward and
         /// upward so they scatter rather than landing on the same spot.
@@ -1473,7 +1452,7 @@ namespace MoleSim.Match
             NudgeIfNobodyWillFight(result);
             RaiseLava();
             RollWind();
-            TelegraphNextCrates(result);
+            DropInCrates(result);
             DecideWinner(result);
         }
 
@@ -1515,17 +1494,27 @@ namespace MoleSim.Match
         private const int QuietRoundsTolerated = 3;
 
         /// <summary>
-        /// Announces where the next crates will come down, so the fight over them is
-        /// something everybody scheduled in advance rather than a surprise.
+        /// Brings the next round's crates down, between one round and the next.
         /// </summary>
-        private void TelegraphNextCrates(RoundResult result)
+        /// <remarks>
+        /// They arrive before anybody plans, so the fight over them is something every player
+        /// schedules against a box they can already see. Announcing them a round ahead and landing
+        /// them halfway through the next was the earlier answer, and it cost more than it bought: a
+        /// parachute sat on the ground for a whole planning phase, which reads as a crate already
+        /// there rather than one still coming, and the scramble it was meant to create happened
+        /// against a promise instead of a thing.
+        ///
+        /// Where one lands is the spawner's business, and it picks caves as readily as open ground,
+        /// so a crate can arrive underground with rock over it. The client is what says so.
+        /// </remarks>
+        private void DropInCrates(RoundResult result)
         {
             _crates.Clear();
 
-            foreach (Crate crate in CrateSpawner.Telegraph(Terrain, _moles, PlayerCount, _rng))
+            foreach (Crate crate in CrateSpawner.Pick(Terrain, _moles, PlayerCount, _rng))
             {
                 _crates.Add(crate);
-                result.NextCrates.Add(new CrateTelegraph(crate.Position));
+                result.Arrivals.Add(new CrateDrop(crate.Position));
             }
         }
 

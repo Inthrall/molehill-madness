@@ -20,8 +20,16 @@ namespace MoleSim.Match
         /// <summary>Simulation rate. The renderer interpolates to whatever the display wants.</summary>
         public const int TicksPerSecond = 30;
 
-        /// <summary>Length of the resolution beat.</summary>
-        public const int RoundSeconds = 8;
+        /// <summary>
+        /// Length of the resolution beat.
+        /// </summary>
+        /// <remarks>
+        /// Ten rather than eight, and it is the walk that decides it. A turn on open ground is
+        /// bounded by the round and not by the legs, so slowing the walk from five to four took a
+        /// quarter off how much map a mole could cross in a turn, which is a change to what a turn
+        /// can do rather than to how it feels. Eight at five and ten at four are both forty metres.
+        /// </remarks>
+        public const int RoundSeconds = 10;
 
         /// <summary>240 ticks, and the same number regardless of how many are playing.</summary>
         public const int TicksPerRound = TicksPerSecond * RoundSeconds;
@@ -90,6 +98,17 @@ namespace MoleSim.Match
         /// Lived privately in <see cref="MoleMatch"/> while resolution was the only thing that
         /// jumped. The planning preview jumps too now, and two copies of a number that has to agree
         /// is how a preview starts lying about what a plan will do.
+        ///
+        /// A hop pushes straight up and carries whatever the mole was already doing sideways, so
+        /// how far a jump goes is the walking speed held for as long as it is off the ground. Nine
+        /// buys a second of air, which at a walk of four is four metres of ground and an arc two and
+        /// a quarter metres tall.
+        ///
+        /// It was briefly raised to make jumps reach further, which was treating a symptom: the
+        /// walk was not leaving any momentum to carry, so every jump went straight up whatever the
+        /// mole had been doing and the only thing moving it sideways was the air control. Fixing
+        /// that in <see cref="MoleMotion"/> gave the distance back, and this could go back to the
+        /// height it was.
         /// </remarks>
         public static Fix64 HopSpeed => Fix64.FromInt(9);
 

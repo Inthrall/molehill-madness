@@ -749,6 +749,23 @@ public sealed class SeatPlanner
     /// outright when it is submitted, which from the player's side is the turn silently failing at
     /// the moment they can no longer do anything about it. The button greys out instead.
     /// </remarks>
+    /// <summary>
+    /// Which way a use actually points, as resolution will read it.
+    /// </summary>
+    /// <remarks>
+    /// A mole off the ground aims relative to its own tumble, and the round rotates the plan's aim
+    /// by the mole's facing to get there. The preview has to do the same or it shows a beam along a
+    /// line the round will not lay one on. Anything going through Fire already asked; the girder and
+    /// the torpedo were handed the raw aim and drew themselves somewhere else whenever the mole was
+    /// in the air.
+    /// </remarks>
+    private Vec2 AimingAlong(PlanAction use)
+    {
+        Vec2 aim = use.AimDirection();
+
+        return Walk?.IsFalling == true ? aim.RotatedBy(Walk.Facing) : aim;
+    }
+
     private void Book(PlanAction use)
     {
         UseSlot slot = WeaponTable.SlotOf(use.Weapon);
@@ -804,7 +821,7 @@ public sealed class SeatPlanner
         switch (use.Weapon)
         {
             case WeaponId.TunnelTorpedo:
-                Walk?.Drill(use.AimDirection(), use.Power);
+                Walk?.Drill(AimingAlong(use), use.Power);
                 break;
 
             case WeaponId.PowerClaws:
@@ -816,7 +833,7 @@ public sealed class SeatPlanner
                 break;
 
             case WeaponId.Girder:
-                Walk?.LayGirder(use.AimDirection());
+                Walk?.LayGirder(AimingAlong(use));
                 break;
 
             case WeaponId.GeyserCap:
@@ -835,7 +852,16 @@ public sealed class SeatPlanner
         }
     }
 
-    /// <summary>Which way the shot points, or nothing when there is no shot to point.</summary>
+    /// <summary>
+    /// Which way the aim being held points, or nothing when nothing is being aimed.
+    /// </summary>
+    /// <remarks>
+    /// Only while it is held. A booked shot used to keep the arrow up as a record of itself, and
+    /// the trouble was that this is the attack's arrow and the movement ability borrows the same
+    /// one: aiming an ability replaced it, and letting go put it back, so an arrow appeared out of
+    /// nowhere pointing at something else. What is booked is said by the fire button going dim and
+    /// the commit button coming forward, which does not have to share a drawing with anything.
+    /// </remarks>
     public Vec2 AimHeading
     {
         get
@@ -848,22 +874,22 @@ public sealed class SeatPlanner
                 return Vec2.Zero;
             }
 
-            if (Aiming)
+            if (!Aiming)
             {
-                Vec2 aim = AimAt - PlannedPosition;
-
-                return aim.LengthSquared() == Fix64.Zero ? Vec2.Zero : aim.Normalised();
+                return Vec2.Zero;
             }
 
-            return Shot?.AimDirection() ?? Vec2.Zero;
+            Vec2 aim = AimAt - PlannedPosition;
+
+            return aim.LengthSquared() == Fix64.Zero ? Vec2.Zero : aim.Normalised();
         }
     }
 
-    /// <summary>How charged the shot is, from nothing to full.</summary>
+    /// <summary>How charged the shot being aimed is, from nothing to full.</summary>
     public double AimCharge =>
-        Style != AimStyle.DirectionAndPower
+        Style != AimStyle.DirectionAndPower || !Aiming
             ? 0
-            : (Aiming ? PowerFor(AimHeld) : Shot?.Power ?? 0) / (double)byte.MaxValue;
+            : PowerFor(AimHeld) / (double)byte.MaxValue;
 
     /// <summary>
     /// Plants the charge where the mole is standing, or picks it back up.

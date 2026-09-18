@@ -1271,41 +1271,63 @@ public partial class WorldView : Control
             }
 
             Vector2 at = ToPixels(crate.Position);
+            float arriving = _stage.Delivering;
 
-            if (!crate.HasLanded)
+            // Between deliveries, which is every frame of planning and every frame of a replay. A
+            // crate the simulation knows about is a box on the ground, and that is all it is.
+            if (arriving < 0f)
             {
-                // Where it is going to land, marked on the ground rather than on the crate,
-                // because the ground is where the scramble happens.
-                Blit(Art.Object("marker"), pitch, at, centred: true);
-
-                if (!OpenSky(crate.Position))
-                {
-                    // No sky over it, so no parachute. A ghost of the box instead, because the ring
-                    // on its own was a dashed ellipse drawn on some dirt and read as a rendering
-                    // fault rather than as a delivery: "what is this circle" was the actual report.
-                    // Half-lit, so it is plainly the promise of a crate and not one already there.
-                    Blit(Art.Object("closed"), pitch, at, centred: true, showing: 0.45f);
-                    continue;
-                }
-
-                // Hung from the chute rather than centred in the picture, so the box is at the
-                // position the simulation says and the canopy is the part above it.
-                Texture2D chute = Art.Object(ChuteArt());
-                float canopy = chute.GetWidth() * ChuteBoxWidth / CrateMetres;
-                float wide = chute.GetWidth() / canopy * _scale;
-                float tall = chute.GetHeight() / canopy * _scale;
-
-                DrawTextureRect(
-                    chute,
-                    new Rect2(at.X - (wide / 2f), at.Y - (tall * ChuteBoxMiddle), wide, tall),
-                    false);
-
+                Blit(Art.Object("closed"), pitch, at, centred: true);
                 continue;
             }
 
-            Blit(Art.Object("closed"), pitch, at, centred: true);
+            // Where it is coming down, marked on the ground rather than on the crate, because the
+            // ground is where the scramble happens.
+            Blit(Art.Object("marker"), pitch, at, centred: true);
+
+            // Rock overhead, so there is nowhere to fall from and no parachute to do it under. It
+            // arrives by appearing, which is the honest picture of a crate that was always going to
+            // be down here.
+            if (!OpenSky(crate.Position))
+            {
+                Blit(Art.Object("closed"), pitch, at, centred: true, showing: arriving);
+                continue;
+            }
+
+            // Eased so it settles into the ground rather than stopping dead on the last frame.
+            float fallen = 1f - ((1f - arriving) * (1f - arriving));
+            Vector2 falling = (at - new Vector2(0f, DropFrom * _scale)).Lerp(at, fallen);
+
+            // The chute hands over to the box rather than cutting to it, because the alternative is
+            // one frame of a landed crate wearing a parachute, which is the exact picture this beat
+            // exists to stop showing.
+            float landed = Mathf.Clamp((arriving - (1f - HandOver)) / HandOver, 0f, 1f);
+
+            if (landed > 0f)
+            {
+                Blit(Art.Object("closed"), pitch, at, centred: true, showing: landed);
+            }
+
+            // Hung from the chute rather than centred in the picture, so the box is at the position
+            // the simulation says and the canopy is the part above it.
+            Texture2D chute = Art.Object(ChuteArt());
+            float canopy = chute.GetWidth() * ChuteBoxWidth / CrateMetres;
+            float wide = chute.GetWidth() / canopy * _scale;
+            float tall = chute.GetHeight() / canopy * _scale;
+
+            DrawTextureRect(
+                chute,
+                new Rect2(falling.X - (wide / 2f), falling.Y - (tall * ChuteBoxMiddle), wide, tall),
+                false,
+                new Color(1f, 1f, 1f, 1f - landed));
         }
     }
+
+    /// <summary>How far above its resting place a crate starts its drop, in metres.</summary>
+    private const float DropFrom = 14f;
+
+    /// <summary>What share of the drop the chute spends giving way to the box on the ground.</summary>
+    private const float HandOver = 0.25f;
 
     /// <summary>How wide a crate is in the world, which is about the girth of a mole.</summary>
     private const float CrateMetres = 0.8f;
@@ -2329,7 +2351,7 @@ public partial class WorldView : Control
         // unanswerable until it had been laid. It is the same drawing the booked one gets, at the
         // same length and the same angle, which is the point: what the arrow is pointing at is a
         // beam, so draw the beam.
-        if (planner.Aiming && planner.Aimed == WeaponId.Girder)
+        if (planner.Aimed == WeaponId.Girder)
         {
             DrawPlannedGirder(planner.PlannedPosition, heading);
         }
@@ -2337,8 +2359,7 @@ public partial class WorldView : Control
         ChargeArrow(
             ToPixels(planner.PlannedPosition),
             new Vector2((float)heading.X.ToDecimal(), (float)heading.Y.ToDecimal()),
-            (float)planner.AimCharge,
-            planner.Aiming);
+            (float)planner.AimCharge);
     }
 
     /// <summary>
@@ -2356,9 +2377,9 @@ public partial class WorldView : Control
     /// the movement preview does, but an artillery game whose shots are pre-plotted is a different
     /// game. Direction and charge are what the player chose; where it ends up is the round's answer.
     /// </remarks>
-    private void ChargeArrow(Vector2 from, Vector2 direction, float charge, bool aiming)
+    private void ChargeArrow(Vector2 from, Vector2 direction, float charge)
     {
-        Color ink = aiming ? Palette.Aiming : Palette.Damage;
+        Color ink = Palette.Aiming;
         Strip arrow = Art.ChargeArrow;
         Vector2 frame = arrow.FrameSize;
 
@@ -2369,19 +2390,9 @@ public partial class WorldView : Control
         // so the arrow is the shape the artist drew at whatever length the camera asks for.
         float tall = length * frame.Y / frame.X;
 
-        // A held aim and a booked one are different things and have to look it. They are the same
-        // drawing at the same length in the same place, so tint was carrying the whole difference,
-        // and Aiming and Damage are both red-orange with the same red in them, against soil and
-        // fire. Letting go read as an arrow that had failed to clear rather than as the shot being
-        // booked. So the live one keeps the ring and full strength and the record gets neither.
-        float strength = aiming ? 1f : BookedStrength;
-
         // The muzzle ring, so an arrow in the middle of a scrum plainly belongs to a mole. Drawn
         // before the transform below, since it is in world pixels and the arrow is drawn in its own.
-        if (aiming)
-        {
-            DrawArc(from, radius, 0, Mathf.Tau, 20, ink, radius * 0.16f);
-        }
+        DrawArc(from, radius, 0, Mathf.Tau, 20, ink, radius * 0.16f);
 
         // Laid out along positive x from the origin and then turned, which is how a canvas item is
         // asked to draw a texture at an angle: there is no rotated overload of the rect draws.
@@ -2396,7 +2407,7 @@ public partial class WorldView : Control
         // The empty track first, then however much of it is charged. The track is what makes the
         // fill legible: without it there is nothing for the fill to be a fraction of.
         arrow.Draw(this, new Rect2(0f, -tall / 2f, length, tall), Art.Arrow.Track, false,
-            new Color(ink, TrackAlpha * strength));
+            new Color(ink, TrackAlpha));
 
         if (charge > 0f)
         {
@@ -2408,7 +2419,7 @@ public partial class WorldView : Control
                 arrow.Art,
                 new Rect2(0f, -tall / 2f, length * charge, tall),
                 new Rect2(frame.X * Art.Arrow.Fill, 0f, frame.X * charge, frame.Y),
-                aiming ? Colors.White : new Color(Palette.Damage, strength));
+                Colors.White);
         }
 
         // Back to the transform the rest of the pane is drawn under, which is the camera offset
@@ -2425,16 +2436,6 @@ public partial class WorldView : Control
     /// rather than a track, which leaves the fill a fraction of nothing.
     /// </remarks>
     private const float TrackAlpha = 0.4f;
-
-    /// <summary>
-    /// How solid a booked aim is against a held one.
-    /// </summary>
-    /// <remarks>
-    /// Faded rather than removed. What was booked is the only record of the shot until the round
-    /// runs, and it is what the one reset token is spent against, so a player who cannot see it
-    /// cannot decide whether to spend. It only has to stop reading as live.
-    /// </remarks>
-    private const float BookedStrength = 0.5f;
 
     /// <summary>
     /// How long the aim arrow is, in metres, whatever the charge. Long enough that a tenth of it

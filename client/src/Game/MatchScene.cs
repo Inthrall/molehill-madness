@@ -40,6 +40,17 @@ public partial class MatchScene : Node2D
         Planning,
         Resolving,
         Aftermath,
+
+        /// <summary>
+        /// The crates coming down, between the tallies and the next round's planning.
+        /// </summary>
+        /// <remarks>
+        /// A beat of its own because an arrival is something to watch rather than something to read
+        /// about. They used to be announced a round early and land halfway through the next, which
+        /// meant the one moment worth seeing happened while everybody was busy watching a replay.
+        /// </remarks>
+        Delivering,
+
         Finished,
 
         /// <summary>Online only: waiting for the relay to say which world this is.</summary>
@@ -986,6 +997,10 @@ public partial class MatchScene : Node2D
                 RunAftermath(delta);
                 break;
 
+            case Beat.Delivering:
+                RunDelivery(delta);
+                break;
+
             case Beat.Finished:
                 // The scoreboard leaves on its own after a while, and a menu open over it should
                 // not be spending that while.
@@ -1426,7 +1441,7 @@ public partial class MatchScene : Node2D
     }
 
     /// <summary>
-    /// The beat between rounds: damage read, crates telegraphed, then on with the next one.
+    /// The beat between rounds: damage read, then the crates come down, then on with the next one.
     /// </summary>
     /// <remarks>
     /// This is the beat that hung the game, and it hung it by doing nothing at all. Aftermath fell
@@ -1455,9 +1470,58 @@ public partial class MatchScene : Node2D
 
         if (_afterFor >= AftermathSeconds)
         {
-            BeginRound();
+            BeginDelivery();
         }
     }
+
+    /// <summary>
+    /// Brings the round's crates down where everybody can watch them arrive.
+    /// </summary>
+    /// <remarks>
+    /// The simulation has already put them where they rest, at the end of the round just watched.
+    /// This is only the part that shows them getting there, and it runs before planning so that a
+    /// player lays a route against a box they have seen land rather than against a marker promising
+    /// one. A round with no arrivals skips it rather than holding everybody up for a second of
+    /// nothing.
+    /// </remarks>
+    private void BeginDelivery()
+    {
+        if (_match.Crates.Count == 0)
+        {
+            BeginRound();
+            return;
+        }
+
+        _beat = Beat.Delivering;
+        _deliveringFor = 0;
+        _stage.Delivering = 0f;
+    }
+
+    private void RunDelivery(double delta)
+    {
+        DriveIfAsked(delta);
+
+        if (_pause?.Showing == true)
+        {
+            return;
+        }
+
+        _deliveringFor += delta;
+        _stage.Delivering = (float)Mathf.Min(_deliveringFor / DeliverySeconds, 1d);
+
+        if (_deliveringFor < DeliverySeconds)
+        {
+            return;
+        }
+
+        _stage.Delivering = -1f;
+        BeginRound();
+    }
+
+    /// <summary>How long a crate takes to come down, which is the whole of this beat.</summary>
+    private const double DeliverySeconds = 1;
+
+    private double _deliveringFor;
 
     /// <summary>How long the tallies stay up before the next round starts on its own.</summary>
     private const double AftermathSeconds = 4;
@@ -3077,13 +3141,28 @@ public partial class MatchScene : Node2D
 
                 break;
 
+            // A pair of keys per wheel, which is what the mouse wheel and the pad have always had.
+            // One pair walking the whole arsenal and arming whichever wheel it landed on meant the
+            // same two keys stepped through the attacks and then through the movements, and the
+            // strip drew them bracketing both, so nothing on the screen said which half a press was
+            // about to turn. Two keys that each do one thing beat one key that does two.
             case Key.Q:
-                planner?.CycleWeapon(-1);
+                planner?.CycleWeapon(UseSlot.Attack, -1);
                 Click();
                 break;
 
             case Key.E:
-                planner?.CycleWeapon(1);
+                planner?.CycleWeapon(UseSlot.Attack, 1);
+                Click();
+                break;
+
+            case Key.Z:
+                planner?.CycleWeapon(UseSlot.Movement, -1);
+                Click();
+                break;
+
+            case Key.X:
+                planner?.CycleWeapon(UseSlot.Movement, 1);
                 Click();
                 break;
 

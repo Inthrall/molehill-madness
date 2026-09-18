@@ -498,7 +498,13 @@ public partial class KeyGuide : Control
 
         // Attack shows three of thirteen and movement shows all three of three, so the movement
         // group is the narrower one and sits second, nearer the middle of the screen.
-        float wide = mark + cap + (step * 3f) + gap + (step * 3f) + cap + (glyph * 0.5f);
+        //
+        // Four caps on a keyboard, because each wheel carries its own pair, and two on a pad, whose
+        // single cycle binding is drawn against the attacks alone. Measured rather than assumed:
+        // the plate is what separates one control from the next, and a plate cut to the wrong
+        // number of caps puts the last one over the edge of it.
+        float caps = side.Pad ? 2f : 4f;
+        float wide = mark + (cap * caps) + (step * 3f) + gap + (step * 3f) + (glyph * 0.5f);
         float middle = pane.End.Y - (glyph * 1.35f);
         float at = pane.Position.X + (glyph * 0.55f);
 
@@ -527,15 +533,50 @@ public partial class KeyGuide : Control
 
         at += mark;
 
-        Cap(at + (cap / 2f), middle, side.Pad ? Pad.WheelBack : "Q", glyph);
-        at += cap;
+        // A pair of caps around each wheel rather than one pair around both. Bracketing the pair
+        // said that one key walked from the end of the attacks into the movements, which is what
+        // the keyboard used to do and what made a press impossible to predict. A pad still has one
+        // cycle binding and turns whichever wheel it is on, so it keeps the single pair.
+        at = CappedWheel(
+            at, middle, glyph, step, cap, seat, side,
+            Arsenal.Attacks, planner.Weapon, Pad.WheelBack, "Q", Pad.WheelOn, "E");
 
-        at = Wheel(at, middle, glyph, step, seat, Arsenal.Attacks, planner.Weapon);
         at += gap;
-        at = Wheel(
-            at, middle, glyph, step, seat, Arsenal.Movements, planner.Selected(UseSlot.Movement));
 
-        Cap(at + (cap / 2f), middle, side.Pad ? Pad.WheelOn : "E", glyph);
+        CappedWheel(
+            at, middle, glyph, step, cap, seat, side,
+            Arsenal.Movements, planner.Selected(UseSlot.Movement), null, "Z", null, "X");
+    }
+
+    /// <summary>
+    /// One wheel with the keys that turn it on either side.
+    /// </summary>
+    /// <remarks>
+    /// A pad label of null leaves the cap off for a pad, which is what the movement wheel wants: a
+    /// pad has one cycle binding for the pair and it is already drawn against the attacks.
+    /// </remarks>
+    private float CappedWheel(
+        float at, float middle, float glyph, float step, float cap, Color seat, Side side,
+        WeaponId[] wheel, WeaponId loaded, string? padBack, string back, string? padOn, string on)
+    {
+        string? before = side.Pad ? padBack : back;
+        string? after = side.Pad ? padOn : on;
+
+        if (before is not null)
+        {
+            Cap(at + (cap / 2f), middle, before, glyph);
+            at += cap;
+        }
+
+        at = Wheel(at, middle, glyph, step, seat, wheel, loaded);
+
+        if (after is not null)
+        {
+            Cap(at + (cap / 2f), middle, after, glyph);
+            at += cap;
+        }
+
+        return at;
     }
 
     /// <summary>Three notches of one wheel, with the armed one in the middle.</summary>

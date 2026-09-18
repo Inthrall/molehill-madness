@@ -47,9 +47,9 @@ namespace MoleSim.Match
         public Fix64 Radius { get; }
     }
 
-    public readonly struct CrateTelegraph
+    public readonly struct CrateDrop
     {
-        public CrateTelegraph(Vec2 position)
+        public CrateDrop(Vec2 position)
         {
             Position = position;
         }
@@ -91,7 +91,7 @@ namespace MoleSim.Match
             Hits = new List<BlastHit>();
             Knockouts = new List<Knockout>();
             CrateClaims = new List<CrateClaim>();
-            NextCrates = new List<CrateTelegraph>();
+            Arrivals = new List<CrateDrop>();
             Blasts = new List<Detonation>();
             WinningSeat = -1;
         }
@@ -112,7 +112,7 @@ namespace MoleSim.Match
         /// Where the next crates will come down. Announced in the aftermath so the fight
         /// over them is something everybody scheduled in advance.
         /// </summary>
-        public List<CrateTelegraph> NextCrates { get; }
+        public List<CrateDrop> Arrivals { get; }
 
         /// <summary>Every blast this round, where it was and how far it reached.</summary>
         public List<Detonation> Blasts { get; }

@@ -109,6 +109,16 @@ public sealed class Stage
     /// <summary>Which tick of the replay is on screen.</summary>
     public int Tick { get; set; }
 
+    /// <summary>
+    /// How far through the crates coming down, from nothing to one, or -1 between deliveries.
+    /// </summary>
+    /// <remarks>
+    /// Crates arrive between rounds rather than during one, so there is no tick to hang the arrival
+    /// off and the drawing needs its own clock. A share rather than seconds, so the view does not
+    /// have to know how long a delivery lasts to draw one part-way through.
+    /// </remarks>
+    public float Delivering { get; set; } = -1f;
+
     /// <summary>The same moment as a time, for drawing between ticks.</summary>
     public Fix64 Seconds { get; set; }
 

@@ -66,10 +66,27 @@ namespace MoleSim.Match
                 mole.Position = snapped;
             }
 
-            if (route is not null && mole.AcceptsInput)
+            if (route is null || !mole.AcceptsInput)
             {
-                StepAlongRoute(mole, terrain, route);
+                // Standing still is worth no momentum, so a mole that stops carries nothing into
+                // its next hop or off its next ledge.
+                mole.Velocity = Vec2.Zero;
+                return;
             }
+
+            Vec2 before = mole.Position;
+            StepAlongRoute(mole, terrain, route);
+
+            // What the walk is worth as momentum. Walking moves the body a step at a time and used
+            // to leave velocity alone, which meant a walking mole had none: a hop added its lift to
+            // nothing and went straight up however fast the mole had been going, walking off a ledge
+            // dropped like a stone rather than carrying on, and a replay drew a standing mole
+            // sliding along because the pose is chosen from the velocity it was recorded with.
+            //
+            // Measured off the ground actually covered rather than taken from the walking speed, so
+            // a mole that was blocked, snared, or out of puff halfway through the tick carries only
+            // what it managed.
+            mole.Velocity = (mole.Position - before) / MatchSettings.TickDuration;
         }
 
         // ---- Route following ----------------------------------------------------------
@@ -186,6 +203,40 @@ namespace MoleSim.Match
         private const int StalledTicksBeforeGivingUp = 5;
 
         /// <summary>
+        /// What a metre of something costs this mole, which the Power Claws cap rather than waive.
+        /// </summary>
+        /// <remarks>
+        /// The claws charged open-ground prices for everything, which made a turn of digging as
+        /// cheap as a turn of walking and so bounded by the clock instead of by the mole: a hundred
+        /// stamina at a metre and a half buys sixty-seven metres of tunnel, further than the round
+        /// has time to walk, so a clawed turn crossed the map through solid ground and had puff to
+        /// spare.
+        ///
+        /// Capped at loose soil instead. Packed soil and root mat come down to four from seven and
+        /// twelve, which is still most of the discount, and a hundred stamina buys twenty-five
+        /// metres of it: a long tunnel, and short of the forty a turn can walk, so the claws are
+        /// worth carrying and still cost something to use. Turf and open ground are already under
+        /// the cap and are left alone, because a discount that charged more for grass than no
+        /// discount at all would be a strange thing to hand somebody.
+        /// </remarks>
+        private static Fix64 CostFor(Mole mole, Material material)
+        {
+            Fix64 full = MaterialTable.CostPerMetre(material);
+
+            if (!mole.DiggingIsCheap)
+            {
+                return full;
+            }
+
+            Fix64 capped = MaterialTable.CostPerMetre(ClawedDigCap);
+
+            return full < capped ? full : capped;
+        }
+
+        /// <summary>The dearest a metre can be while the claws are out.</summary>
+        private const Material ClawedDigCap = Material.LooseSoil;
+
+        /// <summary>
         /// Moves one substep along a direction, dealing with whatever is in the way and
         /// charging for it. Returns false when the mole could not move at all.
         /// </summary>
@@ -201,10 +252,7 @@ namespace MoleSim.Match
             Material ahead = TerrainQuery.MaterialAt(
                 terrain, target + (direction * MatchSettings.Radius));
 
-            // Power Claws turn the mole into earthmoving equipment for a turn: dirt at
-            // open-ground prices.
-            Material charged = mole.DiggingIsCheap ? Material.Air : ahead;
-            Fix64 cost = MaterialTable.CostPerMetre(charged) * stride;
+            Fix64 cost = CostFor(mole, ahead) * stride;
 
             if (cost > mole.Stamina)
             {
@@ -595,10 +643,9 @@ namespace MoleSim.Match
             // meant a hop into a roof bought one body length of tunnel however hard it was going.
             // Now the rise is spent going through, which is what a mole with a run-up should get,
             // and it is charged by the substep exactly as walking through dirt is.
-            Material charged = mole.DiggingIsCheap ? Material.Air : ahead;
             Fix64 paidFor = rising ? stride : MatchSettings.Radius;
 
-            mole.Stamina -= MaterialTable.CostPerMetre(charged) * paidFor;
+            mole.Stamina -= CostFor(mole, ahead) * paidFor;
 
             if (mole.Stamina < Fix64.Zero)
             {

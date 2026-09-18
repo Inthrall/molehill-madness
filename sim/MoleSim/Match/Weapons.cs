@@ -34,7 +34,7 @@ namespace MoleSim.Match
         /// <summary>Drill-dash through dirt, and bowl over whatever is where you surface.</summary>
         TunnelTorpedo = 8,
 
-        /// <summary>This turn, dirt costs what open ground costs.</summary>
+        /// <summary>This turn, nothing costs more to dig than loose soil.</summary>
         PowerClaws = 9,
 
         /// <summary>A blob of fresh terrain. Bridges, plugs, walls.</summary>

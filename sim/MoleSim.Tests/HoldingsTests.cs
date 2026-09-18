@@ -222,10 +222,13 @@ public sealed class HoldingsTests
         attacker.Position = shooter.Position + new Vec2(Fix64.Ratio(1, 2), Fix64.Zero);
         int before = match.Stock(0, WeaponId.BeetleLauncher);
 
-        // The attacker fires first, point blank, well before the victim's own firing tick.
+        // The attacker fires first, point blank, well before the victim's own firing tick. With a
+        // Beetle Launcher, because it is one of the two things in the arsenal that goes off on
+        // arrival: everything with a fuse cooks instead, so at this range a clod would sail past
+        // the victim and go off three seconds later somewhere else entirely.
         match.SubmitPlan(Wield(0, 0, WeaponId.BeetleLauncher, tick: 120));
         match.SubmitPlan(new Plan(
-            1, 0, WeaponId.ClodLobber, Array.Empty<RoutePoint>(),
+            1, 0, WeaponId.BeetleLauncher, Array.Empty<RoutePoint>(),
             new[] { PlanAction.Fire(2, new Vec2(-Fix64.One, Fix64.Zero), 255) }));
 
         RoundResult result = match.ResolveRound();

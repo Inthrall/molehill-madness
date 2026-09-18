@@ -30,9 +30,9 @@ namespace MoleSim.Match
         public static int CountFor(int playerCount) => playerCount >= 3 ? 2 : 1;
 
         /// <summary>
-        /// Picks landing spots for the coming round, and rolls what is in them.
+        /// Picks resting spots for the coming round, and rolls what is in them.
         /// </summary>
-        public static List<Crate> Telegraph(
+        public static List<Crate> Pick(
             TerrainGrid terrain, IReadOnlyList<Mole> moles, int playerCount, MatchRng rng)
         {
             List<Crate> crates = new List<Crate>();

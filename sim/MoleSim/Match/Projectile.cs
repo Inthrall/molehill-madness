@@ -124,7 +124,12 @@ namespace MoleSim.Match
             {
                 Vec2 target = shot.Position + (direction * stride);
 
-                if (HitsAMole(target, moles, shot))
+                // Arriving at somebody only sets off the things that go off on arrival. Ground
+                // contact has always asked this and mole contact did not, so anything with a fuse
+                // went off the instant it touched a mole: a planted charge sits inside the mole
+                // that planted it, so it detonated on the tick it was laid and no fuse in the game
+                // ever burned down. It is what keeps a clod cooking over somebody's head too.
+                if (spec.DetonatesOnContact && HitsAMole(target, moles))
                 {
                     shot.Position = target;
                     shot.HasDetonated = true;
@@ -162,11 +167,14 @@ namespace MoleSim.Match
         }
 
         /// <summary>
-        /// Whether the projectile has arrived at somebody. The mole that fired it is
-        /// excluded only for the tick it is launched, so a shot cannot detonate inside its
-        /// owner's own body on the way out, but can absolutely come back and find them.
+        /// Whether the projectile has arrived at somebody.
         /// </summary>
-        private static bool HitsAMole(Vec2 position, Mole[] moles, Projectile shot)
+        /// <remarks>
+        /// Nobody is excluded, the owner included. A shot does not detonate inside the mole that
+        /// fired it because it is launched from a muzzle already clear of the body, which is where
+        /// that is handled; one that arcs back round and finds them again is a fair hit.
+        /// </remarks>
+        private static bool HitsAMole(Vec2 position, Mole[] moles)
         {
             Fix64 reach = MatchSettings.Radius + Projectile.Radius;
             Fix64 reachSquared = reach * reach;
